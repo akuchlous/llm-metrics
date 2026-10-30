@@ -2,7 +2,7 @@
 
 This is a concise chronological record of the ChatGPT discussions that shaped `llm-metrics` and the broader `llmxchange` direction. It is not a verbatim transcript. Keep it current as meaningful project decisions are made.
 
-_Last updated: 2026-10-30_
+_Last updated: 2026-10-30 05:59 IST_
 
 ## 2026-10-25 — Provider/API landscape
 
@@ -73,11 +73,11 @@ Additional requirements were established:
 - Simulated/test data must be clearly labeled as simulated.
 - Every micro-step should leave a working, usable repository; never intentionally break previously working behavior.
 
-Proposed incremental direction at this point:
+Incremental direction:
 
 - Step 001: dummy provider + TTFT — complete.
-- Step 002: one-command Chromebook/Linux local run (`./run.sh`).
-- Step 003: local metric persistence, likely SQLite.
+- Step 002: one-command Chromebook/Linux local run (`./run.sh`) — complete.
+- Step 003: local metric persistence with SQLite — next.
 - Step 004: deterministic historical dummy TTFT observations for graphs.
 - Step 005: first lightweight browser dashboard for TTFT.
 - Later: percentiles/time ranges, total latency, throughput, availability/errors, price, then first real provider/model.
@@ -91,11 +91,30 @@ Proposed incremental direction at this point:
 - `DECISIONS.md` records durable engineering decisions.
 - This file records the higher-level ChatGPT discussion and product/project decisions in concise chronological form.
 
+## 2026-10-30 05:56 IST — Step 002 completed and reviewed
+
+- Claude committed Step 002 as commit `dd6d19b`: one-command local run with `./run.sh`.
+- `run.sh` creates or reuses `.venv`, runs the full test suite, stops on test failure, then runs the TTFT measurement; `APP_ENV` defaults to `test`.
+- Claude added tests for the run script and updated README, `PROJECT_STATUS.md`, and `DECISIONS.md`.
+- Review decision: Step 002 stayed within scope and did not jump ahead into persistence, dashboard, or real providers.
+- Next decision: Step 003 should add only SQLite persistence for individual TTFT observations while preserving `./run.sh` as the one-command developer experience.
+
+## 2026-10-30 05:59 IST — Step 003 prompt created
+
+- Added `prompts/003-sqlite-storage.md`.
+- Step 003 uses Python standard-library `sqlite3`; no ORM, external database, migrations framework, dashboard, or real provider.
+- Each successful TTFT observation will be persisted with timestamp, provider, model, metric, value, and preferably environment so simulated test data can later be distinguished from production data.
+- Database initialization must be automatic and idempotent so a fresh clone plus `./run.sh` remains sufficient.
+- Tests must use temporary databases and must not pollute the developer's local metrics database.
+- Planned Step 004 remains deterministic historical simulated TTFT data to provide enough observations for meaningful graphs.
+
 ## Current state
 
-As of 2026-10-30:
+As of 2026-10-30 05:59 IST:
 
-- Step 001 is implemented.
-- `prompts/001-initial-ttft.md` archives the original Step 001 instructions.
-- `prompts/002-local-run-script.md` contains the next Claude implementation task.
-- Next action: point Claude at `prompts/002-local-run-script.md`, have it implement only Step 002, then have ChatGPT review the resulting repository before creating Step 003.
+- Step 001 — complete.
+- Step 002 — complete and reviewed.
+- `prompts/001-initial-ttft.md` — historical Step 001 prompt.
+- `prompts/002-local-run-script.md` — historical Step 002 prompt.
+- `prompts/003-sqlite-storage.md` — current implementation prompt.
+- Next action: point Claude at `prompts/003-sqlite-storage.md`, have it implement only Step 003, then have ChatGPT review the repository before creating Step 004.
