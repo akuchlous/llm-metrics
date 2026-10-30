@@ -16,7 +16,7 @@ Build useful measurement data first, then quality, routing, and exchange mechani
 
 Pricing is part of Metrics data, but automated price discovery is deferred. For Metrics v1, keep verified provider/model prices in `pricing.py` and store the effective rates used on each request. Do not build price scraping, price-history services, or provider pricing API integrations yet; revisit those when Router/Exchange makes continuously current pricing operationally valuable.
 
-Future real benchmarking needs deliberate dimensions: provider/model, workload category/identity, input size, requested output size, actual output size, measurement origin (cloud/region/zone), and cache policy/observed cached-input usage. Performance claims are meaningful only for a defined population and methodology. Cached/warm and explicitly uncached/cold-ish measurements must not be silently mixed.
+Future real benchmarking needs deliberate dimensions: provider/model, workload category/identity, input size, requested output size, actual output size, and measurement origin (cloud/region/zone), and cache policy/observed cached-input usage. Performance claims are meaningful only for a defined population and methodology. Cached/warm and explicitly uncached/cold-ish measurements must not be silently mixed.
 
 **Publishing/visibility is part of the product direction.** Engineering milestones and later benchmark findings should become useful public material for llmxchange.com and channels such as LinkedIn. Prefer publishing reproducible measurements, methodology, charts, and costs over generic product promotion. The site should eventually make the cost of running the benchmark itself transparent.
 
@@ -62,8 +62,8 @@ OpenRouter is a useful product reference: its provider/analytics surfaces emphas
 - Step 011 — errors, normalized failure categories, persisted failed attempts, and observed benchmark success/failure rate: complete and reviewed.
 - Step 012 — first real provider/model (OpenAI `gpt-6-luna`), explicit low-cost real-call path, official-price verification, and publishable benchmark API spend grouped by provider/model: complete; live path validated in Step 012a.
 - Step 012a — live validation cleanup: sanitized diagnostics kept, OpenAI `x-request-id` stored per attempt (schema v4), pricing verified against official docs, `reasoning.effort: none` confirmed by the official model page: complete and reviewed; 169 tests reported passing.
-- Step 013 — Metrics v1 data completeness: add authoritative output tokens/sec, stable workload identity, measurement origin (cloud/region), and cache-aware request facts (`cache_policy` plus provider-authoritative cached input tokens where available). Price scraping/history explicitly deferred: all four parts implemented (schema v6), pending review.
-- Planned after Step 013: add a small number of additional real providers/models, then automation/deployment/public Metrics product rather than continuing foundation work indefinitely.
+- Step 013 — Metrics v1 data completeness: authoritative output tokens/sec, stable workload identity, measurement origin, and cache-aware request facts are implemented through schema v6. Review result: pass with known limitations; 192 tests reported passing and no paid call. OpenAI's current official prompt-caching documentation confirms explicit mode with no explicit breakpoints disables prompt caching for GPT-5.6+; live validation of this new request shape is still pending and should be done deliberately later.
+- Step 014 — production-web refactor, intentionally split into 014a/014b/... rather than a large rewrite. 014a introduces the Flask application/routing boundary while preserving behavior; 014b will move HTML into Jinja templates; later 014 substeps will separate view/controller preparation from analytics/storage and finish production-web structure before deployment.
 
 The aggregate dashboard should answer: **How is this provider/model performing, under what workload/origin/cache conditions, and is performance changing?** The individual-call view should answer: **What exactly happened on this benchmark request, how much work did it do, how long did it take, what did it cost, was cached input reused, and did it succeed?** Simulated data must always be clearly labeled.
 
@@ -83,6 +83,14 @@ Reliability has a separate population rule: all attempted benchmark calls belong
 
 Sample size must accompany reliability and percentile claims. Different sample sizes can still be compared statistically, but small populations carry greater uncertainty; raw percentages alone should not be used to claim one provider is more reliable. Confidence intervals/minimum-sample presentation can be added before public rankings require it.
 
+### Web/product architecture direction
+
+The dependency-free stdlib dashboard was appropriate for the measurement prototype, but `dashboard.py` is now large and mixes HTTP concerns with HTML generation and query/view orchestration. Productionization should separate concerns incrementally, not via a framework rewrite of the measurement core.
+
+Target dependency direction:
+
+`Flask routes/controllers -> application/analytics -> storage`, while benchmark/provider/measurement code remains independent of Flask. HTML moves to Jinja in a separate substep. SQLite remains until the deployment/database step earns PostgreSQL. Do not introduce Django/React/SQLAlchemy merely for architectural appearance.
+
 ## Step 012 live validation
 
 The real path is validated, but there are no benchmark conclusions: one successful sample (total latency 3880.7 ms, TTFT 3630.3 ms, 17 input / 14 output tokens, ~$0.000009) is validation only. Early failures led to sanitized diagnostics; a later debug run showed `insufficient_quota` / `credit_balance_exhausted`, teaching that account-billing errors are our problem, not provider unreliability. They are now rejected rather than counted as provider failures.
@@ -93,10 +101,20 @@ Traceability: every attempt keeps llm-metrics' own UUID as its identity; OpenAI'
 
 Operating budget: the project-wide constraint is **$10/day**, including LLM API spend and future hosting/infrastructure. Budget guardrails are designed and enforced when deployment/scheduling is introduced, not as a fake local cap.
 
-## Step 013 direction
+## Step 013 review
 
-Step 013 is intentionally the last small data-completeness step before broader provider coverage. Add `output_tokens_per_s` only when provider-authoritative output usage and defensible first-to-last output timing exist; keep chunks/s unchanged for backward compatibility. Add a stable `workload_id` and explicit benchmark-runner `origin_cloud` / `origin_region` as request facts.
+Step 013 review result: **pass; no corrective step required before the web refactor.** Parts 1–3 add effective output tokens/sec, required versioned workload identity, and explicit runner cloud/region. Part 4 adds requested cache policy plus provider-authoritative cached input tokens, preserving NULL versus reported zero and separating cache populations without inferring cache state from latency.
 
-Also make cache state explicit enough for trustworthy analytics: store a small requested `cache_policy` and provider-authoritative `cached_input_tokens` when available. Do not infer cached tokens from latency or repeated prompts, and do not label a request cold unless the provider/API evidence supports that statement. Keep `0` distinct from unknown/NULL. If the current OpenAI API/model has a documented cache-disable control, use it for the controlled benchmark; otherwise record provider-default/unknown honestly. Do not randomize prompts merely to defeat caches. Dedicated warm-vs-uncached experiments can come later.
+Schema v6 preserves historical truth: old workload/origin remain unknown, old cache policy is `unknown`, and cached tokens remain NULL. The request/observation transaction and reliability semantics remain intact. OpenAI uses explicit cache mode with no breakpoints; current official OpenAI documentation confirms that for GPT-5.6+ this does not use prompt caching or create cache writes. The smoke prompt itself is too small to be cache-eligible, and the new cache-control request shape has not yet been exercised by a paid live call.
 
-Do not create workload registries, arbitrary dimensions, geolocation, pricing collectors, cache frameworks, or other abstractions. After this, prefer real provider coverage and production data over more speculative foundation work.
+Known Step 013 limitations are acceptable: output tokens/sec is client-observed and biased high on tiny responses; workload versioning is a convention; origin is configured rather than independently verified; historical requests cannot be backfilled honestly; cached-input pricing is not modeled because controlled OpenAI benchmarks disable caching; aggregate reliability/spend views do not yet filter by cache policy.
+
+## Step 014 direction
+
+Step 014 is a sequence, not one rewrite:
+- **014a:** introduce Flask app factory and move HTTP routing/status/query access to Flask while preserving existing rendering and product behavior.
+- **014b:** move HTML/CSS generation out of Python into Jinja templates/static assets with no analytics behavior change.
+- **014c:** separate route/controller view preparation from analytics/query orchestration so web code does not become the new monolith.
+- **014d+:** finish a production-web boundary (API/view organization, production serving/config/test hardening as justified) before cloud deployment. Keep each substep small and reviewable.
+
+Do not combine the Flask refactor with PostgreSQL, provider expansion, scheduling, cloud deployment, authentication, or a frontend SPA.
