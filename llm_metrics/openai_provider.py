@@ -15,6 +15,8 @@ of outcomes.py by raising ProviderFailure (never with response bodies, prompts,
 or the API key in the message). Errors that mean our own request or
 configuration is wrong (authentication, permission, bad request, unknown model)
 are not provider failures: they raise RequestRejected and are not recorded.
+Account billing errors (insufficient_quota) are ours too, whether they arrive
+as an HTTP 429 or as an error event inside a 200 stream.
 
 Every failure carries `diagnostics`: sanitized identifiers only (which code
 path failed, HTTP status, the `x-request-id` header, and OpenAI's error
@@ -47,6 +49,8 @@ TIMEOUT_S = 60  # connect and per-read socket timeout
 REASONING_EFFORT = "none"
 _ERROR_BODY_LIMIT = 64 * 1024  # bytes read from an HTTP error body to find its code
 _SAFE_TOKEN = re.compile(r"[A-Za-z0-9_.:-]{1,100}")
+# Error codes/types meaning our account cannot pay, not that the provider failed.
+_ACCOUNT_ERRORS = frozenset({"insufficient_quota", "credit_balance_exhausted"})
 
 
 def _safe(value) -> str:
@@ -64,6 +68,11 @@ def _error_fields(error) -> dict:
     return {f"error_{k}": _safe(error[k]) for k in ("code", "type", "param") if k in error}
 
 
+def _is_account_error(error) -> bool:
+    return isinstance(error, dict) and any(
+        error.get(k) in _ACCOUNT_ERRORS for k in ("code", "type"))
+
+
 class RequestRejected(Exception):
     """OpenAI rejected the request itself (HTTP 400/401/403/404/...): our API key,
     permissions, model name, or parameters are wrong. Not a benchmark outcome."""
@@ -74,9 +83,10 @@ class RequestRejected(Exception):
         self.diagnostics = diagnostics or {}
 
 
-def _http_error_diagnostics(error: urllib.error.HTTPError) -> dict:
-    """Sanitized status, request id, and error code/type/param of an HTTP error.
-    The body is read (bounded) only to extract those fields and is discarded."""
+def _http_error_diagnostics(error: urllib.error.HTTPError) -> tuple[dict, bool]:
+    """Sanitized status, request id, and error code/type/param of an HTTP error,
+    and whether it is an account error. The body is read (bounded) only to
+    extract those and is discarded."""
     diagnostics = {"where": "http_status", "http_status": _safe(error.code)}
     request_id = error.headers.get("x-request-id") if error.headers else None
     if request_id is not None:
@@ -85,14 +95,16 @@ def _http_error_diagnostics(error: urllib.error.HTTPError) -> dict:
         body = json.loads(error.read(_ERROR_BODY_LIMIT) or b"{}")
     except (ValueError, OSError):
         body = None
-    if isinstance(body, dict):
-        diagnostics.update(_error_fields(body.get("error")))
-    return diagnostics
+    error_object = body.get("error") if isinstance(body, dict) else None
+    diagnostics.update(_error_fields(error_object))
+    return diagnostics, _is_account_error(error_object)
 
 
 def _failure_for_status(error: urllib.error.HTTPError) -> ProviderFailure | RequestRejected:
     status = error.code
-    diagnostics = _http_error_diagnostics(error)
+    diagnostics, account_error = _http_error_diagnostics(error)
+    if account_error:
+        return RequestRejected(status, diagnostics)
     if status == 429:
         return ProviderFailure("rate_limited", "HTTP 429", diagnostics)
     if status in (408, 504):
@@ -220,6 +232,10 @@ class OpenAIProvider(LLMProvider):
                         return
                     elif kind == "response.failed":
                         final = event.get("response") or {}
+                        if _is_account_error(final.get("error")):
+                            raise RequestRejected(200, {
+                                "where": "event:response.failed", **stream_info,
+                                **_error_fields(final.get("error"))})
                         raise failure("provider_error", "event:response.failed",
                                       response_status=_safe(final.get("status")),
                                       **_error_fields(final.get("error")))
@@ -229,6 +245,9 @@ class OpenAIProvider(LLMProvider):
                         nested = event.get("error")
                         details = nested if isinstance(nested, dict) else {
                             k: v for k, v in event.items() if k != "type"}
+                        if _is_account_error(details):
+                            raise RequestRejected(200, {"where": "event:error", **stream_info,
+                                                        **_error_fields(details)})
                         code = str(details.get("code") or "")
                         category = "rate_limited" if "rate_limit" in code else "provider_error"
                         raise failure(category, "event:error", **_error_fields(details))

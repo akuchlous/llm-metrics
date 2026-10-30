@@ -197,6 +197,39 @@ class FailureMappingTest(unittest.TestCase):
                 with self.assertRaises(RequestRejected):
                     measure_request(provider, "hi", 64)
 
+    def test_account_quota_errors_are_not_provider_failures(self):
+        quota_body = json.dumps({"error": {"code": "insufficient_quota",
+                                           "type": "insufficient_quota"}}).encode()
+        cases = {
+            "http_429": dict(error=urllib.error.HTTPError(API_URL, 429, "x", {}, io.BytesIO(quota_body))),
+            "nested_event": dict(response=FakeResponse(sse({"type": "error", "error": {
+                "code": "credit_balance_exhausted", "type": "insufficient_quota"}}))),
+            "flat_event": dict(response=FakeResponse(sse({"type": "error", "code": "insufficient_quota"}))),
+            "response_failed": dict(response=FakeResponse(sse({"type": "response.failed", "response": {
+                "status": "failed", "error": {"code": "insufficient_quota"}}}))),
+        }
+        for name, kwargs in cases.items():
+            with self.subTest(case=name):
+                provider, _ = provider_with(**kwargs)
+                with self.assertRaises(RequestRejected) as ctx:
+                    measure_request(provider, "hi", 64)
+                self.assertIn(ctx.exception.diagnostics["error_code"],
+                              ("insufficient_quota", "credit_balance_exhausted"))
+
+    def test_quota_rejection_is_not_recorded(self):
+        event = {"type": "error", "error": {"code": "credit_balance_exhausted", "type": "insufficient_quota"}}
+        provider, _ = provider_with(response=FakeResponse(sse(event)))
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "x.db"
+            with self.assertRaises(RequestRejected):
+                run_attempt(provider, "p", 64, "prod", db_path)
+            self.assertFalse(db_path.exists() and b"credit_balance_exhausted" in db_path.read_bytes())
+
+    def test_plain_rate_limit_429_is_still_rate_limited(self):
+        body = json.dumps({"error": {"code": "rate_limit_exceeded", "type": "requests"}}).encode()
+        error = urllib.error.HTTPError(API_URL, 429, "x", {}, io.BytesIO(body))
+        self.assertEqual(self.outcome(error=error), "rate_limited")
+
     def test_programming_errors_are_not_mislabelled(self):
         provider, _ = provider_with(error=KeyError("bug"))
         with self.assertRaises(KeyError):
