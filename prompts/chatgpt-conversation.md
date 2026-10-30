@@ -12,75 +12,58 @@ _Last updated: 2026-10-30_
 3. **LLM Router** — route using performance, quality, price, and constraints.
 4. **LLM Exchange** — later add bids/asks, capacity, deadlines, and async jobs.
 
-Do not start by rebuilding an OpenRouter-style gateway. Build useful measurement data first, then quality, routing, and exchange mechanics.
+Build useful measurement data first, then quality, routing, and exchange mechanics. LLM Metrics can itself become a useful public product by periodically publishing provider/model TTFT, completion latency, throughput, cost, errors/availability, and distributions.
 
-LLM Metrics can itself become a useful public product: run benchmarks periodically and publish provider/model TTFT, latency, throughput, cost, errors/availability, and distribution statistics.
-
-Future real benchmarking will need deliberate dimensions rather than ad-hoc schema columns: provider/model, workload category, input size, requested output size, and measurement origin (cloud/region/zone). A performance claim is meaningful only for a defined measurement population and methodology.
+Future real benchmarking needs deliberate dimensions: provider/model, workload category, input size, requested output size, and measurement origin (cloud/region/zone). Performance claims are meaningful only for a defined population and methodology.
 
 ## Development and learning workflow
 
 - GitHub is the source of truth.
-- Claude implements one small numbered step.
-- ChatGPT reviews the actual code and Claude's design material before the next step is created.
+- Claude implements one small numbered step; ChatGPT reviews actual code and design material before the next step.
 - Material issues get a corrective step before new functionality.
-- Code, docs, and prompts follow the engineering principles in `DECISIONS.md`.
-- Used prompts remain immutable history.
-- Each Claude step writes `prompts/NNN-output.md` with implementation results, tradeoffs, limitations/review questions, and concise Design Q&A.
-- The implementation drives the learning: after review, use one or two relevant Principal/Sr Manager design questions to understand the code and tradeoffs, then move on.
-- Whenever ChatGPT creates a new numbered prompt, update this file in the same workflow.
+- Used prompts are immutable history.
+- Each step writes `prompts/NNN-output.md` and follows `prompts/DESIGN_QUESTIONS.md` for role-specific learning material.
+- Implementation drives learning: after review, discuss one or two questions grounded in the completed step.
+- Whenever ChatGPT creates a numbered prompt, update this file in the same workflow.
 
 ## Implementation progression
 
-The local developer experience remains one command: `./run.sh`.
+`./run.sh` remains the one-command local developer contract.
 
-- Step 001 — dummy provider + TTFT measurement: complete.
-- Step 002 — one-command local run: complete.
-- Step 003 — SQLite persistence: complete and reviewed.
-- Step 004 — deterministic simulated TTFT history: complete and reviewed.
-- Step 005 — lightweight local TTFT dashboard: complete and reviewed.
-- Step 006 — nearest-rank p50/p95/p99 plus automatic test-mode seeding: complete and reviewed.
-- Step 007 — 24h/7d/30d time windows: prompt created; implementation/review pending.
-- Planned next: total response latency, throughput/tokens/sec, errors/availability, then first real provider/model.
+- Steps 001–006 — dummy TTFT, local run, SQLite persistence, deterministic history, dashboard, nearest-rank p50/p95/p99: complete and reviewed.
+- Step 007 — 24h/7d/30d time windows: complete and reviewed.
+- Step 008 — TTFT + total response latency from one streamed request, atomic persistence, dashboard metric selector: complete and reviewed.
+- Step 009 — output throughput: prompt created; implementation pending.
+- Planned next: errors/availability, then first real provider/model.
 
 The dashboard should answer: **How is this provider/model performing, and is performance changing?** Simulated data must always be clearly labeled.
 
-## Key design learning through Step 006
+## Key design learning
 
 ### Raw observations and derived statistics
 
-Keep raw measurements as the source of truth. Percentiles are derived views, not observations to store alongside raw TTFT. Materialize summaries later only when scale/performance justifies it.
-
-Nearest-rank p50/p95/p99 is currently appropriate because it is simple, deterministic, and always returns an observed latency. High percentiles require enough samples; with small populations p99 often becomes the maximum.
-
-Percentiles are generally not composable: a 24h p99 cannot be reconstructed by averaging hourly p99 values. At scale, retain raw data or mergeable distribution summaries such as histograms/sketches rather than only precomputed percentile numbers.
+Keep raw measurements as the source of truth. Percentiles are derived views. Materialize summaries only when scale/performance justifies it. Percentiles are generally not composable; at scale retain raw data or mergeable distribution summaries rather than only precomputed percentile values.
 
 ### Define the population before the statistic
 
-More samples do not automatically make a percentile more meaningful. Measurements should eventually form a coherent population such as provider/model + origin + workload + request sizes + time window. Mixing regions or workloads can produce a statistically valid calculation that is operationally misleading.
-
-The chart and displayed percentile summary must use the same observation population.
+The chart and summary statistics must use the same observation population. Eventually a coherent population includes provider/model + origin + workload + request sizes + time window. More samples do not make a mixed population meaningful.
 
 ### Measurement methodology
 
-"Fastest provider" is not a provider property in isolation. Observed latency depends on measurement origin, workload, request characteristics, network path, connection setup, time, and the exact timer boundaries.
+"Fastest provider" is not a provider property in isolation. Observed performance depends on origin, workload, request characteristics, network path, connection setup, time, and timer boundaries. Measurement methodology must match the workload being represented.
 
-Advanced metrics should eventually distinguish DNS/TCP/TLS/request/provider/first-token/streaming/last-token effects and document warm-vs-cold methodology. Do not add those dimensions before the experiments require them.
+## Step 007–008 review
 
-Benchmark scheduling must later consider coordinated omission: a sequential benchmark that waits for a slow request before sending the next request can under-sample slow periods and make tail latency look better than the user experience.
+Step 007 correctly pushed time filtering into parameterized SQLite queries rather than loading all observations into the dashboard. Windows use explicit inclusive UTC bounds relative to current time; invalid/repeated choices are rejected.
 
-## Step 004–006 implementation notes
+Step 008 review result: **pass; no corrective step required.** `measure_latency()` consumes one provider stream and records TTFT at the first stream item and total latency after full consumption, both from the same monotonic start. The provider is invoked once. TTFT and total latency are saved as separate metric rows in one transaction with a shared timestamp; the dashboard selects metric + time window and keeps all derived values on the same population.
 
-Step 004 added a fixed, reproducible simulated week (2026-10-23 through 2026-10-29 UTC), idempotent seeding, and a test-only safety boundary. The unique index used for seed idempotence is convenient now but should not be assumed to be the final production observation identity once repeated/concurrent measurements and workload/origin dimensions exist.
+Important Step 008 limitation: total latency depends strongly on output size. It cannot by itself fairly compare requests/providers that produce different amounts of output. Step 009 therefore adds throughput, but must be precise about what is counted: the current simulated provider exposes stream items, not a real provider tokenizer/usage count. Do not call simulated stream items production tokens unless the interface guarantees that meaning.
 
-Step 005 added a standard-library local dashboard bound only to `127.0.0.1`, server-rendered SVG, CSP, proportional time axis, empty state, and SQLite-backed observations. No framework or chart dependency was justified.
+The current same-timestamp pairing of metrics is sufficient for this small implementation but is not a final request identity model for concurrent production benchmarking.
 
-Step 006 added a pure `percentiles.py` calculation layer and made `./run.sh` perform test-only idempotent seeding before the live measurement. Review result: **pass; no corrective Step 006a required.** Current percentiles intentionally describe the same mixed seeded + live population shown by the chart; they are a consistency/demo feature, not real benchmark statistics.
+## Step 009 direction
 
-## Step 007 direction
+Step 009 extends the existing single-pass instrumentation to measure output throughput without a second provider request. The metric must have an explicit numerator and denominator, and dashboard units must no longer assume every metric is milliseconds.
 
-Step 007 adds selectable **24h / 7d / 30d** TTFT windows. Time filtering should happen at the storage/query boundary rather than loading all history and discarding rows in the dashboard. The selected chart and p50/p95/p99 must use exactly the same filtered observations.
-
-Window semantics are relative to real current UTC time, not the newest database observation. This preserves production metric semantics even though the fixed simulated seed will eventually age out of these windows; demo-data convenience must not distort the production data model or clock semantics.
-
-Do not add workload, region/origin, real-provider, aggregation/sketch, or advanced latency-decomposition schema in Step 007. Those remain later design work.
+This step is intentionally still simulated. Real-provider token accounting, workload/output controls, origin dimensions, and provider comparisons remain later work.
