@@ -97,7 +97,7 @@ class RunScriptTest(unittest.TestCase):
             self.assertRegex(out, r"TTFT: \d+\.\d ms")
             self.assertRegex(out, r"Total latency: \d+\.\d ms")
             self.assertRegex(out, r"Output throughput: \d+\.\d chunks/s")
-            self.assertIn("Saved 3 observations to data/llm_metrics.db", out)
+            self.assertRegex(out, r"Saved request [0-9a-f]{32} with 3 observations to data/llm_metrics.db")
             self.assertEqual(count_rows(), 171)
             self.assertRegex(out, r"Dashboard: http://127\.0\.0\.1:\d+/")
             self.assertIsNotNone(page, out + err)

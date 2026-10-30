@@ -3,7 +3,7 @@
 An open-source project to independently measure LLM provider performance
 (time to first token, throughput, latency, reliability, price).
 
-It is being built in small, tested steps. **Current step: 009.**
+It is being built in small, tested steps. **Current step: 010.**
 
 > **Simulated data only.** The current implementation uses a dummy provider that
 > sleeps for a fixed time and then emits fake tokens. Its numbers do **not**
@@ -11,13 +11,16 @@ It is being built in small, tested steps. **Current step: 009.**
 
 ## What it measures (so far)
 
-Three metrics from each streamed request, measured in a single pass (one
-provider call, stream fully consumed):
+Each benchmark run makes one streamed request (one provider call, stream fully
+consumed) and records it as a **request** with three metrics, token counts, and
+cost.
+
+Metrics (saved as separate observations linked to the request):
 
 | Metric | Name | Unit | Meaning |
 |---|---|---|---|
-| Time To First Token | `ttft` | ms | Request start → first item received. |
-| Total response latency | `total_latency` | ms | Request start → stream fully consumed. |
+| Total response latency | `total_latency` | ms | Request start → stream fully consumed. The primary latency. |
+| Time To First Token | `ttft` | ms | Request start → first text item received. Streaming diagnostic. |
 | Output throughput | `output_chunks_per_s` | chunks/s | Output rate after the first chunk: (chunks − 1) ÷ (last chunk time − first chunk time). |
 
 A **chunk** is one non-empty item yielded by the provider's stream. For the
@@ -26,8 +29,25 @@ tokenizer token counts. Throughput excludes the wait for the first chunk, so it
 measures generation speed independently of TTFT. It is not recorded when it is
 undefined (fewer than two non-empty chunks, or no time between them).
 
-Timings use `time.perf_counter()` (monotonic, high resolution). Each metric is
-saved as a separate observation.
+Timings use `time.perf_counter()` (monotonic, high resolution).
+
+Request facts:
+
+- **`input_tokens`** and **`output_tokens`**: as reported by the provider at the
+  end of the stream (never counted from chunks: a chunk may hold zero, one, or
+  several tokens).
+- **`requested_max_output_tokens`**: the output cap the benchmark asked for
+  (64). The model may stop earlier, so it is stored separately from
+  `output_tokens`.
+- **Cost** in USD: `input_cost = input_tokens × input price per 1M ÷ 1,000,000`,
+  `output_cost` likewise, `total_cost = input_cost + output_cost`. The prices used
+  are stored with each request, so old costs stay explainable if prices change.
+  All prices live in `llm_metrics/pricing.py`.
+
+> **Simulated tokens and prices.** The dummy provider counts tokens with a
+> simulated tokenizer (1 token per 4 characters, rounded up) and uses simulated
+> prices ($2.00 input / $8.00 output per 1M tokens). Neither matches any real
+> provider. The dummy's 5-chunk response is 7 tokens.
 
 ## Quick start (Chromebook Linux terminal or any Linux)
 
@@ -54,11 +74,13 @@ Database: data/llm_metrics.db
 
 Provider: dummy
 Model: dummy-model-v1
-Metric: TTFT
-TTFT: 100.3 ms
-Total latency: 181.2 ms
-Output throughput: 49.4 chunks/s
-Saved 3 observations to data/llm_metrics.db
+Total latency: 181.1 ms
+TTFT: 100.2 ms
+Output throughput: 49.5 chunks/s
+Input tokens: 3 (simulated)
+Output tokens: 7 of max 64 (simulated)
+Cost: $0.000062 (input $0.000006 + output $0.000056) (simulated)
+Saved request 611fc41fb1fb411391b0e71881682ef3 with 3 observations to data/llm_metrics.db
 
 Dashboard: http://127.0.0.1:8000/  (Ctrl+C to stop)
 ```
@@ -67,12 +89,18 @@ If any test fails, the test output is shown and nothing else runs.
 
 ## Dashboard
 
-Open the printed URL in a browser. The page shows the provider and model, a
-**TEST / SIMULATED DATA** label, links to choose a metric (**TTFT**, **Total
-latency**, or **Output throughput**; default TTFT) and a time window (**24h**, **7d**, **30d**; default
-**7d**), and for the selected metric and window: the observation count, the
-latest value, p50/p95/p99, and a line chart over time, all in that metric's
-unit (ms or chunks/s).
+Open the printed URL in a browser. There are two views, both labelled
+**TEST / SIMULATED DATA**:
+
+- **Aggregate** (`/`): links to choose a metric (**Total latency**, **TTFT**, or
+  **Output throughput**; default TTFT) and a time window (**24h**, **7d**,
+  **30d**; default **7d**), and for the selected metric and window: the
+  observation count, the latest value, p50/p95/p99, and a line chart over time,
+  all in that metric's unit (ms or chunks/s).
+- **Recent requests** (`/requests`): the 20 most recent individual requests,
+  newest first, with time, request id, total latency, TTFT, chunk throughput,
+  input/output/max tokens, and total/input/output cost. Requests recorded
+  before Step 010 have no request details and are not listed.
 
 Windows end at the current UTC time: `/?window=24h&metric=total_latency` shows
 total-latency observations with `now − 24h <= recorded_at <= now` (both ends
@@ -110,17 +138,25 @@ python -m llm_metrics.dashboard     # serve the dashboard only
 
 Every successful measurement is appended to a local SQLite database at
 `data/llm_metrics.db` (inside the repository folder, git-ignored). The database
-and its table are created automatically on first use; there is nothing to set up.
+and its tables are created automatically on first use; there is nothing to set up.
 
-Each row has: `id`, `recorded_at` (UTC, e.g. `2026-10-30T00:43:46.279219Z`),
-`environment` (`test` or `prod`), `provider`, `model`, `metric`, `value` (in the
-metric's unit).
+- **`requests`**: one row per measured request: `id` (llm-metrics' own UUID),
+  `recorded_at`, `environment`, `provider`, `model`, `input_tokens`,
+  `requested_max_output_tokens`, `output_tokens`, `input_price_per_1m`,
+  `output_price_per_1m`, `input_cost`, `output_cost`, `total_cost` (USD).
+- **`observations`**: one row per metric value: `id`, `recorded_at` (UTC, e.g.
+  `2026-10-30T00:43:46.279219Z`), `environment` (`test` or `prod`), `provider`,
+  `model`, `metric`, `value` (in the metric's unit), and `request_id` (the
+  request it belongs to; empty for rows recorded before Step 010 and for
+  simulated history).
+
 Rows with `environment = 'test'` come from the dummy provider and are simulated.
 
 To look at the data (uses only Python):
 
 ```bash
 python3 -c "import sqlite3; [print(r) for r in sqlite3.connect('data/llm_metrics.db').execute('SELECT * FROM observations')]"
+python3 -c "import sqlite3; [print(r) for r in sqlite3.connect('data/llm_metrics.db').execute('SELECT * FROM requests')]"
 ```
 
 ### Simulated history
@@ -137,8 +173,11 @@ This inserts 168 deterministic observations, one per hour from
 Running it again adds nothing. It refuses to run with `APP_ENV=prod`, and
 `./run.sh` never seeds in `prod`.
 
-Older databases are upgraded automatically in place (Step 009 renamed the
-`value_ms` column to `value`, schema version 1); existing rows are kept.
+Older databases are upgraded automatically in place, in one transaction, and
+existing rows are kept: Step 009 renamed the `value_ms` column to `value`
+(schema version 1); Step 010 added the `requests` table and
+`observations.request_id` (schema version 2). Older rows are not given invented
+token, cost, or request data.
 
 To start over, delete the `data/` folder.
 

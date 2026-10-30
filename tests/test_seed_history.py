@@ -10,7 +10,7 @@ from datetime import timedelta
 from pathlib import Path
 
 from llm_metrics.seed_history import HISTORY_START, simulated_ttft_history
-from llm_metrics.storage import format_timestamp, save_new_observations, save_observations
+from llm_metrics.storage import format_timestamp, save_new_observations, save_request
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
@@ -80,8 +80,14 @@ class SeedDatabaseTest(unittest.TestCase):
     def test_live_measurements_still_append(self):
         self.seed()
         live = {"provider": "dummy", "model": "dummy-model-v1", "metric": "ttft", "value": 100.2}
-        save_observations(self.db_path, [live], "test")
-        save_observations(self.db_path, [live], "test")
+        request = {
+            "provider": "dummy", "model": "dummy-model-v1", "input_tokens": 3,
+            "requested_max_output_tokens": 64, "output_tokens": 7,
+            "input_price_per_1m": 2.0, "output_price_per_1m": 8.0,
+            "input_cost": 6e-06, "output_cost": 5.6e-05, "total_cost": 6.2e-05,
+        }
+        save_request(self.db_path, request, [live], "test")
+        save_request(self.db_path, request, [live], "test")
         self.seed()
         self.assertEqual(len(read_rows(self.db_path)), 170)
 

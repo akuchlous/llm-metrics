@@ -4,6 +4,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+import time
 import unittest
 import urllib.error
 import urllib.request
@@ -18,11 +19,18 @@ from llm_metrics.dashboard import (
     make_server,
     parse_query,
     render_page,
+    render_requests_page,
     window_bounds,
 )
-from llm_metrics.storage import load_observations, save_new_observations
+from llm_metrics.storage import (
+    load_observations,
+    load_recent_requests,
+    save_new_observations,
+    save_request,
+)
 
-DUMMY = {"provider": "dummy", "model": "dummy-model-v1", "metric": "ttft"}
+DUMMY_IDENTITY = {"provider": "dummy", "model": "dummy-model-v1"}
+DUMMY = {**DUMMY_IDENTITY, "metric": "ttft"}
 # A fixed "current time" so no test depends on the machine clock.
 NOW = datetime(2026, 11, 30, 12, 0, tzinfo=timezone.utc)
 
@@ -255,6 +263,73 @@ class EmptyAndRenderTest(DashboardTestCase):
         self.assertEqual(chart_point_count(page), 1)
 
 
+REQUEST = {
+    **DUMMY_IDENTITY,
+    "input_tokens": 3,
+    "requested_max_output_tokens": 64,
+    "output_tokens": 7,
+    "input_price_per_1m": 2.0,
+    "output_price_per_1m": 8.0,
+    "input_cost": 6e-06,
+    "output_cost": 5.6e-05,
+    "total_cost": 6.2e-05,
+}
+
+
+def metric_results(**values):
+    return [{**DUMMY_IDENTITY, "metric": m, "value": v} for m, v in values.items()]
+
+
+class RequestsViewTest(DashboardTestCase):
+    def test_empty_state(self):
+        page = render_requests_page(load_recent_requests(self.db_path, "test", 20))
+        text = visible_text(page)
+        self.assertIn("TEST / SIMULATED DATA", text)
+        self.assertIn("No measured requests yet", text)
+        self.assertNotIn("<table", page)
+
+    def test_shows_request_facts_metrics_and_cost(self):
+        first = save_request(self.db_path, {**REQUEST, "output_tokens": 2},
+                             metric_results(total_latency=150.0, ttft=95.0), "test")
+        time.sleep(0.002)
+        second = save_request(self.db_path, REQUEST,
+                              metric_results(total_latency=181.4, ttft=100.3, output_chunks_per_s=49.4),
+                              "test")
+        page = render_requests_page(load_recent_requests(self.db_path, "test", 20))
+        text = visible_text(page)
+        self.assertIn("TEST / SIMULATED DATA", text)
+        self.assertIn("simulated tokenizer", text)
+        self.assertIn("simulated prices", text)
+        for header in ("Input tokens", "Max output tokens", "Output tokens", "Total latency (ms)",
+                       "TTFT (ms)", "Throughput (chunks/s)", "Input cost ($)", "Output cost ($)",
+                       "Total cost ($)"):
+            self.assertIn(header, text)
+        # Newest request first, identified by its id prefix.
+        self.assertLess(page.index(second[:8]), page.index(first[:8]))
+        newest_row = page[page.index(second[:8]):page.index(first[:8])]  # from its id cell on
+        cells = re.findall(r"<td[^>]*>(.*?)</td>", newest_row)
+        # total latency, TTFT, throughput, input/output/max tokens, total/input/output cost
+        self.assertEqual(cells[:9], ["181.4", "100.3", "49.4", "3", "7", "64",
+                                     "0.000062", "0.000006", "0.000056"])
+        # The older request had no throughput: shown as missing, not invented.
+        older_row = page[page.index(first[:8]):]
+        self.assertIn("<td>—</td>", older_row)
+        # Total latency precedes TTFT: it is the primary latency.
+        self.assertLess(text.index("Total latency (ms)"), text.index("TTFT (ms)"))
+
+    def test_text_from_storage_is_escaped(self):
+        save_request(self.db_path, {**REQUEST, "model": "<script>x</script>"},
+                     metric_results(total_latency=1.0), "test")
+        page = render_requests_page(load_recent_requests(self.db_path, "test", 20))
+        self.assertNotIn("<script>x", page)
+        self.assertIn("&lt;script&gt;x", page)
+
+    def test_only_test_environment_requests_are_listed(self):
+        save_request(self.db_path, REQUEST, metric_results(total_latency=1.0), "prod")
+        page = render_requests_page(load_recent_requests(self.db_path, "test", 20))
+        self.assertIn("No measured requests yet", page)
+
+
 class ServerTest(DashboardTestCase):
     def start_server(self):
         server = make_server(self.db_path, port=0)
@@ -304,6 +379,17 @@ class ServerTest(DashboardTestCase):
                 self.assertIn(link("30d", "ttft"), page)
                 self.assertIn(link("7d", "total_latency"), page)
                 self.assertNotIn("<script", page)  # the bad value is not echoed
+
+    def test_requests_route(self):
+        save_request(self.db_path, REQUEST, metric_results(total_latency=181.4), "test")
+        _, base = self.start_server()
+        status, headers, page = self.get(base + "/requests")
+        self.assertEqual(status, 200)
+        self.assertIn("default-src 'none'", headers["Content-Security-Policy"])
+        self.assertIn("181.4", page)
+        self.assertIn('href="/requests" aria-current="page"', page)
+        status, _, page = self.get(base + "/")
+        self.assertIn('href="/" aria-current="page"', page)  # aggregate view still default
 
     def test_empty_database(self):
         _, base = self.start_server()

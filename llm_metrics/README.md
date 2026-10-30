@@ -8,12 +8,13 @@ Its responsibility is to measure LLM-provider behavior, persist raw observations
 
 ## Current modules
 
-- `providers.py` — provider interface and the current simulated `DummyProvider`.
-- `latency.py` — metric catalogue (`METRICS`: label and unit per metric) and single-pass streaming measurement of TTFT, total response latency, and output throughput.
-- `storage.py` — SQLite schema and versioned in-place upgrades, observation writes (one transaction per request), and filtered observation reads.
+- `providers.py` — provider interface (text chunks, then a final `Usage` with token counts) and the simulated `DummyProvider` (simulated tokenizer, output cap).
+- `latency.py` — metric catalogue (`METRICS`: label and unit per metric) and single-pass streaming measurement of a request: token facts from `Usage`, plus total latency, TTFT, and output chunk throughput.
+- `pricing.py` — the only place prices are defined (USD per 1M tokens) and the per-request cost formula.
+- `storage.py` — SQLite schema and transactional in-place upgrades; `save_request` (request row + linked observations in one transaction); time-window observation reads and request reads.
 - `seed_history.py` — deterministic simulated history used only in the test environment.
 - `percentiles.py` — pure nearest-rank percentile calculation.
-- `dashboard.py` — local server-rendered dashboard with metric and time-window selection.
+- `dashboard.py` — local server-rendered aggregate view (metric and time-window selection) and recent-requests view.
 - `config.py` — environment, database-path, and dashboard-port configuration.
 - `__main__.py` — command-line entry point for measuring one request and storing its metrics.
 

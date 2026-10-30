@@ -40,21 +40,32 @@ class CLITest(unittest.TestCase):
         self.assertRegex(proc.stdout, r"Total latency: \d+\.\d ms")
         self.assertRegex(proc.stdout, r"Output throughput: \d+\.\d chunks/s")
 
-    def test_test_env_saves_all_metrics_from_one_request(self):
+    def test_test_env_saves_one_request_with_all_metrics(self):
         proc = self.run_cli("test")
         self.assertEqual(proc.returncode, 0, proc.stderr)
-        self.assertIn("Saved 3 observations to", proc.stdout)
+        self.assertRegex(proc.stdout, r"Saved request [0-9a-f]{32} with 3 observations to")
+        self.assertIn("Input tokens: 3 (simulated)", proc.stdout)
+        self.assertIn("Output tokens: 7 of max 64 (simulated)", proc.stdout)
+        self.assertIn("Cost: $0.000062 (input $0.000006 + output $0.000056) (simulated)", proc.stdout)
         with closing(sqlite3.connect(self.db_path)) as conn:
+            [request] = conn.execute(
+                "SELECT id, recorded_at, environment, input_tokens, requested_max_output_tokens,"
+                " output_tokens, input_price_per_1m, output_price_per_1m, total_cost FROM requests"
+            ).fetchall()
             rows = conn.execute(
-                "SELECT recorded_at, environment, provider, model, metric, value"
+                "SELECT recorded_at, environment, provider, model, metric, value, request_id"
                 " FROM observations ORDER BY id"
             ).fetchall()
-        self.assertEqual([r[4] for r in rows], ["ttft", "total_latency", "output_chunks_per_s"])
-        for _, environment, provider, model, _, value in rows:
-            self.assertEqual((environment, provider, model), ("test", "dummy", "dummy-model-v1"))
+        request_id, recorded_at, environment, *facts = request
+        self.assertEqual(environment, "test")
+        self.assertEqual(facts[:5], [3, 64, 7, 2.0, 8.0])
+        self.assertAlmostEqual(facts[5], 6.2e-05, places=15)
+        self.assertEqual([r[4] for r in rows], ["total_latency", "ttft", "output_chunks_per_s"])
+        for row_recorded_at, row_env, provider, model, _, value, row_request in rows:
+            self.assertEqual((row_env, provider, model), ("test", "dummy", "dummy-model-v1"))
+            self.assertEqual((row_recorded_at, row_request), (recorded_at, request_id))
             self.assertGreater(value, 0)
-        self.assertEqual(len({r[0] for r in rows}), 1)  # same request, same timestamp
-        self.assertGreaterEqual(rows[1][5], rows[0][5])  # total >= TTFT
+        self.assertGreaterEqual(rows[0][5], rows[1][5])  # total >= TTFT
 
     def test_prod_env_fails_without_measuring(self):
         proc = self.run_cli("prod")

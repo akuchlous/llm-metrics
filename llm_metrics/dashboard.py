@@ -1,10 +1,14 @@
-"""Local metrics dashboard: one HTML page with a server-rendered SVG line chart.
+"""Local metrics dashboard: server-rendered HTML pages, no JavaScript.
 
 Usage: python -m llm_metrics.dashboard   (serves http://127.0.0.1:8000/)
 
-GET /?window=24h|7d|30d&metric=ttft|total_latency|output_chunks_per_s selects a
-time window ending at the current UTC time (default 7d) and a metric (default
-ttft). Any other, empty, or repeated value is rejected with HTTP 400.
+GET /?window=24h|7d|30d&metric=total_latency|ttft|output_chunks_per_s shows one
+metric over a time window ending at the current UTC time (default 7d, metric
+ttft) as percentiles and a line chart. Any other, empty, or repeated value is
+rejected with HTTP 400.
+
+GET /requests lists the most recent individual measured requests with their
+token counts, latency, throughput, and cost.
 
 Uses only the standard library. Binds to 127.0.0.1 so it is not reachable from
 other machines. Shows only simulated test observations from the dummy provider.
@@ -22,7 +26,7 @@ from llm_metrics.config import ConfigError, get_db_path, get_port
 from llm_metrics.latency import METRICS
 from llm_metrics.percentiles import percentile
 from llm_metrics.providers import DummyProvider
-from llm_metrics.storage import load_observations
+from llm_metrics.storage import load_observations, load_recent_requests
 
 HOST = "127.0.0.1"
 
@@ -45,6 +49,8 @@ WINDOWS = {
 }
 DEFAULT_WINDOW = "7d"
 
+RECENT_REQUESTS = 20  # rows on the /requests page
+
 # Chart geometry in SVG units (the SVG scales to the page width).
 WIDTH, HEIGHT = 800, 300
 LEFT, RIGHT, TOP, BOTTOM = 60, 20, 20, 40
@@ -54,7 +60,7 @@ PAGE = """<!doctype html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>llm-metrics — latency</title>
+<title>llm-metrics</title>
 <style>
   body {{ font-family: system-ui, sans-serif; max-width: 900px; margin: 2rem auto; padding: 0 1rem; color: #1a1a1a; background: #fff; }}
   .label {{ display: inline-block; background: #b45309; color: #fff; font-weight: 700; padding: .3rem .7rem; border-radius: 4px; letter-spacing: .05em; }}
@@ -64,10 +70,18 @@ PAGE = """<!doctype html>
   svg {{ width: 100%; height: auto; border: 1px solid #ddd; }}
   nav a {{ margin-right: .8rem; }}
   nav a[aria-current] {{ font-weight: 700; color: #1a1a1a; text-decoration: none; }}
+  .views {{ margin-bottom: 1rem; }}
+  .table-wrap {{ overflow-x: auto; }}
+  table {{ border-collapse: collapse; font-size: .85rem; }}
+  th, td {{ padding: .3rem .45rem; border-bottom: 1px solid #ddd; text-align: right; white-space: nowrap; }}
+  th {{ white-space: normal; vertical-align: bottom; }}
+  th:first-child, td:first-child, th:nth-child(2), td:nth-child(2), th:last-child, td:last-child {{ text-align: left; }}
+  .primary {{ font-weight: 700; }}
 </style>
 </head>
 <body>
 <h1>llm-metrics</h1>
+{views}
 <p class="label">TEST / SIMULATED DATA</p>
 <p>Provider: <b>{provider}</b> · Model: <b>{model}</b></p>
 <p class="muted">Simulated observations from the dummy provider. Not real LLM performance.</p>
@@ -75,6 +89,19 @@ PAGE = """<!doctype html>
 </body>
 </html>
 """
+
+
+VIEWS = {"/": "Aggregate", "/requests": "Recent requests"}
+
+
+def _page(body: str, view: str | None) -> str:
+    """Wrap a page body in the shared layout. `view` is the current path, if any."""
+    links = []
+    for path, name in VIEWS.items():
+        current = ' aria-current="page"' if path == view else ""
+        links.append(f'<a href="{path}"{current}>{name}</a>')
+    views = f'<nav class="views" aria-label="View">{"".join(links)}</nav>'
+    return PAGE.format(provider=escape(PROVIDER), model=escape(MODEL), views=views, body=body)
 
 
 def _parse_time(recorded_at: str) -> datetime:
@@ -198,7 +225,7 @@ def render_page(
             f" first {_display_time(observations[0][0])}, latest {_display_time(latest_at)}.</p>\n"
             + _chart_svg(observations, label, unit, start, end)
         )
-    return PAGE.format(provider=escape(PROVIDER), model=escape(MODEL), body=header + body)
+    return _page(header + body, "/")
 
 
 def render_invalid_query_page() -> str:
@@ -211,7 +238,7 @@ def render_invalid_query_page() -> str:
         + ", ".join(METRICS)
         + f" (default {DEFAULT_METRIC}).</p>"
     )
-    return PAGE.format(provider=escape(PROVIDER), model=escape(MODEL), body=body)
+    return _page(body, None)
 
 
 def build_page(db_path: Path, window: str, metric: str, now: datetime) -> str:
@@ -223,9 +250,64 @@ def build_page(db_path: Path, window: str, metric: str, now: datetime) -> str:
     return render_page(observations, window, metric, start, end)
 
 
+def _number(value: float | None, spec: str) -> str:
+    return "—" if value is None else format(value, spec)
+
+
+def render_requests_page(requests: list[dict]) -> str:
+    """Table of individual requests (newest first), as from load_recent_requests."""
+    intro = (
+        f"<h2>Recent requests</h2>\n<p class=\"muted\">The {RECENT_REQUESTS} most recent measured"
+        " requests. Token counts use a <b>simulated</b> tokenizer and costs use"
+        " <b>simulated</b> prices (USD); they do not match any real provider. Total"
+        " latency is the request's response time; TTFT is shown for streaming"
+        " diagnostics. Throughput counts stream chunks, not tokens.</p>\n"
+    )
+    if not requests:
+        return _page(
+            intro + "<p><b>No measured requests yet.</b> Run <code>./run.sh</code> to record one."
+            " (Observations recorded before Step 010 have no request details.)</p>",
+            "/requests",
+        )
+    # Most important first (time, latency, tokens, total cost); the table scrolls
+    # sideways on narrow screens.
+    header = (
+        "<tr><th>Time (UTC)</th><th>Request</th>"
+        "<th>Total latency (ms)</th><th>TTFT (ms)</th><th>Throughput (chunks/s)</th>"
+        "<th>Input tokens</th><th>Output tokens</th><th>Max output tokens</th>"
+        "<th>Total cost ($)</th><th>Input cost ($)</th><th>Output cost ($)</th>"
+        "<th>Provider / model</th></tr>"
+    )
+    rows = []
+    for r in requests:
+        metrics = r["metrics"]
+        rows.append(
+            "<tr>"
+            f"<td>{_display_time(r['recorded_at'])}</td>"
+            f"<td><code title=\"{escape(r['id'])}\">{escape(r['id'][:8])}</code></td>"
+            f"<td class=\"primary\">{_number(metrics.get('total_latency'), '.1f')}</td>"
+            f"<td>{_number(metrics.get('ttft'), '.1f')}</td>"
+            f"<td>{_number(metrics.get('output_chunks_per_s'), '.1f')}</td>"
+            f"<td>{r['input_tokens']:d}</td>"
+            f"<td>{r['output_tokens']:d}</td>"
+            f"<td>{r['requested_max_output_tokens']:d}</td>"
+            f"<td class=\"primary\">{r['total_cost']:.6f}</td>"
+            f"<td>{r['input_cost']:.6f}</td>"
+            f"<td>{r['output_cost']:.6f}</td>"
+            f"<td>{escape(r['provider'])} / {escape(r['model'])}</td>"
+            "</tr>"
+        )
+    table = f'<div class="table-wrap"><table>{header}{"".join(rows)}</table></div>'
+    return _page(intro + table, "/requests")
+
+
 class _Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         url = urlsplit(self.path)
+        if url.path == "/requests":
+            requests = load_recent_requests(self.server.db_path, ENVIRONMENT, RECENT_REQUESTS)
+            self._send_html(200, render_requests_page(requests))
+            return
         if url.path != "/":
             self.send_error(404)
             return

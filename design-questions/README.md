@@ -49,3 +49,4 @@ Each file has:
 | [07](07/) | TTFT time windows | `prompts/007-time-windows.md` |
 | [08](08/) | Total response latency | `prompts/008-total-response-latency.md` |
 | [09](09/) | Output throughput | `prompts/009-throughput.md` |
+| [10](10/) | Token accounting and cost | `prompts/010-token-accounting-and-cost.md` |

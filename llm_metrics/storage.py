@@ -1,17 +1,43 @@
-"""Local SQLite storage for metric observations (standard-library sqlite3)."""
+"""Local SQLite storage for benchmark requests and metric observations
+(standard-library sqlite3)."""
 
 import sqlite3
+import uuid
 from collections.abc import Iterable
 from contextlib import closing
 from datetime import datetime, timezone
 from pathlib import Path
 
-# One row per observation. recorded_at is UTC ISO 8601 with a "Z" suffix,
-# e.g. "2026-10-30T12:34:56.789012Z", so text order is time order. `value` is in
-# the unit implied by `metric` (see llm_metrics.latency.METRICS).
-# The unique index makes re-inserting the same observation detectable; it is a
-# separate statement so it is also added to databases created before it existed.
+# requests: one row per measured benchmark request (Step 010+). `id` is
+# llm-metrics' own identity for the request (a random UUID, hex), never a
+# provider API request ID. Token counts are as reported by the provider (see
+# providers.Usage). Prices are the effective USD rates per 1M tokens used for
+# this request, stored with the derived costs so the cost stays explainable
+# after prices change (see pricing.py).
+#
+# observations: one row per metric value. recorded_at is UTC ISO 8601 with a
+# "Z" suffix, e.g. "2026-10-30T12:34:56.789012Z", so text order is time order.
+# `value` is in the unit implied by `metric` (see latency.METRICS). request_id
+# links a Step 010+ observation to its request; it is NULL for older and
+# simulated-history rows, which have no request facts.
+#
+# Indexes that depend on columns added by upgrades are created in _upgrade().
 SCHEMA = """
+CREATE TABLE IF NOT EXISTS requests (
+    id                          TEXT    PRIMARY KEY,
+    recorded_at                 TEXT    NOT NULL,
+    environment                 TEXT    NOT NULL CHECK (environment IN ('test', 'prod')),
+    provider                    TEXT    NOT NULL,
+    model                       TEXT    NOT NULL,
+    input_tokens                INTEGER NOT NULL CHECK (input_tokens >= 0),
+    requested_max_output_tokens INTEGER NOT NULL CHECK (requested_max_output_tokens >= 1),
+    output_tokens               INTEGER NOT NULL CHECK (output_tokens >= 0),
+    input_price_per_1m          REAL    NOT NULL CHECK (input_price_per_1m >= 0),
+    output_price_per_1m         REAL    NOT NULL CHECK (output_price_per_1m >= 0),
+    input_cost                  REAL    NOT NULL,
+    output_cost                 REAL    NOT NULL,
+    total_cost                  REAL    NOT NULL
+);
 CREATE TABLE IF NOT EXISTS observations (
     id          INTEGER PRIMARY KEY,
     recorded_at TEXT    NOT NULL,
@@ -19,42 +45,71 @@ CREATE TABLE IF NOT EXISTS observations (
     provider    TEXT    NOT NULL,
     model       TEXT    NOT NULL,
     metric      TEXT    NOT NULL,
-    value       REAL    NOT NULL
+    value       REAL    NOT NULL,
+    request_id  TEXT    REFERENCES requests (id)
 );
 CREATE UNIQUE INDEX IF NOT EXISTS observations_unique
     ON observations (recorded_at, environment, provider, model, metric);
 """
 
-# Constant SQL shared by both inserts; values are always bound as parameters.
-_INSERT_TARGET = (
-    "observations (recorded_at, environment, provider, model, metric, value)"
-    " VALUES (?, ?, ?, ?, ?, ?)"
-)
-
-
 # Schema version stored in SQLite's `PRAGMA user_version`.
 #   0: Steps 003-008 (value column named `value_ms`)
 #   1: Step 009 (`value_ms` renamed to `value`; units depend on the metric)
-SCHEMA_VERSION = 1
+#   2: Step 010 (`requests` table; observations.request_id)
+SCHEMA_VERSION = 2
+
+# Constant SQL; values are always bound as parameters.
+_INSERT_OBSERVATION = (
+    "observations (recorded_at, environment, provider, model, metric, value, request_id)"
+    " VALUES (?, ?, ?, ?, ?, ?, ?)"
+)
+_REQUEST_COLUMNS = (
+    "id", "recorded_at", "environment", "provider", "model",
+    "input_tokens", "requested_max_output_tokens", "output_tokens",
+    "input_price_per_1m", "output_price_per_1m",
+    "input_cost", "output_cost", "total_cost",
+)
+
+
+def _columns(conn: sqlite3.Connection, table: str) -> set[str]:
+    return {row[1] for row in conn.execute(f"PRAGMA table_info({table})")}
 
 
 def _upgrade(conn: sqlite3.Connection) -> None:
-    """Bring an existing database up to SCHEMA_VERSION. Existing rows are kept."""
-    version = conn.execute("PRAGMA user_version").fetchone()[0]
-    if version > SCHEMA_VERSION:
-        raise RuntimeError(
-            f"Database schema version {version} is newer than this code supports "
-            f"({SCHEMA_VERSION}). Update llm-metrics."
-        )
-    if version < 1:
-        columns = {row[1] for row in conn.execute("PRAGMA table_info(observations)")}
-        if "value_ms" in columns:
+    """Bring an existing database up to SCHEMA_VERSION. Existing rows are kept.
+
+    All steps and the version bump run in one IMMEDIATE transaction, so an
+    upgrade is all-or-nothing and concurrent first connections serialize.
+    """
+    if conn.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION:
+        return
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        version = conn.execute("PRAGMA user_version").fetchone()[0]  # re-read under lock
+        if version > SCHEMA_VERSION:
+            raise RuntimeError(
+                f"Database schema version {version} is newer than this code supports "
+                f"({SCHEMA_VERSION}). Update llm-metrics."
+            )
+        if version < 1 and "value_ms" in _columns(conn, "observations"):
             conn.execute("ALTER TABLE observations RENAME COLUMN value_ms TO value")
+        if version < 2:
+            if "request_id" not in _columns(conn, "observations"):
+                conn.execute(
+                    "ALTER TABLE observations ADD COLUMN request_id TEXT REFERENCES requests (id)"
+                )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS observations_request ON observations (request_id)"
+            )
         conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
+        conn.commit()
+    except BaseException:
+        conn.rollback()
+        raise
 
 
 def connect(db_path: Path) -> sqlite3.Connection:
-    """Open the database, creating its directory and table if they are missing
+    """Open the database, creating its directory and tables if they are missing
     and upgrading an older schema in place.
 
     Safe to call repeatedly: existing rows are never changed or lost. The caller
@@ -76,26 +131,40 @@ def format_timestamp(moment: datetime) -> str:
     return moment.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
 
 
-def _row(recorded_at: datetime, environment: str, result: dict) -> tuple:
+def _observation_row(
+    recorded_at: str, environment: str, result: dict, request_id: str | None
+) -> tuple:
     return (
-        format_timestamp(recorded_at),
+        recorded_at,
         environment,
         result["provider"],
         result["model"],
         result["metric"],
         result["value"],
+        request_id,
     )
 
 
-def save_observations(db_path: Path, results: list[dict], environment: str) -> None:
-    """Append measurement results from one request, all timestamped now.
+def save_request(db_path: Path, request: dict, results: list[dict], environment: str) -> str:
+    """Save one measured request and its metric observations; return its new id.
 
-    The rows are written in one transaction: either all are saved or none.
+    `request` must hold every _REQUEST_COLUMNS key except id, recorded_at and
+    environment. The request row and all observations share one timestamp and
+    are written in one transaction: either everything is saved or nothing.
     """
-    recorded_at = datetime.now(timezone.utc)
-    rows = [_row(recorded_at, environment, result) for result in results]
-    with closing(connect(db_path)) as conn, conn:  # inner `conn` commits the inserts
-        conn.executemany("INSERT INTO " + _INSERT_TARGET, rows)
+    request_id = uuid.uuid4().hex
+    recorded_at = format_timestamp(datetime.now(timezone.utc))
+    row = {**request, "id": request_id, "recorded_at": recorded_at, "environment": environment}
+    values = tuple(row[column] for column in _REQUEST_COLUMNS)
+    observations = [_observation_row(recorded_at, environment, r, request_id) for r in results]
+    with closing(connect(db_path)) as conn, conn:  # inner `conn` commits
+        conn.execute(
+            f"INSERT INTO requests ({', '.join(_REQUEST_COLUMNS)})"
+            f" VALUES ({', '.join('?' for _ in _REQUEST_COLUMNS)})",
+            values,
+        )
+        conn.executemany("INSERT INTO " + _INSERT_OBSERVATION, observations)
+    return request_id
 
 
 def save_new_observations(
@@ -103,12 +172,16 @@ def save_new_observations(
 ) -> int:
     """Insert (recorded_at, result) pairs with explicit timestamps in one transaction.
 
-    An observation that already exists (same recorded_at, environment, provider,
-    model and metric) is skipped. Returns the number of rows inserted.
+    These observations have no request (request_id NULL). An observation that
+    already exists (same recorded_at, environment, provider, model and metric)
+    is skipped. Returns the number of rows inserted.
     """
-    rows = [_row(recorded_at, environment, result) for recorded_at, result in observations]
+    rows = [
+        _observation_row(format_timestamp(recorded_at), environment, result, None)
+        for recorded_at, result in observations
+    ]
     with closing(connect(db_path)) as conn, conn:
-        cursor = conn.executemany("INSERT OR IGNORE INTO " + _INSERT_TARGET, rows)
+        cursor = conn.executemany("INSERT OR IGNORE INTO " + _INSERT_OBSERVATION, rows)
         return cursor.rowcount
 
 
@@ -143,3 +216,42 @@ def load_observations(
                 format_timestamp(end),
             ),
         ).fetchall()
+
+
+def _request_dicts(conn: sqlite3.Connection, where: str, params: tuple) -> list[dict]:
+    """Requests matching `where` (constant SQL), newest first, each with a
+    "metrics" dict {metric: value} of its linked observations."""
+    columns = ", ".join(f"r.{c}" for c in _REQUEST_COLUMNS)
+    conn.row_factory = sqlite3.Row
+    rows = conn.execute(
+        f"SELECT {columns}, o.metric, o.value FROM requests r"
+        " LEFT JOIN observations o ON o.request_id = r.id"
+        f" WHERE {where} ORDER BY r.recorded_at DESC, r.id, o.id",
+        params,
+    ).fetchall()
+    requests: dict[str, dict] = {}
+    for row in rows:
+        request = requests.setdefault(
+            row["id"], {**{c: row[c] for c in _REQUEST_COLUMNS}, "metrics": {}}
+        )
+        if row["metric"] is not None:
+            request["metrics"][row["metric"]] = row["value"]
+    return list(requests.values())
+
+
+def load_request(db_path: Path, request_id: str) -> dict | None:
+    """One request's facts plus its metrics, or None if there is no such request."""
+    with closing(connect(db_path)) as conn:
+        found = _request_dicts(conn, "r.id = ?", (request_id,))
+    return found[0] if found else None
+
+
+def load_recent_requests(db_path: Path, environment: str, limit: int) -> list[dict]:
+    """The `limit` most recent requests in `environment`, newest first, with metrics."""
+    with closing(connect(db_path)) as conn:
+        return _request_dicts(
+            conn,
+            "r.id IN (SELECT id FROM requests WHERE environment = ?"
+            " ORDER BY recorded_at DESC, id LIMIT ?)",
+            (environment, limit),
+        )
