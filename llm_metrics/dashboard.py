@@ -1,10 +1,10 @@
-"""Local latency dashboard: one HTML page with a server-rendered SVG line chart.
+"""Local metrics dashboard: one HTML page with a server-rendered SVG line chart.
 
 Usage: python -m llm_metrics.dashboard   (serves http://127.0.0.1:8000/)
 
-GET /?window=24h|7d|30d&metric=ttft|total_latency selects a time window ending
-at the current UTC time (default 7d) and a metric (default ttft). Any other,
-empty, or repeated value is rejected with HTTP 400.
+GET /?window=24h|7d|30d&metric=ttft|total_latency|output_chunks_per_s selects a
+time window ending at the current UTC time (default 7d) and a metric (default
+ttft). Any other, empty, or repeated value is rejected with HTTP 400.
 
 Uses only the standard library. Binds to 127.0.0.1 so it is not reachable from
 other machines. Shows only simulated test observations from the dummy provider.
@@ -19,6 +19,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
 from llm_metrics.config import ConfigError, get_db_path, get_port
+from llm_metrics.latency import METRICS
 from llm_metrics.percentiles import percentile
 from llm_metrics.providers import DummyProvider
 from llm_metrics.storage import load_observations
@@ -31,11 +32,7 @@ PROVIDER = DummyProvider.name
 MODEL = DummyProvider.model
 PERCENTILES = (50, 95, 99)
 
-# Selectable metrics: stored metric name -> display label.
-METRICS = {
-    "ttft": "TTFT",
-    "total_latency": "Total latency",
-}
+# Selectable metrics are all of METRICS (name -> (label, unit)).
 DEFAULT_METRIC = "ttft"
 
 # Selectable windows, each ending at the current UTC time. The default is 7d:
@@ -89,13 +86,13 @@ def _display_time(recorded_at: str) -> str:
 
 
 def _chart_svg(
-    observations: list[tuple[str, float]], label: str, start: datetime, end: datetime
+    observations: list[tuple[str, float]], label: str, unit: str, start: datetime, end: datetime
 ) -> str:
-    """Line chart of value_ms over the whole window (x is proportional to time)."""
+    """Line chart of values over the whole window (x is proportional to time)."""
     t_min, t_max = start.timestamp(), end.timestamp()
     times = [_parse_time(t).timestamp() for t, _ in observations]
     values = [v for _, v in observations]
-    # Headroom above the largest value, rounded up to a whole 100 ms (never 0).
+    # Headroom above the largest value, rounded up to a whole 100 units (never 0).
     y_max = max(100, math.ceil(max(values) * 1.1 / 100) * 100)
 
     def x(t: float) -> float:
@@ -109,8 +106,9 @@ def _chart_svg(
     return f"""<svg viewBox="0 0 {WIDTH} {HEIGHT}" role="img" aria-label="{label} over time">
   <line x1="{LEFT}" y1="{TOP}" x2="{LEFT}" y2="{axis_bottom}" stroke="#999"/>
   <line x1="{LEFT}" y1="{axis_bottom}" x2="{WIDTH - RIGHT}" y2="{axis_bottom}" stroke="#999"/>
-  <text x="{LEFT - 6}" y="{TOP + 4}" text-anchor="end" font-size="12">{y_max:.0f} ms</text>
-  <text x="{LEFT - 6}" y="{axis_bottom}" text-anchor="end" font-size="12">0 ms</text>
+  <text x="{LEFT - 6}" y="{TOP + 4}" text-anchor="end" font-size="12">{y_max:.0f}</text>
+  <text x="{LEFT - 6}" y="{axis_bottom}" text-anchor="end" font-size="12">0</text>
+  <text x="{LEFT + 6}" y="{TOP + 4}" font-size="12" fill="#555">{unit}</text>
   <text x="{LEFT}" y="{HEIGHT - 15}" font-size="12">{start:%Y-%m-%d %H:%M} UTC</text>
   <text x="{WIDTH - RIGHT}" y="{HEIGHT - 15}" text-anchor="end" font-size="12">{end:%Y-%m-%d %H:%M} UTC (now)</text>
   <polyline fill="none" stroke="#2563eb" stroke-width="1.5" points="{points}"/>
@@ -128,7 +126,9 @@ def _nav(window: str | None, metric: str | None) -> str:
         return f'<a href="/?window={href_window}&amp;metric={href_metric}"{aria}>{text}</a>'
 
     windows = "".join(link(w, keep_metric, w, w == window) for w in WINDOWS)
-    metrics = "".join(link(keep_window, m, label, m == metric) for m, label in METRICS.items())
+    metrics = "".join(
+        link(keep_window, m, label, m == metric) for m, (label, _unit) in METRICS.items()
+    )
     return (
         f'<nav aria-label="Metric">Metric: {metrics}</nav>\n'
         f'<nav aria-label="Time window">Window: {windows}</nav>'
@@ -168,11 +168,11 @@ def render_page(
     start: datetime,
     end: datetime,
 ) -> str:
-    """Full HTML page for one metric and window's (recorded_at, value_ms) rows, oldest first.
+    """Full HTML page for one metric and window's (recorded_at, value) rows, oldest first.
 
     Every derived value (count, latest, percentiles, chart) uses `observations`.
     """
-    label = METRICS[metric]
+    label, unit = METRICS[metric]
     header = (
         _nav(window, metric)
         + f'\n<p class="muted">Window {window}: {start:%Y-%m-%d %H:%M} UTC'
@@ -187,16 +187,16 @@ def render_page(
         latest_at, latest_value = observations[-1]
         values = [v for _, v in observations]
         summary = " · ".join(
-            f"p{p} <b>{percentile(values, p):.1f} ms</b>" for p in PERCENTILES
+            f"p{p} <b>{percentile(values, p):.1f} {unit}</b>" for p in PERCENTILES
         )
         body = (
             f'<p class="muted">Latest {label} ({_display_time(latest_at)})</p>\n'
-            f'<p class="latest">{latest_value:.1f} ms</p>\n'
+            f'<p class="latest">{latest_value:.1f} {unit}</p>\n'
             f'<p class="percentiles">{label} {summary}'
             f' <span class="muted">(nearest-rank, n = {len(observations)})</span></p>\n'
             f'<p class="muted">{len(observations)} observation{"" if len(observations) == 1 else "s"} in window,'
             f" first {_display_time(observations[0][0])}, latest {_display_time(latest_at)}.</p>\n"
-            + _chart_svg(observations, label, start, end)
+            + _chart_svg(observations, label, unit, start, end)
         )
     return PAGE.format(provider=escape(PROVIDER), model=escape(MODEL), body=header + body)
 

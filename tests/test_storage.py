@@ -5,9 +5,9 @@ from contextlib import closing
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from llm_metrics.storage import connect, load_observations, save_observations
+from llm_metrics.storage import SCHEMA_VERSION, connect, load_observations, save_observations
 
-RESULT = {"provider": "dummy", "model": "dummy-model-v1", "metric": "ttft", "value_ms": 100.4}
+RESULT = {"provider": "dummy", "model": "dummy-model-v1", "metric": "ttft", "value": 100.4}
 
 
 def init(db_path):
@@ -50,7 +50,7 @@ class StorageTest(unittest.TestCase):
         self.assertEqual(row["provider"], "dummy")
         self.assertEqual(row["model"], "dummy-model-v1")
         self.assertEqual(row["metric"], "ttft")
-        self.assertAlmostEqual(row["value_ms"], 100.4)
+        self.assertAlmostEqual(row["value"], 100.4)
 
         self.assertTrue(row["recorded_at"].endswith("Z"))
         recorded_at = datetime.strptime(
@@ -61,9 +61,9 @@ class StorageTest(unittest.TestCase):
 
     def test_multiple_observations_are_appended(self):
         for value in (10.0, 20.0, 30.0):
-            save_observations(self.db_path, [{**RESULT, "value_ms": value}], "test")
+            save_observations(self.db_path, [{**RESULT, "value": value}], "test")
         rows = read_rows(self.db_path)
-        self.assertEqual([r["value_ms"] for r in rows], [10.0, 20.0, 30.0])
+        self.assertEqual([r["value"] for r in rows], [10.0, 20.0, 30.0])
         self.assertEqual(len({r["id"] for r in rows}), 3)
 
     def test_unknown_environment_is_rejected(self):
@@ -72,8 +72,8 @@ class StorageTest(unittest.TestCase):
         self.assertEqual(read_rows(self.db_path), [])
 
     def test_metrics_from_one_request_share_a_timestamp_and_stay_separate(self):
-        ttft = {**RESULT, "metric": "ttft", "value_ms": 100.0}
-        total = {**RESULT, "metric": "total_latency", "value_ms": 180.0}
+        ttft = {**RESULT, "metric": "ttft", "value": 100.0}
+        total = {**RESULT, "metric": "total_latency", "value": 180.0}
         save_observations(self.db_path, [ttft, total], "test")
         rows = read_rows(self.db_path)
         self.assertEqual([r["metric"] for r in rows], ["ttft", "total_latency"])
@@ -87,8 +87,31 @@ class StorageTest(unittest.TestCase):
             )
             self.assertEqual([v for _, v in loaded], [value])
 
+    def test_three_metrics_saved_atomically_and_queried_separately(self):
+        results = [
+            {**RESULT, "metric": "ttft", "value": 100.0},
+            {**RESULT, "metric": "total_latency", "value": 180.0},
+            {**RESULT, "metric": "output_chunks_per_s", "value": 50.0},
+        ]
+        save_observations(self.db_path, results, "test")
+        rows = read_rows(self.db_path)
+        self.assertEqual(len(rows), 3)
+        self.assertEqual(len({r["recorded_at"] for r in rows}), 1)
+        start = datetime.now(timezone.utc) - timedelta(minutes=1)
+        end = datetime.now(timezone.utc)
+        for result in results:
+            loaded = load_observations(
+                self.db_path, "test", "dummy", "dummy-model-v1", result["metric"], start=start, end=end
+            )
+            self.assertEqual([v for _, v in loaded], [result["value"]])
+
+        bad = [*results[:2], {**results[2], "value": None}]  # third row violates NOT NULL
+        with self.assertRaises(sqlite3.IntegrityError):
+            save_observations(self.db_path, bad, "test")
+        self.assertEqual(len(read_rows(self.db_path)), 3)  # nothing from the failed batch
+
     def test_batch_is_all_or_nothing(self):
-        bad = {**RESULT, "metric": "total_latency", "value_ms": None}  # violates NOT NULL
+        bad = {**RESULT, "metric": "total_latency", "value": None}  # violates NOT NULL
         with self.assertRaises(sqlite3.IntegrityError):
             save_observations(self.db_path, [RESULT, bad], "test")
         self.assertEqual(read_rows(self.db_path), [])
@@ -98,6 +121,53 @@ class StorageTest(unittest.TestCase):
         save_observations(self.db_path, [{**RESULT, "provider": hostile}], "test")
         [row] = read_rows(self.db_path)
         self.assertEqual(row["provider"], hostile)
+
+
+class SchemaUpgradeTest(unittest.TestCase):
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.db_path = Path(tmp.name) / "llm_metrics.db"
+
+    def version(self):
+        with closing(sqlite3.connect(self.db_path)) as conn:
+            return conn.execute("PRAGMA user_version").fetchone()[0]
+
+    def test_fresh_database_is_current_version(self):
+        with closing(connect(self.db_path)):
+            pass
+        self.assertEqual(self.version(), SCHEMA_VERSION)
+        self.assertEqual(read_rows(self.db_path), [])
+
+    def test_version_0_database_is_upgraded_and_keeps_rows(self):
+        # A database as created by Steps 003-008: `value_ms` column, user_version 0.
+        with closing(sqlite3.connect(self.db_path)) as conn, conn:
+            conn.execute(
+                "CREATE TABLE observations (id INTEGER PRIMARY KEY, recorded_at TEXT NOT NULL,"
+                " environment TEXT NOT NULL CHECK (environment IN ('test', 'prod')),"
+                " provider TEXT NOT NULL, model TEXT NOT NULL, metric TEXT NOT NULL,"
+                " value_ms REAL NOT NULL)"
+            )
+            conn.execute(
+                "INSERT INTO observations VALUES"
+                " (1, '2026-10-30T00:43:46.279219Z', 'test', 'dummy', 'dummy-model-v1', 'ttft', 100.3)"
+            )
+        save_observations(self.db_path, [{**RESULT, "metric": "output_chunks_per_s", "value": 50.0}], "test")
+        self.assertEqual(self.version(), 1)
+        rows = read_rows(self.db_path)
+        self.assertEqual([(r["metric"], r["value"]) for r in rows],
+                         [("ttft", 100.3), ("output_chunks_per_s", 50.0)])
+        self.assertNotIn("value_ms", rows[0])
+        # Upgrading again is a no-op.
+        with closing(connect(self.db_path)):
+            pass
+        self.assertEqual(len(read_rows(self.db_path)), 2)
+
+    def test_newer_database_is_refused(self):
+        with closing(sqlite3.connect(self.db_path)) as conn:
+            conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION + 1}")
+        with self.assertRaisesRegex(RuntimeError, "newer than this code"):
+            connect(self.db_path)
 
 
 if __name__ == "__main__":

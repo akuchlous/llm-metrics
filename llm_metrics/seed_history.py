@@ -44,7 +44,7 @@ def simulated_ttft_history() -> list[tuple[datetime, dict]]:
             "provider": DummyProvider.name,
             "model": DummyProvider.model,
             "metric": "ttft",
-            "value_ms": round(value_ms, 1),
+            "value": round(value_ms, 1),
         }
         history.append((HISTORY_START + timedelta(hours=hour), result))
     return history

@@ -88,7 +88,7 @@ class RunScriptTest(unittest.TestCase):
             self.assertIsNone(page)
             self.assertFalse(db_path.exists())
 
-            # First test-mode run: seeds 168 rows, saves TTFT + total latency, serves the dashboard.
+            # First test-mode run: seeds 168 rows, saves 3 metrics, serves the dashboard.
             _, out, err, page = run_until_dashboard(copy, env)
             self.assertNotIn("Creating Python environment", out)  # .venv reused
             self.assertIn("Tests passed", out)
@@ -96,8 +96,9 @@ class RunScriptTest(unittest.TestCase):
             self.assertIn("Provider: dummy", out)
             self.assertRegex(out, r"TTFT: \d+\.\d ms")
             self.assertRegex(out, r"Total latency: \d+\.\d ms")
-            self.assertIn("Saved 2 observations to data/llm_metrics.db", out)
-            self.assertEqual(count_rows(), 170)
+            self.assertRegex(out, r"Output throughput: \d+\.\d chunks/s")
+            self.assertIn("Saved 3 observations to data/llm_metrics.db", out)
+            self.assertEqual(count_rows(), 171)
             self.assertRegex(out, r"Dashboard: http://127\.0\.0\.1:\d+/")
             self.assertIsNotNone(page, out + err)
             self.assertIn("TEST / SIMULATED DATA", page)
@@ -107,10 +108,10 @@ class RunScriptTest(unittest.TestCase):
             self.assertRegex(page, r"\d+ observations? in window")
             self.assertIn("p99", page)
 
-            # Second run: history already present, only the two live rows are added.
+            # Second run: history already present, only the three live rows are added.
             _, out, err, page = run_until_dashboard(copy, env)
             self.assertIn("0 new, 168 already present", out)
-            self.assertEqual(count_rows(), 172)
+            self.assertEqual(count_rows(), 174)
             self.assertRegex(page, r"\d+ observations? in window")
 
             # A failing test stops the run before seeding, measuring, or serving.
@@ -125,7 +126,7 @@ class RunScriptTest(unittest.TestCase):
             self.assertIn("Tests failed", err)
             self.assertNotIn("TTFT:", out)
             self.assertIsNone(page)
-            self.assertEqual(count_rows(), 172)
+            self.assertEqual(count_rows(), 174)
 
 
 if __name__ == "__main__":

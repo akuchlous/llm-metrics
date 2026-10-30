@@ -31,28 +31,29 @@ class CLITest(unittest.TestCase):
             timeout=30,
         )
 
-    def test_test_env_prints_both_metrics(self):
+    def test_test_env_prints_all_metrics_with_units(self):
         proc = self.run_cli("test")
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertIn("Provider: dummy", proc.stdout)
         self.assertIn("Model: dummy-model-v1", proc.stdout)
         self.assertRegex(proc.stdout, r"TTFT: \d+\.\d ms")
         self.assertRegex(proc.stdout, r"Total latency: \d+\.\d ms")
+        self.assertRegex(proc.stdout, r"Output throughput: \d+\.\d chunks/s")
 
-    def test_test_env_saves_ttft_and_total_latency_from_one_request(self):
+    def test_test_env_saves_all_metrics_from_one_request(self):
         proc = self.run_cli("test")
         self.assertEqual(proc.returncode, 0, proc.stderr)
-        self.assertIn("Saved 2 observations to", proc.stdout)
+        self.assertIn("Saved 3 observations to", proc.stdout)
         with closing(sqlite3.connect(self.db_path)) as conn:
             rows = conn.execute(
-                "SELECT recorded_at, environment, provider, model, metric, value_ms"
+                "SELECT recorded_at, environment, provider, model, metric, value"
                 " FROM observations ORDER BY id"
             ).fetchall()
-        self.assertEqual([r[4] for r in rows], ["ttft", "total_latency"])
-        for _, environment, provider, model, _, value_ms in rows:
+        self.assertEqual([r[4] for r in rows], ["ttft", "total_latency", "output_chunks_per_s"])
+        for _, environment, provider, model, _, value in rows:
             self.assertEqual((environment, provider, model), ("test", "dummy", "dummy-model-v1"))
-            self.assertGreater(value_ms, 0)
-        self.assertEqual(rows[0][0], rows[1][0])  # same request, same timestamp
+            self.assertGreater(value, 0)
+        self.assertEqual(len({r[0] for r in rows}), 1)  # same request, same timestamp
         self.assertGreaterEqual(rows[1][5], rows[0][5])  # total >= TTFT
 
     def test_prod_env_fails_without_measuring(self):

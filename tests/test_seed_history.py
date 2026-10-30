@@ -42,7 +42,7 @@ class SimulatedHistoryTest(unittest.TestCase):
         self.assertEqual(simulated_ttft_history(), simulated_ttft_history())
 
     def test_values_vary_and_include_spikes(self):
-        values = [result["value_ms"] for _, result in simulated_ttft_history()]
+        values = [result["value"] for _, result in simulated_ttft_history()]
         self.assertTrue(all(v > 0 for v in values))
         self.assertGreater(len(set(values)), 100)
         median = statistics.median(values)
@@ -79,7 +79,7 @@ class SeedDatabaseTest(unittest.TestCase):
 
     def test_live_measurements_still_append(self):
         self.seed()
-        live = {"provider": "dummy", "model": "dummy-model-v1", "metric": "ttft", "value_ms": 100.2}
+        live = {"provider": "dummy", "model": "dummy-model-v1", "metric": "ttft", "value": 100.2}
         save_observations(self.db_path, [live], "test")
         save_observations(self.db_path, [live], "test")
         self.seed()
@@ -93,7 +93,7 @@ class SeedDatabaseTest(unittest.TestCase):
                 "CREATE TABLE observations (id INTEGER PRIMARY KEY,"
                 " recorded_at TEXT NOT NULL, environment TEXT NOT NULL,"
                 " provider TEXT NOT NULL, model TEXT NOT NULL,"
-                " metric TEXT NOT NULL, value_ms REAL NOT NULL)"
+                " metric TEXT NOT NULL, value REAL NOT NULL)"
             )
             conn.execute(
                 "INSERT INTO observations VALUES"

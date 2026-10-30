@@ -50,8 +50,8 @@ class DashboardTestCase(unittest.TestCase):
         self.addCleanup(tmp.cleanup)
         self.db_path = Path(tmp.name) / "observations.db"
 
-    def save(self, recorded_at, value_ms, environment="test", **overrides):
-        result = {**DUMMY, "value_ms": value_ms, **overrides}
+    def save(self, recorded_at, value, environment="test", **overrides):
+        result = {**DUMMY, "value": value, **overrides}
         save_new_observations(self.db_path, [(recorded_at, result)], environment)
 
     def load(self, start, end):
@@ -103,7 +103,8 @@ class WindowTest(DashboardTestCase):
     def test_invalid_metric_rejected(self):
         for query in ("metric=", "metric=TTFT", "metric=total", "metric=throughput",
                       "metric=ttft&metric=total_latency", "metric=ttft&metric=ttft",
-                      "metric=%3Cscript%3E", "window=7d&metric=bogus"):
+                      "metric=%3Cscript%3E", "window=7d&metric=bogus",
+                      "metric=output_chunks_per_s&metric=ttft"):
             with self.subTest(query=query):
                 with self.assertRaises(ValueError):
                     parse_query(query)
@@ -196,6 +197,30 @@ class MetricSelectionTest(DashboardTestCase):
                     self.assertIn("Total latency p50", text)
                 else:
                     self.assertIn("TTFT p50", text)
+
+    def test_throughput_label_unit_and_population(self):
+        for age, rate in [(timedelta(hours=1), 50.0), (timedelta(hours=3), 40.0),
+                          (timedelta(days=3), 30.0), (timedelta(days=40), 999.0)]:
+            self.save(NOW - age, rate, metric="output_chunks_per_s")
+        expected = {"24h": (2, "40.0", "50.0"), "7d": (3, "40.0", "50.0"), "30d": (3, "40.0", "50.0")}
+        for window, (count, p50, p99) in expected.items():
+            with self.subTest(window=window):
+                page = build_page(self.db_path, window, "output_chunks_per_s", NOW)
+                text = visible_text(page)
+                self.assertIn("Output throughput p50", text)
+                self.assertIn(f"p50 {p50} chunks/s", text)
+                self.assertIn(f"p99 {p99} chunks/s", text)
+                self.assertIn("50.0 chunks/s", text)  # latest
+                self.assertIn(f"n = {count}", text)
+                self.assertEqual(chart_point_count(page), count)
+                self.assertIn('fill="#555">chunks/s</text>', page)  # y-axis unit label
+                self.assertNotRegex(text, r"\d ms\b")  # never labelled as milliseconds
+                self.assertNotIn("999", text)  # older than 30d
+                self.assertIn(current(window, "output_chunks_per_s"), page)
+        # The latency metrics' populations are untouched by throughput rows.
+        ttft_text = visible_text(build_page(self.db_path, "24h", "ttft", NOW))
+        self.assertIn("n = 3", ttft_text)
+        self.assertNotIn("chunks/s", ttft_text.split("Window 24h")[1])
 
     def test_empty_metric_in_window_renders_cleanly(self):
         page = build_page(self.db_path, "24h", "total_latency", NOW + timedelta(days=10))

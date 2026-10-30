@@ -1,10 +1,13 @@
-"""CLI: measure TTFT and total latency for one request. Usage: APP_ENV=test python -m llm_metrics"""
+"""CLI: measure TTFT, total latency, and output throughput for one request.
+
+Usage: APP_ENV=test python -m llm_metrics
+"""
 
 import os
 import sys
 
 from llm_metrics.config import ConfigError, get_app_env, get_db_path, get_provider
-from llm_metrics.latency import measure_latency
+from llm_metrics.latency import METRICS, measure_request
 from llm_metrics.storage import save_observations
 
 PROMPT = "Say hello."
@@ -18,15 +21,18 @@ def main() -> int:
         print(f"Error: {e}", file=sys.stderr)
         return 2
 
-    ttft, total = measure_latency(provider, PROMPT)
-    print(f"Provider: {ttft['provider']}")
-    print(f"Model: {ttft['model']}")
-    print(f"TTFT: {ttft['value_ms']:.1f} ms")
-    print(f"Total latency: {total['value_ms']:.1f} ms")
+    results = measure_request(provider, PROMPT)
+    print(f"Provider: {results[0]['provider']}")
+    print(f"Model: {results[0]['model']}")
+    for result in results:
+        label, unit = METRICS[result["metric"]]
+        print(f"{label}: {result['value']:.1f} {unit}")
+    if not any(r["metric"] == "output_chunks_per_s" for r in results):
+        print("Output throughput: not recorded (fewer than 2 output chunks)")
 
     db_path = get_db_path()
-    save_observations(db_path, [ttft, total], app_env)
-    print(f"Saved 2 observations to {os.path.relpath(db_path)}")
+    save_observations(db_path, results, app_env)
+    print(f"Saved {len(results)} observations to {os.path.relpath(db_path)}")
     return 0
 
 

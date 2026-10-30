@@ -3,7 +3,7 @@
 An open-source project to independently measure LLM provider performance
 (time to first token, throughput, latency, reliability, price).
 
-It is being built in small, tested steps. **Current step: 008.**
+It is being built in small, tested steps. **Current step: 009.**
 
 > **Simulated data only.** The current implementation uses a dummy provider that
 > sleeps for a fixed time and then emits fake tokens. Its numbers do **not**
@@ -11,16 +11,23 @@ It is being built in small, tested steps. **Current step: 008.**
 
 ## What it measures (so far)
 
-Two metrics from each streamed request, measured in a single pass:
+Three metrics from each streamed request, measured in a single pass (one
+provider call, stream fully consumed):
 
-- **Time To First Token (TTFT)** (`ttft`): wall-clock time from the moment the
-  request is started until the first token is received.
-- **Total response latency** (`total_latency`): wall-clock time from the same
-  start until the stream is fully consumed (the last token is received).
+| Metric | Name | Unit | Meaning |
+|---|---|---|---|
+| Time To First Token | `ttft` | ms | Request start → first item received. |
+| Total response latency | `total_latency` | ms | Request start → stream fully consumed. |
+| Output throughput | `output_chunks_per_s` | chunks/s | Output rate after the first chunk: (chunks − 1) ÷ (last chunk time − first chunk time). |
 
-Both use `time.perf_counter()` (monotonic, high resolution), are reported in
-milliseconds, and are saved as separate observations. Total latency is never
-less than TTFT.
+A **chunk** is one non-empty item yielded by the provider's stream. For the
+simulated provider each chunk is one fake token; chunks are **not** API or
+tokenizer token counts. Throughput excludes the wait for the first chunk, so it
+measures generation speed independently of TTFT. It is not recorded when it is
+undefined (fewer than two non-empty chunks, or no time between them).
+
+Timings use `time.perf_counter()` (monotonic, high resolution). Each metric is
+saved as a separate observation.
 
 ## Quick start (Chromebook Linux terminal or any Linux)
 
@@ -49,8 +56,9 @@ Provider: dummy
 Model: dummy-model-v1
 Metric: TTFT
 TTFT: 100.3 ms
-Total latency: 180.9 ms
-Saved 2 observations to data/llm_metrics.db
+Total latency: 181.2 ms
+Output throughput: 49.4 chunks/s
+Saved 3 observations to data/llm_metrics.db
 
 Dashboard: http://127.0.0.1:8000/  (Ctrl+C to stop)
 ```
@@ -60,10 +68,11 @@ If any test fails, the test output is shown and nothing else runs.
 ## Dashboard
 
 Open the printed URL in a browser. The page shows the provider and model, a
-**TEST / SIMULATED DATA** label, links to choose a metric (**TTFT** or **Total
-latency**; default TTFT) and a time window (**24h**, **7d**, **30d**; default
+**TEST / SIMULATED DATA** label, links to choose a metric (**TTFT**, **Total
+latency**, or **Output throughput**; default TTFT) and a time window (**24h**, **7d**, **30d**; default
 **7d**), and for the selected metric and window: the observation count, the
-latest value, p50/p95/p99, and a line chart over time.
+latest value, p50/p95/p99, and a line chart over time, all in that metric's
+unit (ms or chunks/s).
 
 Windows end at the current UTC time: `/?window=24h&metric=total_latency` shows
 total-latency observations with `now − 24h <= recorded_at <= now` (both ends
@@ -71,7 +80,8 @@ inclusive). Everything on the page is computed from that same set of
 observations. Any other, empty, or repeated `window` or `metric` value returns an
 error page listing the valid choices. The seeded history is a fixed week
 (2026-10-23 to 2026-10-29) of TTFT only, so as time passes it moves out of the
-shorter windows, and total latency has only live measurements; that is expected.
+shorter windows, and total latency and throughput have only live measurements;
+that is expected.
 
 Percentiles use the **nearest-rank** method over the selected window's
 observations (the same ones as the chart): sort the values and take the one at rank ⌈p × n / 100⌉. The result is
@@ -103,7 +113,8 @@ Every successful measurement is appended to a local SQLite database at
 and its table are created automatically on first use; there is nothing to set up.
 
 Each row has: `id`, `recorded_at` (UTC, e.g. `2026-10-30T00:43:46.279219Z`),
-`environment` (`test` or `prod`), `provider`, `model`, `metric`, `value_ms`.
+`environment` (`test` or `prod`), `provider`, `model`, `metric`, `value` (in the
+metric's unit).
 Rows with `environment = 'test'` come from the dummy provider and are simulated.
 
 To look at the data (uses only Python):
@@ -125,6 +136,9 @@ This inserts 168 deterministic observations, one per hour from
 2026-10-23 00:00 to 2026-10-29 23:00 UTC, labelled `environment = 'test'`.
 Running it again adds nothing. It refuses to run with `APP_ENV=prod`, and
 `./run.sh` never seeds in `prod`.
+
+Older databases are upgraded automatically in place (Step 009 renamed the
+`value_ms` column to `value`, schema version 1); existing rows are kept.
 
 To start over, delete the `data/` folder.
 

@@ -9,13 +9,13 @@ Its responsibility is to measure LLM-provider behavior, persist raw observations
 ## Current modules
 
 - `providers.py` — provider interface and the current simulated `DummyProvider`.
-- `latency.py` — single-pass streaming measurement of time to first token (TTFT) and total response latency.
-- `storage.py` — SQLite schema, observation writes (one transaction per request), and filtered observation reads.
+- `latency.py` — metric catalogue (`METRICS`: label and unit per metric) and single-pass streaming measurement of TTFT, total response latency, and output throughput.
+- `storage.py` — SQLite schema and versioned in-place upgrades, observation writes (one transaction per request), and filtered observation reads.
 - `seed_history.py` — deterministic simulated history used only in the test environment.
 - `percentiles.py` — pure nearest-rank percentile calculation.
 - `dashboard.py` — local server-rendered dashboard with metric and time-window selection.
 - `config.py` — environment, database-path, and dashboard-port configuration.
-- `__main__.py` — command-line entry point for measuring one request and storing its TTFT and total latency.
+- `__main__.py` — command-line entry point for measuring one request and storing its metrics.
 
 ## Design boundaries
 
