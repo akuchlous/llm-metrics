@@ -46,10 +46,11 @@ OpenRouter is a useful product reference: its provider/analytics surfaces emphas
 - Step 007 — 24h/7d/30d time windows: complete and reviewed.
 - Step 008 — TTFT + total response latency from one streamed request, atomic persistence, dashboard metric selector: complete and reviewed.
 - Step 009 — output chunk throughput plus metric units and schema versioning: complete and reviewed.
-- Step 010 — token accounting, requested-vs-actual output size, per-request cost, request identity, and individual-call view: prompt created; implementation pending.
-- Planned after Step 010: errors/availability, then first real provider/model.
+- Step 010 — token accounting, requested-vs-actual output size, per-request cost, request identity, and individual-call view: complete and reviewed; 99 tests reported passing.
+- Step 011 — errors, normalized failure categories, persisted failed attempts, and observed benchmark success/failure rate: prompt created.
+- Planned after Step 011: first real provider/model.
 
-The aggregate dashboard should answer: **How is this provider/model performing, and is performance changing?** The individual-call view should answer: **What exactly happened on this benchmark request, how much work did it do, how long did it take, and what did it cost?** Simulated data must always be clearly labeled.
+The aggregate dashboard should answer: **How is this provider/model performing, and is performance changing?** The individual-call view should answer: **What exactly happened on this benchmark request, how much work did it do, how long did it take, what did it cost, and did it succeed?** Simulated data must always be clearly labeled.
 
 ## Key design learning
 
@@ -67,7 +68,9 @@ The chart and summary statistics must use the same observation population. Event
 
 For user-facing API performance, total completion latency is usually the intuitive primary metric. TTFT remains useful for streaming responsiveness and diagnostics but should not require public users to understand LLM internals. TTFT also does not isolate provider compute from DNS/TCP/TLS/queueing/prefill when those occur inside the measured boundary.
 
-## Step 007–009 review
+Reliability has a separate population rule: all attempted benchmark calls belong in observed success/failure rate, while successful latency/throughput distributions must not be polluted with fabricated zero values for failures. "Observed benchmark success rate" is more precise than claiming universal provider uptime because measurements represent the runner's own conditions.
+
+## Step 007–010 review
 
 Step 007 correctly pushed time filtering into parameterized SQLite queries rather than loading all observations into the dashboard. Windows use explicit inclusive UTC bounds relative to current time; invalid/repeated choices are rejected.
 
@@ -77,14 +80,12 @@ Step 009 review result: **pass; no corrective step required.** `measure_request(
 
 Important Step 009 limitation: provider stream chunks are not provider/API tokens. Exact token accounting must come from a provider/token-accounting boundary rather than assuming one chunk equals one token.
 
-## Step 010 direction
+Step 010 review result: **pass; no corrective step required.** The implementation cleanly separates request facts from metric observations: schema v2 adds a UUID-keyed `requests` row linked to observations, provider-reported `Usage` supplies token counts rather than chunks, requested output cap is distinct from actual output, pricing is centralized, effective rates are stored with unrounded costs, and old observations remain unpaired rather than receiving fabricated request facts. Request + observations are written transactionally. The implementation report records 99 tests passing on Python 3.11/3.13 and a real v1-to-v2 upgrade preserving 171 prior observations.
 
-Cost and workload size are first-class product metrics. Step 010 adds explicit input-token count, requested maximum output tokens, actual output-token count, pricing basis, and per-request input/output/total cost while remaining simulated.
+Step-010 known limitations are acceptable for this stage: simulated tokenizer/pricing only, no token/sec metric without defensible token timing, float USD costs, and historical pre-010 observations without request details.
 
-The same text may tokenize differently across models, so future comparisons must distinguish "same text" from "same token count." Likewise, a requested output cap is not the same as actual generated output: both should be retained.
+## Step 011 direction
 
-Step 010 also introduces an explicit llm-metrics request identity because timestamp-only pairing is too weak once request-level facts and future concurrency matter. Historical pre-Step-010 observations should remain valid without fabricating missing token/cost/request data.
+Reliability is first-class for the eventual router/exchange. Step 011 should persist failed benchmark attempts rather than silently losing them, normalize failures into a small cross-provider category set (timeout, rate limit, provider/server, transport, invalid response), and derive observed benchmark success/failure rate from all attempts. Unknown token/cost/performance facts on failures must remain unknown rather than becoming zero. Existing successful latency/throughput percentiles continue to use successful measurements only.
 
-Pricing can change. Preserve the effective pricing basis used for an individual request so historical cost remains explainable; do not build a full pricing-history service yet.
-
-The eventual public product may expose individual benchmark calls containing provider/model, timestamp, input/output token counts, requested output limit, total latency, diagnostic TTFT, throughput, cost, and later origin/workload metadata. This provides auditability underneath aggregate provider comparisons.
+Do not add retries yet. One benchmark attempt remains one provider call. Retry/fallback semantics should be designed later when there is a concrete router/provider integration need.
