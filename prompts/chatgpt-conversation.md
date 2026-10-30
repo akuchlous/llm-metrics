@@ -128,7 +128,7 @@ Step 014 is a sequence, not one rewrite:
 - **014a:** complete and reviewed — Flask app factory and HTTP boundary in `web.py`.
 - **014b:** complete and reviewed — Jinja templates/static CSS own presentation; dashboard builds no HTML.
 - **014c:** complete and reviewed — `analytics.py` owns reusable natural-value analytics; `dashboard.py` owns query semantics + view formatting; dependency direction `web → dashboard → analytics → storage`; 242 tests reported passing, style checks clean, no paid call.
-- **014d:** defined — add exactly one versioned read-only JSON aggregate endpoint, `/api/v1/metrics`, consuming analytics directly. Keep it small and treat the response as the first emerging machine-interface compatibility contract.
+- **014d:** implemented, pending review — `GET /api/v1/metrics?metric=&window=` returns one aggregate metric window as JSON facts (numbers, null for unknown, ISO 8601 UTC with `Z`), naming population, metric/unit and window; `samples` (successful observations) and `reliability` (all attempts) kept separate. Shared query definitions moved to `query.py`; Flask-free `api.py` serializes analytics results; JSON errors under `/api/` never echo input. HTML byte-identical to 014c; 262 tests passing.
 - **After 014d:** review whether any final production-serving/config hardening is actually needed before returning to product work. Do not continue refactoring merely for architectural appearance.
 
 Do not combine the Flask/API refactor with PostgreSQL, provider expansion, scheduling, cloud deployment, authentication, or a frontend SPA.

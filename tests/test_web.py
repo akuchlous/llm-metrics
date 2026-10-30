@@ -8,6 +8,7 @@ provider or spend money. Two tests start the real server process on
 
 import ast
 import datetime
+import json
 import os
 import pathlib
 import re
@@ -22,6 +23,7 @@ import urllib.request
 from llm_metrics import config
 from llm_metrics import dashboard
 from llm_metrics import latency
+from llm_metrics import query
 from llm_metrics import storage
 from llm_metrics import web
 
@@ -128,7 +130,7 @@ class AggregateRouteTest(WebTestCase):
         self.assertIn("TEST / SIMULATED DATA", page)
 
     def test_every_valid_window_and_metric(self):
-        for window in dashboard.WINDOWS:
+        for window in query.WINDOWS:
             for metric in latency.METRICS:
                 with self.subTest(window=window, metric=metric):
                     response, page = self.get(
@@ -146,7 +148,7 @@ class AggregateRouteTest(WebTestCase):
         self.assertIn(aria_current("/?window=24h&amp;metric=ttft"), page)
 
     def test_invalid_query_is_400_and_never_echoed(self):
-        for query in (
+        for query_string in (
             "window=%3Cscript%3E",
             "window=24h&window=7d",
             "window=",
@@ -155,8 +157,8 @@ class AggregateRouteTest(WebTestCase):
             "metric=ttft&metric=total_latency",
             "metric=",
         ):
-            with self.subTest(query=query):
-                response, page = self.get(f"/?{query}")
+            with self.subTest(query=query_string):
+                response, page = self.get(f"/?{query_string}")
                 self.assert_html_with_csp(response, 400)
                 self.assertIn("Invalid window or metric", page)
                 self.assertIn('href="/?window=30d&amp;metric=ttft"', page)
@@ -193,9 +195,9 @@ class RequestsRouteTest(WebTestCase):
         self.assertIn("smoke.short_text.v2", page)
 
     def test_invalid_data_is_400(self):
-        for query in ("data=prod", "data=", "data=real&data=simulated"):
-            with self.subTest(query=query):
-                response, page = self.get(f"/requests?{query}")
+        for query_string in ("data=prod", "data=", "data=real&data=simulated"):
+            with self.subTest(query=query_string):
+                response, page = self.get(f"/requests?{query_string}")
                 self.assert_html_with_csp(response, 400)
                 self.assertNotIn("prod</", page)
 
@@ -214,14 +216,14 @@ class SpendRouteTest(WebTestCase):
         self.assertNotIn("dummy-model-v1", page)  # simulated cost never shown
 
     def test_valid_and_invalid_windows(self):
-        for window in dashboard.WINDOWS:
+        for window in query.WINDOWS:
             with self.subTest(window=window):
                 response, page = self.get(f"/spend?window={window}")
                 self.assert_html_with_csp(response, 200)
                 self.assertIn(aria_current(f"/spend?window={window}"), page)
-        for query in ("window=1y", "window=7d&window=30d", "window="):
-            with self.subTest(query=query):
-                response, _ = self.get(f"/spend?{query}")
+        for query_string in ("window=1y", "window=7d&window=30d", "window="):
+            with self.subTest(query=query_string):
+                response, _ = self.get(f"/spend?{query_string}")
                 self.assert_html_with_csp(response, 400)
 
 
@@ -256,13 +258,19 @@ class RoutingTest(WebTestCase):
         css.close()
 
     def test_only_get_is_allowed(self):
-        for path in ("/", "/requests", "/spend"):
+        for path in ("/", "/requests", "/spend", "/api/v1/metrics"):
             with self.subTest(path=path):
                 self.assertEqual(self.client.post(path).status_code, 405)
 
     def test_no_network_access_while_serving_pages(self):
         storage.save_request(self.db_path, REAL_REQUEST, [], "prod")
-        for path in ("/", "/requests", "/requests?data=real", "/spend"):
+        for path in (
+            "/",
+            "/requests",
+            "/requests?data=real",
+            "/spend",
+            "/api/v1/metrics",
+        ):
             self.assertEqual(self.client.get(path).status_code, 200)
         # setUp's patches raise on any connection, so reaching this line means
         # no route opened one.
@@ -414,7 +422,8 @@ class ImportAndDependencyTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             db_path = pathlib.Path(tmp) / "untouched.db"
             proc = run_python(
-                "import llm_metrics.web, llm_metrics.dashboard",
+                "import llm_metrics.web, llm_metrics.dashboard,"
+                " llm_metrics.api",
                 {"LLM_METRICS_DB_PATH": str(db_path)},
             )
             self.assertEqual(proc.returncode, 0, proc.stderr)
@@ -438,12 +447,18 @@ class ImportAndDependencyTest(unittest.TestCase):
                 self.assertFalse(imported & WEB_PACKAGES)
 
     def test_layers_import_only_inward(self):
-        # web -> dashboard -> analytics -> storage: the dashboard reads data
-        # only through analytics, and analytics knows nothing about pages.
+        # HTML: web -> dashboard -> analytics -> storage
+        # JSON: web -> api       -> analytics -> storage
+        # Both read data only through analytics (via the shared `query`
+        # definitions); the API never uses the dashboard's human formatting,
+        # and analytics knows nothing about pages, the API, or HTTP.
+        consumers = {"dashboard", "api", "web"}
         forbidden = {
-            "dashboard.py": {"storage", "web"},
-            "analytics.py": {"dashboard", "web"},
-            "storage.py": {"analytics", "dashboard", "web"},
+            "dashboard.py": {"storage", "api", "web"},
+            "api.py": {"storage", "dashboard", "web"},
+            "query.py": {"storage", *consumers},
+            "analytics.py": {"query", *consumers},
+            "storage.py": {"analytics", "query", *consumers},
         }
         for name, banned in forbidden.items():
             tree = ast.parse(
@@ -464,6 +479,7 @@ class ImportAndDependencyTest(unittest.TestCase):
     def test_benchmark_and_data_layers_load_without_flask(self):
         modules = (
             "analytics",
+            "api",
             "benchmark",
             "config",
             "dashboard",
@@ -473,6 +489,7 @@ class ImportAndDependencyTest(unittest.TestCase):
             "percentiles",
             "pricing",
             "providers",
+            "query",
             "real_smoke",
             "seed_history",
             "storage",
@@ -521,6 +538,14 @@ class ServerProcessTest(unittest.TestCase):
                     response.headers["Content-Security-Policy"], CSP
                 )
                 self.assertIn("TEST / SIMULATED DATA", response.read().decode())
+            api_url = match.group(1) + "api/v1/metrics"
+            with urllib.request.urlopen(api_url, timeout=10) as response:
+                self.assertEqual(response.status, 200)
+                self.assertEqual(
+                    response.headers.get_content_type(), "application/json"
+                )
+                body = json.loads(response.read())
+                self.assertEqual(body["population"]["data"], "simulated")
         finally:
             proc.terminate()
             proc.wait(timeout=10)

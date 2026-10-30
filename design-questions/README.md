@@ -57,3 +57,4 @@ Each file has:
 | [14a](14a/) | Flask foundation | `prompts/014a-flask-foundation.md` |
 | [14b](14b/) | Jinja templates | `prompts/014b-jinja-templates.md` |
 | [14c](14c/) | Analytics vs view preparation | `prompts/014c-separate-analytics-view-preparation.md` |
+| [14d](14d/) | Versioned read-only JSON API | `prompts/014d-versioned-json-api.md` |

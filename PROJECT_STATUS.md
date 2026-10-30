@@ -1,8 +1,10 @@
 # Project status
 
-_Last updated: Step 014c — 2026-10-30_
+_Last updated: Step 014d — 2026-10-30_
 
 ## Current state
+
+**Step 014d complete: a small versioned read-only JSON API.** `GET /api/v1/metrics?metric=&window=` returns one aggregate metric window as JSON facts (numbers, `null` for unknown, ISO 8601 UTC times), built from the same `analytics` result as the aggregate page. It names its population (simulated dummy provider), metric and unit, and window; `samples` covers successful observations only and `reliability` every attempt. Shared query definitions (metrics, windows, populations, validation) moved from `dashboard.py` to `query.py`; the new `api.py` serializes without Flask. HTML pages are byte-identical to 014c (D060).
 
 **Step 014c complete: analytics separated from view preparation.** New `llm_metrics/analytics.py` returns natural values (floats, ints, aware datetimes, None for unknown) for metric windows, nearest-rank summaries, success rates, recent attempts, and real-only spend; `dashboard.py` keeps query semantics and turns those facts into display text, links, and chart geometry, and no longer reads storage. Direction `web → dashboard → analytics → storage`, enforced by tests. Rendered pages are byte-identical to 014b (D059).
 
@@ -26,7 +28,8 @@ Working:
 - Recent requests view (`/requests`): the 20 most recent attempts with outcome (FAILED + category), tokens, total latency (primary), TTFT, token throughput (before chunk throughput), chunk throughput, costs, failed-after time, provider / model, workload, and origin; unknown values shown as "—"; labelled simulated or real.
 - Benchmark API Spend (`/spend?window=`, default 30d, real data only): per provider/model successful paid calls, tokens, known total cost, failed attempts (cost unknown), and a grand total.
 - Pages are labelled TEST / SIMULATED DATA or REAL PROVIDER DATA; `/requests?data=simulated|real` switches population.
-- 242 `unittest` tests (pass on Python 3.13 in the project venv); none reach external networks (two web tests serve on 127.0.0.1). Web routes are tested with Flask's test client; page tests render the real templates.
+- JSON API (`/api/v1/metrics?metric=&window=`, same values and defaults as the aggregate page): `api_version`, `population` (`data: "simulated"`, provider, model), `metric` (name, unit), `window` (name, ISO start/end), `samples` (successful observations: count, first/latest time, latest value, p50/p95/p99, `null` when none), `reliability` (all attempts: counts, rates `null` when none, failures by category). 400/404/405/500 under `/api/` are JSON errors that never echo input. Field meanings and types are the v1 compatibility contract (README, D060).
+- 262 `unittest` tests (pass on Python 3.13 in the project venv); none reach external networks (two web tests serve on 127.0.0.1). Web routes are tested with Flask's test client; page tests render the real templates.
 - One runtime dependency, Flask (with its libraries), used only by `web.py`. Provider network access and secrets are used only by `real_smoke`.
 - All Python follows the Google Python Style Guide (D055): `pyink` formatting, isort `google` import order, and Google's `pylintrc` report no findings. These tools are optional development tools, not dependencies.
 
@@ -64,9 +67,11 @@ llm_metrics/
   pricing.py       all prices (USD per 1M tokens) + PRICE_PROVENANCE + request_cost
   storage.py       SQLite init + transactional versioned upgrade; save_request; time-window reads; request reads; count_outcomes; spend_by_model
   seed_history.py  deterministic simulated TTFT history + seed command
-  web.py           Flask HTTP boundary: create_app(), routes /, /requests, /spend, render_page (Jinja), status codes, CSP header, serving on 127.0.0.1
+  web.py           Flask HTTP boundary: create_app(), routes /, /requests, /spend, /api/v1/metrics, render_page (Jinja), json_response, status codes, CSP header, serving on 127.0.0.1
   analytics.py     product analytics as natural values: metric windows (successful observations + nearest-rank summary + success rate over all attempts), recent attempts, real-only spend totals
-  dashboard.py     query semantics + view preparation: valid values, window names, page populations; formatting, "—"/"unknown", links, chart geometry (*_view / load_*_view); never reads storage
+  query.py         product query definitions shared by HTML and JSON: metrics/units, windows, data populations, aggregate population, parameter validation, load_aggregate_metric
+  api.py           JSON API v1 serializer (no Flask): analytics results -> JSON-ready facts, ISO UTC times, error bodies
+  dashboard.py     page-specific query semantics + view preparation: requests/spend choices; formatting, "—"/"unknown", links, chart geometry (*_view / load_*_view); never reads storage
   templates/       Jinja templates: base.html, aggregate.html, requests.html, spend.html, invalid_query.html, partials (_aggregate_nav, _chart, _macros)
   static/          dashboard.css (served at /static/dashboard.css)
   percentiles.py   nearest-rank percentile (no HTML)
@@ -110,7 +115,9 @@ A unique index on observations (`recorded_at`, `environment`, `provider`, `model
 - Seeded and live dummy rows are both `test`/`dummy`; they are told apart only by timestamp (seeded rows are on the hour, before 2026-10-30).
 - Dashboard has three fixed windows only; no custom ranges, provider filters, zoom, tooltips, or auto-refresh (reload the page).
 - Within a window, seeded and live rows are still mixed (no source filter).
-- Recent-attempt and spend-group rows still cross the analytics boundary as `storage` dicts (natural values, but untyped); view dictionaries are untyped too, so a mistyped key renders as an empty cell rather than failing. The dashboard uses
+- Recent-attempt and spend-group rows still cross the analytics boundary as `storage` dicts (natural values, but untyped); view dictionaries are untyped too, so a mistyped key renders as an empty cell rather than failing.
+- The dashboard and API use Werkzeug's single-threaded development server, fine for local use only; production serving is out of scope until deployment.
+- The JSON API has one endpoint, fixed to the simulated dummy population (no provider/model selection), no authentication, no CORS (same-origin only), and no rate limiting. Its sample count can exceed its attempt count because seeded history has observations without attempt records (as on the aggregate page). Percentiles are full-precision floats; there is no published schema file (the contract is documented in README and D060).
 - A fresh checkout needs network access to PyPI on its first `./run.sh` (and whenever `requirements.txt` changes); there is no offline wheel cache. Tests must run under the project venv.
 - Non-GET requests now return 405 (previously 501); HEAD is answered automatically for GET routes.
 - With fewer than 100 observations, nearest-rank p99 equals the maximum.

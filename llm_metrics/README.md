@@ -19,8 +19,10 @@ Its responsibility is to measure LLM-provider behavior, persist raw observations
 - `seed_history.py` — deterministic simulated history used only in the test environment.
 - `percentiles.py` — pure nearest-rank percentile calculation.
 - `analytics.py` — product analytics over stored data as natural values (no display formatting): metric windows with nearest-rank summaries and success rates, recent attempts, and real-only benchmark spend. Owns the population rules; reads only through `storage`.
-- `dashboard.py` — dashboard query semantics and view preparation, without HTTP, HTML, or storage access: validates parsed query parameters, chooses each page's population, and turns `analytics` results into view data (`*_view` / `load_*_view`) for the aggregate, recent requests, Benchmark API Spend, and invalid-query pages.
-- `web.py` — the Flask HTTP boundary: `create_app()` application factory, routes, template rendering (`render_page`), status codes, security headers, and serving on 127.0.0.1. The only module that imports Flask or Jinja.
+- `query.py` — product query definitions shared by the dashboard and the JSON API: selectable metrics (and their units), window names and durations, data populations, the fixed aggregate population, single-valued parameter validation, and `load_aggregate_metric`.
+- `dashboard.py` — dashboard page-specific query semantics and view preparation, without HTTP, HTML, or storage access: turns `analytics` results into view data (`*_view` / `load_*_view`) for the aggregate, recent requests, Benchmark API Spend, and invalid-query pages.
+- `api.py` — JSON API v1 representation, without Flask: turns `analytics` results into JSON-ready facts (numbers, `None` for unknown, ISO 8601 UTC times) and error bodies. Never uses dashboard formatting.
+- `web.py` — the Flask HTTP boundary: `create_app()` application factory, routes (HTML pages and `/api/v1/metrics`), template rendering (`render_page`), JSON encoding (`json_response`), status codes, security headers, and serving on 127.0.0.1. The only module that imports Flask or Jinja.
 - `templates/` — Jinja templates (autoescaped, no logic beyond loops and prepared conditions); `static/dashboard.css` — the only stylesheet.
 - `config.py` — environment, database-path, dashboard-port, and measurement-origin (`LLM_METRICS_ORIGIN_CLOUD` / `LLM_METRICS_ORIGIN_REGION`) configuration.
 - `__main__.py` — command-line entry point for one simulated attempt (never calls a paid API).

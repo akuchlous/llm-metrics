@@ -204,13 +204,83 @@ maximum.
 The dashboard is a small Flask application with server-rendered pages (Jinja
 templates in `llm_metrics/templates/`, one stylesheet in `llm_metrics/static/`)
 and no JavaScript. Its code is layered so each concern has one owner: `web.py`
-(HTTP and template rendering) → `dashboard.py` (which data a page shows and how
-values are worded) → `analytics.py` (statistics over stored facts, as plain
-numbers and times) → `storage.py` (SQLite). It listens on `127.0.0.1` only, so it is not reachable from other
+(HTTP, template rendering, JSON encoding) → `dashboard.py` (how values are
+worded for people) or `api.py` (how they are represented for programs) →
+`analytics.py` (statistics over stored facts, as plain numbers and times) →
+`storage.py` (SQLite). `query.py` holds what both may select: metrics and
+their units, windows, and populations. It listens on `127.0.0.1` only, so it is not reachable from other
 machines, and never runs in Flask debug mode. On a
 Chromebook, open the printed URL in Chrome; if it does not load, try
 `http://localhost:8000/`. Stop it with Ctrl+C. If port 8000 is busy, use another:
 `LLM_METRICS_PORT=8001 ./run.sh`.
+
+## JSON API (v1, read-only)
+
+`GET /api/v1/metrics?metric=<name>&window=24h|7d|30d` returns the aggregate
+page's data as JSON facts for programs. It accepts the same metric and window
+values, with the same defaults (`ttft`, `7d`), and computes nothing of its own:
+both the page and the API read the same analytics result.
+
+```bash
+curl -s 'http://127.0.0.1:8000/api/v1/metrics?metric=ttft&window=24h'
+```
+
+```json
+{
+  "api_version": "v1",
+  "population": {"data": "simulated", "provider": "dummy", "model": "dummy-model-v1"},
+  "metric": {"name": "ttft", "unit": "ms"},
+  "window": {"name": "24h", "start": "2026-10-29T12:00:00.000000Z", "end": "2026-10-30T12:00:00.000000Z"},
+  "samples": {
+    "count": 25,
+    "first_recorded_at": "2026-10-29T13:00:00.000000Z",
+    "latest": {"recorded_at": "2026-10-30T11:58:02.123456Z", "value": 100.4},
+    "percentiles": {"p50": 100.3, "p95": 104.5, "p99": 111.6}
+  },
+  "reliability": {
+    "attempts": 12, "successes": 12, "failures": 0,
+    "success_rate": 1.0, "failure_rate": 0.0,
+    "failures_by_category": {"timeout": 0, "rate_limited": 0, "provider_error": 0, "transport_error": 0, "invalid_response": 0}
+  }
+}
+```
+
+| Field | Type | Meaning |
+|---|---|---|
+| `api_version` | string | Always `"v1"` on this path. |
+| `population.data` | string | `"simulated"` (dummy provider; not real LLM performance). The only population for now. |
+| `population.provider`, `.model` | string | The measured provider and model. |
+| `metric.name`, `.unit` | string | The selected metric and the unit of every value below (`ms`, `tokens/s`, or `chunks/s`). |
+| `window.name` | string | `24h`, `7d`, or `30d`. |
+| `window.start`, `.end` | string | Inclusive bounds; `end` is the request time. |
+| `samples.count` | integer | Successful observations of this metric in the window (failures never contribute values). |
+| `samples.first_recorded_at` | string or null | Time of the oldest one. |
+| `samples.latest` | object or null | The newest observation: `recorded_at` and `value`. |
+| `samples.percentiles` | object or null | `p50`, `p95`, `p99` by nearest rank over those observations. |
+| `reliability.attempts`, `.successes`, `.failures` | integer | Every benchmark attempt of the population in the window, successful or failed. |
+| `reliability.success_rate`, `.failure_rate` | number or null | Fractions 0–1; `null` when there were no attempts. |
+| `reliability.failures_by_category` | object | Attempts per failure category (every category present). |
+
+- **Times** are ISO 8601 UTC with microseconds and a `Z` suffix.
+- **`null`** means no such fact exists in the window (no observations, or no
+  attempts); it is never written as 0. A valid but empty window is still
+  `200`.
+- **Samples vs attempts:** `samples` and `reliability` are different
+  populations on purpose. A failure counts in `reliability` but adds no
+  sample, and seeded simulated history has observations without attempt
+  records, so `samples.count` can exceed `reliability.attempts`.
+- **Errors** are JSON too: an unknown, empty, or repeated `metric`/`window`
+  returns `400` with `{"api_version": "v1", "error": {"code":
+  "invalid_query", "message": …, "valid": …, "defaults": …}}`, never echoing
+  the submitted value. Unknown paths under `/api/` return `404`
+  (`not_found`), other methods `405` (`method_not_allowed`), and server
+  errors `500` (`internal_server_error`) without details.
+- **Compatibility:** once relied on, v1 field names, meanings, units, and
+  types do not change. New fields may be added, so ignore fields you do not
+  know; renaming, removing, or retyping a field would need `/api/v2/`.
+
+No authentication or CORS: like the dashboard, the API is served on
+`127.0.0.1` only.
 
 ## Manual commands (for development and debugging)
 

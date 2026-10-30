@@ -4,12 +4,13 @@ Sits between the HTTP boundary and analytics:
 
     web (Flask routes, Jinja) -> dashboard (this module) -> analytics -> storage
 
-It owns:
+The product query definitions it shares with the JSON API (metrics, windows,
+data populations, the aggregate population, parameter validation) live in
+`query`. This module owns:
 
-- Query semantics: which query values are valid, what each window name
-  means, and which population each page shows (the aggregate page: simulated
-  dummy data; requests: the chosen "simulated" or "real" population; spend:
-  real data, fixed by `analytics`).
+- Page-specific query semantics: the requests page's population choice and
+  the spend page's default window (spend itself is real data only, fixed by
+  `analytics`).
 - View preparation: turning `analytics` results (natural values) into
   template-ready dictionaries: formatted numbers, "—" for unknown values,
   "unknown" for unknown cost, human-readable UTC times, navigation links,
@@ -30,41 +31,16 @@ and a `load_*_view` function that asks `analytics` for the result first:
   one.
 """
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Sequence
 import datetime
 import math
 import pathlib
 
 from llm_metrics import analytics
-from llm_metrics import latency
 from llm_metrics import outcomes
-from llm_metrics import providers
-
-# The aggregate page shows simulated observations from the dummy provider only.
-ENVIRONMENT = analytics.SIMULATED_ENVIRONMENT
-PROVIDER = providers.DummyProvider.name
-MODEL = providers.DummyProvider.model
-
-DEFAULT_METRIC = "ttft"
-
-# Selectable windows, each ending at the current UTC time. The default is 7d:
-# with hourly data it holds ~168 observations, enough for nearest-rank p99 to
-# differ from the maximum (24h would hold only ~24).
-WINDOWS = {
-    "24h": datetime.timedelta(hours=24),
-    "7d": datetime.timedelta(days=7),
-    "30d": datetime.timedelta(days=30),
-}
-DEFAULT_WINDOW = "7d"
+from llm_metrics import query
 
 RECENT_REQUESTS = 20  # Rows on the requests page.
-
-# Data populations: query value -> stored environment.
-DATA = {
-    "simulated": analytics.SIMULATED_ENVIRONMENT,
-    "real": analytics.REAL_ENVIRONMENT,
-}
-DEFAULT_DATA = "simulated"
 
 # Spend accumulates slowly, so its default window is the longest one.
 SPEND_DEFAULT_WINDOW = "30d"
@@ -76,48 +52,11 @@ LEFT, RIGHT, TOP, BOTTOM = 60, 20, 20, 40
 # Shown for any fact that is unknown (None), so it is never mistaken for 0.
 UNKNOWN = "—"
 
-# Parsed query parameters: name -> every value submitted for it, in order.
-# Keeping all values (not just the last) is what lets a repeated parameter be
-# rejected instead of silently picking one.
-QueryParams = Mapping[str, list[str]]
+
+# Page-specific query semantics (the shared ones live in `query`).
 
 
-# Query semantics.
-
-
-def _parse_choice(params: QueryParams, name: str, choices, default: str) -> str:
-    """Returns the single allowed value of query parameter `name`.
-
-    Raises:
-        ValueError: If the value is not in `choices`, is empty, or is repeated.
-            The message never includes the submitted value.
-    """
-    values = params.get(name)
-    if values is None:
-        return default
-    if len(values) != 1 or values[0] not in choices:
-        raise ValueError(f"Invalid {name}.")
-    return values[0]
-
-
-def parse_query(params: QueryParams) -> tuple[str, str]:
-    """Validates the aggregate page's query; other parameters are ignored.
-
-    Args:
-        params: Query parameters, including blank values.
-
-    Returns:
-        (window, metric), using the defaults for absent parameters.
-
-    Raises:
-        ValueError: For an unknown, empty, or repeated window or metric.
-    """
-    window = _parse_choice(params, "window", WINDOWS, DEFAULT_WINDOW)
-    metric = _parse_choice(params, "metric", latency.METRICS, DEFAULT_METRIC)
-    return window, metric
-
-
-def parse_requests_query(params: QueryParams) -> str:
+def parse_requests_query(params: query.QueryParams) -> str:
     """Validates the requests page's query.
 
     Args:
@@ -129,10 +68,10 @@ def parse_requests_query(params: QueryParams) -> str:
     Raises:
         ValueError: For an unknown, empty, or repeated value.
     """
-    return _parse_choice(params, "data", DATA, DEFAULT_DATA)
+    return query.parse_choice(params, "data", query.DATA, query.DEFAULT_DATA)
 
 
-def parse_spend_query(params: QueryParams) -> str:
+def parse_spend_query(params: query.QueryParams) -> str:
     """Validates the spend page's query.
 
     Args:
@@ -144,14 +83,9 @@ def parse_spend_query(params: QueryParams) -> str:
     Raises:
         ValueError: For an unknown, empty, or repeated value.
     """
-    return _parse_choice(params, "window", WINDOWS, SPEND_DEFAULT_WINDOW)
-
-
-def window_bounds(
-    window: str, now: datetime.datetime
-) -> tuple[datetime.datetime, datetime.datetime]:
-    """Returns (start, end) of the named window ending at `now`; inclusive."""
-    return analytics.window_bounds(WINDOWS[window], now)
+    return query.parse_choice(
+        params, "window", query.WINDOWS, SPEND_DEFAULT_WINDOW
+    )
 
 
 # Display formatting: the only place analytics values become text.
@@ -196,8 +130,8 @@ def _layout(active_view: str | None, real_data: bool) -> dict:
     return {
         "active_view": active_view,
         "real_data": real_data,
-        "simulated_provider": PROVIDER,
-        "simulated_model": MODEL,
+        "simulated_provider": query.AGGREGATE_PROVIDER,
+        "simulated_model": query.AGGREGATE_MODEL,
     }
 
 
@@ -211,18 +145,18 @@ def _aggregate_links(window: str | None, metric: str | None) -> dict:
     Each link keeps the other current selection, so switching the window does
     not reset the metric and vice versa. None means nothing is current.
     """
-    keep_metric = metric or DEFAULT_METRIC
-    keep_window = window or DEFAULT_WINDOW
+    keep_metric = metric or query.DEFAULT_METRIC
+    keep_window = window or query.DEFAULT_WINDOW
     return {
         "metric_links": [
             _link(
                 f"/?window={keep_window}&metric={name}", label, name == metric
             )
-            for name, (label, _) in latency.METRICS.items()
+            for name, (label, _) in query.METRICS.items()
         ],
         "window_links": [
             _link(f"/?window={name}&metric={keep_metric}", name, name == window)
-            for name in WINDOWS
+            for name in query.WINDOWS
         ],
     }
 
@@ -342,7 +276,7 @@ def aggregate_view(
         no successful observations of the metric; "reliability" is None when
         it has no attempts.
     """
-    label, unit = latency.METRICS[metric]
+    label, unit = query.METRICS[metric]
     return {
         **_layout("/", real_data=False),
         **_aggregate_links(window, metric),
@@ -359,10 +293,7 @@ def load_aggregate_view(
     db_path: pathlib.Path, window: str, metric: str, now: datetime.datetime
 ) -> dict:
     """Loads the aggregate page's analytics and prepares its view."""
-    start, end = window_bounds(window, now)
-    result = analytics.load_metric_window(
-        db_path, ENVIRONMENT, PROVIDER, MODEL, metric, start=start, end=end
-    )
+    result = query.load_aggregate_metric(db_path, window, metric, now)
     return aggregate_view(result, window, metric)
 
 
@@ -375,13 +306,13 @@ def invalid_query_view() -> dict:
     return {
         **_layout(None, real_data=False),
         **_aggregate_links(None, None),
-        "windows": list(WINDOWS),
-        "default_window": DEFAULT_WINDOW,
+        "windows": list(query.WINDOWS),
+        "default_window": query.DEFAULT_WINDOW,
         "spend_default_window": SPEND_DEFAULT_WINDOW,
-        "metrics": list(latency.METRICS),
-        "default_metric": DEFAULT_METRIC,
-        "data_values": list(DATA),
-        "default_data": DEFAULT_DATA,
+        "metrics": list(query.METRICS),
+        "default_metric": query.DEFAULT_METRIC,
+        "data_values": list(query.DATA),
+        "default_data": query.DEFAULT_DATA,
     }
 
 
@@ -433,7 +364,7 @@ def _request_row(attempt: dict) -> dict:
     }
 
 
-def requests_view(attempts: list[dict], data: str = DEFAULT_DATA) -> dict:
+def requests_view(attempts: list[dict], data: str = query.DEFAULT_DATA) -> dict:
     """Prepares the requests page for one data population.
 
     Args:
@@ -447,7 +378,8 @@ def requests_view(attempts: list[dict], data: str = DEFAULT_DATA) -> dict:
     return {
         **_layout("/requests", real_data=data == "real"),
         "data_links": [
-            _link(f"/requests?data={name}", name, name == data) for name in DATA
+            _link(f"/requests?data={name}", name, name == data)
+            for name in query.DATA
         ],
         "recent_limit": RECENT_REQUESTS,
         "rows": [_request_row(attempt) for attempt in attempts],
@@ -459,10 +391,10 @@ def load_requests_view(db_path: pathlib.Path, data: str) -> dict:
 
     Args:
         db_path: Database to read.
-        data: "simulated" or "real" (see `DATA`).
+        data: "simulated" or "real" (see `query.DATA`).
     """
     attempts = analytics.load_recent_attempts(
-        db_path, DATA[data], RECENT_REQUESTS
+        db_path, query.DATA[data], RECENT_REQUESTS
     )
     return requests_view(attempts, data)
 
@@ -510,7 +442,7 @@ def spend_view(spend: analytics.Spend, window: str) -> dict:
         "window_label": _window_label(spend.start, spend.end),
         "window_links": [
             _link(f"/spend?window={name}", name, name == window)
-            for name in WINDOWS
+            for name in query.WINDOWS
         ],
         "rows": [_spend_group_row(group) for group in spend.groups],
         "total": _spend_totals_row(spend.totals),
@@ -521,6 +453,6 @@ def load_spend_view(
     db_path: pathlib.Path, window: str, now: datetime.datetime
 ) -> dict:
     """Loads real-data spend for a window; see `spend_view`."""
-    start, end = window_bounds(window, now)
+    start, end = query.window_bounds(window, now)
     spend = analytics.load_benchmark_spend(db_path, start=start, end=end)
     return spend_view(spend, window)

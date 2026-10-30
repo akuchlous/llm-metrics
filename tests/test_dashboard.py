@@ -19,6 +19,7 @@ import urllib.parse
 from llm_metrics import analytics
 from llm_metrics import dashboard
 from llm_metrics import outcomes
+from llm_metrics import query
 from llm_metrics import storage
 from llm_metrics import web
 
@@ -28,10 +29,10 @@ DUMMY = {**DUMMY_IDENTITY, "metric": "ttft"}
 NOW = datetime.datetime(2026, 11, 30, 12, 0, tzinfo=datetime.timezone.utc)
 
 
-def params(query):
+def params(query_string):
     """Parses a query string the way the web layer does: repeated and blank
     values are kept, so validation can reject them."""
-    return urllib.parse.parse_qs(query, keep_blank_values=True)
+    return urllib.parse.parse_qs(query_string, keep_blank_values=True)
 
 
 def visible_text(page):
@@ -129,27 +130,28 @@ class LoadObservationsTest(DashboardTestCase):
 class WindowTest(DashboardTestCase):
 
     def test_parse_query_defaults_and_values(self):
-        self.assertEqual(dashboard.DEFAULT_WINDOW, "7d")
-        self.assertEqual(dashboard.DEFAULT_METRIC, "ttft")
-        self.assertEqual(dashboard.parse_query(params("")), ("7d", "ttft"))
+        self.assertEqual(query.DEFAULT_WINDOW, "7d")
+        self.assertEqual(query.DEFAULT_METRIC, "ttft")
+        self.assertEqual(query.parse_metric_query(params("")), ("7d", "ttft"))
         self.assertEqual(
-            dashboard.parse_query(params("other=1")), ("7d", "ttft")
+            query.parse_metric_query(params("other=1")), ("7d", "ttft")
         )
         for name in ("24h", "7d", "30d"):
             self.assertEqual(
-                dashboard.parse_query(params(f"window={name}")), (name, "ttft")
+                query.parse_metric_query(params(f"window={name}")),
+                (name, "ttft"),
             )
         self.assertEqual(
-            dashboard.parse_query(params("metric=total_latency")),
+            query.parse_metric_query(params("metric=total_latency")),
             ("7d", "total_latency"),
         )
         self.assertEqual(
-            dashboard.parse_query(params("metric=ttft&window=30d")),
+            query.parse_metric_query(params("metric=ttft&window=30d")),
             ("30d", "ttft"),
         )
 
     def test_invalid_window_rejected(self):
-        for query in (
+        for query_string in (
             "window=",
             "window=1h",
             "window=7D",
@@ -157,12 +159,12 @@ class WindowTest(DashboardTestCase):
             "window=24h&window=7d",
             "window=%3Cscript%3E",
         ):
-            with self.subTest(query=query):
+            with self.subTest(query=query_string):
                 with self.assertRaises(ValueError):
-                    dashboard.parse_query(params(query))
+                    query.parse_metric_query(params(query_string))
 
     def test_invalid_metric_rejected(self):
-        for query in (
+        for query_string in (
             "metric=",
             "metric=TTFT",
             "metric=total",
@@ -173,21 +175,21 @@ class WindowTest(DashboardTestCase):
             "window=7d&metric=bogus",
             "metric=output_chunks_per_s&metric=ttft",
         ):
-            with self.subTest(query=query):
+            with self.subTest(query=query_string):
                 with self.assertRaises(ValueError):
-                    dashboard.parse_query(params(query))
+                    query.parse_metric_query(params(query_string))
 
     def test_window_bounds_are_relative_to_now(self):
         self.assertEqual(
-            dashboard.window_bounds("24h", NOW),
+            query.window_bounds("24h", NOW),
             (NOW - datetime.timedelta(hours=24), NOW),
         )
         self.assertEqual(
-            dashboard.window_bounds("7d", NOW),
+            query.window_bounds("7d", NOW),
             (NOW - datetime.timedelta(days=7), NOW),
         )
         self.assertEqual(
-            dashboard.window_bounds("30d", NOW),
+            query.window_bounds("30d", NOW),
             (NOW - datetime.timedelta(days=30), NOW),
         )
 
@@ -348,7 +350,7 @@ class ReliabilityTest(DashboardTestCase):
 
     def reliability_text(self, counts):
         """Returns the reliability section's text, cells separated by spaces."""
-        start, end = dashboard.window_bounds("7d", NOW)
+        start, end = query.window_bounds("7d", NOW)
         result = analytics.MetricWindow(
             start=start,
             end=end,
@@ -443,7 +445,7 @@ class EmptyAndRenderTest(DashboardTestCase):
         self.assertIn("observations in the selected window", page)
 
     def test_single_observation(self):
-        start, end = dashboard.window_bounds("24h", NOW)
+        start, end = query.window_bounds("24h", NOW)
         observations = (
             analytics.Observation(
                 analytics.parse_recorded_at("2026-11-30T11:00:00.000000Z"),
@@ -738,7 +740,7 @@ def spend_row(
 class SpendPageTest(DashboardTestCase):
 
     def spend_page(self, rows, window="30d"):
-        start, end = dashboard.window_bounds(window, NOW)
+        start, end = query.window_bounds(window, NOW)
         spend = analytics.Spend(
             start=start,
             end=end,
@@ -856,7 +858,7 @@ class ViewPreparationTest(unittest.TestCase):
     """Analytics facts become the same display text as before, without HTML."""
 
     def test_aggregate_view_formats_summary_and_reliability(self):
-        start, end = dashboard.window_bounds("24h", NOW)
+        start, end = query.window_bounds("24h", NOW)
         observations = (
             analytics.Observation(NOW - datetime.timedelta(hours=2), 100.0),
             analytics.Observation(NOW - datetime.timedelta(hours=1), 123.45),
@@ -888,7 +890,7 @@ class ViewPreparationTest(unittest.TestCase):
         self.assertFalse(view["real_data"])
 
     def test_empty_aggregate_view_has_no_summary_or_rate(self):
-        start, end = dashboard.window_bounds("7d", NOW)
+        start, end = query.window_bounds("7d", NOW)
         result = analytics.MetricWindow(start, end, (), None, None)
         view = dashboard.aggregate_view(result, "7d", "total_latency")
         self.assertIsNone(view["summary"])
@@ -938,7 +940,7 @@ class ViewPreparationTest(unittest.TestCase):
                 total_cost=None,
             ),
         ]
-        start, end = dashboard.window_bounds("30d", NOW)
+        start, end = query.window_bounds("30d", NOW)
         spend = analytics.Spend(
             start, end, tuple(groups), analytics.spend_totals(groups)
         )

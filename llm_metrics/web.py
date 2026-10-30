@@ -2,14 +2,16 @@
 
 Usage: python -m llm_metrics.web   (serves http://127.0.0.1:8000/)
 
-Owns route dispatch, query parameter access, template rendering, HTTP status
-codes and headers, and serving on 127.0.0.1. What each page shows comes from
-`dashboard` (query semantics and view data), which gets its facts from
-`analytics`, which reads `storage`. The markup lives in
-`llm_metrics/templates/` and the stylesheet in `llm_metrics/static/`. This
-module contains no SQL and no HTML. Dependency direction:
+Owns route dispatch, query parameter access, template rendering, JSON
+encoding, HTTP status codes and headers, and serving on 127.0.0.1. What each
+page shows comes from `dashboard` (view data); what the JSON API returns comes
+from `api` (machine representation). Both get the same facts from `analytics`
+(through `query` for the shared selections), which reads `storage`. The markup
+lives in `llm_metrics/templates/` and the stylesheet in `llm_metrics/static/`.
+This module contains no SQL, no HTML, and no statistics. Dependency direction:
 
-    web (Flask, Jinja templates) -> dashboard -> analytics -> storage
+    HTML: web (Flask, Jinja templates) -> dashboard -> analytics -> storage
+    JSON: web (Flask)                  -> api       -> analytics -> storage
 
 This is the only module that imports Flask, Werkzeug, or Jinja. Measurement,
 providers, pricing, storage, and analytics must keep working without them.
@@ -19,9 +21,11 @@ Routes (GET only; unknown paths are 404):
 - `/?window=&metric=`: aggregate page.
 - `/requests?data=simulated|real`: individual attempts.
 - `/spend?window=`: Benchmark API Spend (real data only).
+- `/api/v1/metrics?metric=&window=`: one aggregate metric window as JSON.
 
 An invalid query value returns 400 with the list of valid values; the value
-itself is never echoed.
+itself is never echoed. Under /api/ every response, errors (400, 404, 405,
+500) included, is JSON; the HTML pages keep Flask's default error pages.
 
 Security: binds to 127.0.0.1 only, never runs in debug mode (no Werkzeug
 debugger, no stack traces in responses), renders every value with Jinja
@@ -31,15 +35,19 @@ styles, and nothing external: only the stylesheet served from this app.
 """
 
 import datetime
+import json
 import pathlib
 import socket
 import sys
 
 import flask
+from werkzeug import exceptions
 from werkzeug import serving
 
+from llm_metrics import api
 from llm_metrics import config
 from llm_metrics import dashboard
+from llm_metrics import query
 
 HOST = "127.0.0.1"
 # The pages have no scripts and load only /static/dashboard.css, so the policy
@@ -47,6 +55,8 @@ HOST = "127.0.0.1"
 CONTENT_SECURITY_POLICY = "default-src 'none'; style-src 'self'"
 # Key in `app.config` holding the SQLite database path the pages read.
 DB_PATH_KEY = "LLM_METRICS_DB_PATH"
+# Every path under this prefix belongs to the JSON API.
+API_PREFIX = "/api/"
 
 
 def create_app(db_path: pathlib.Path | None = None) -> flask.Flask:
@@ -78,6 +88,10 @@ def create_app(db_path: pathlib.Path | None = None) -> flask.Flask:
     app.add_url_rule("/", "aggregate", _aggregate_page, methods=["GET"])
     app.add_url_rule("/requests", "requests", _requests_page, methods=["GET"])
     app.add_url_rule("/spend", "spend", _spend_page, methods=["GET"])
+    app.add_url_rule(
+        "/api/v1/metrics", "api_metrics", _api_metrics, methods=["GET"]
+    )
+    app.register_error_handler(exceptions.HTTPException, _http_error)
     app.after_request(_add_security_headers)
     return app
 
@@ -86,7 +100,7 @@ def _db_path() -> pathlib.Path:
     return flask.current_app.config[DB_PATH_KEY]
 
 
-def _query_params() -> dashboard.QueryParams:
+def _query_params() -> query.QueryParams:
     # flat=False keeps every value of a repeated parameter (and blank values),
     # so the dashboard can reject them instead of silently picking one.
     return flask.request.args.to_dict(flat=False)
@@ -120,7 +134,7 @@ def _invalid_query() -> flask.Response:
 
 def _aggregate_page() -> flask.Response:
     try:
-        window, metric = dashboard.parse_query(_query_params())
+        window, metric = query.parse_metric_query(_query_params())
     except ValueError:
         return _invalid_query()
     view = dashboard.load_aggregate_view(_db_path(), window, metric, _now())
@@ -143,6 +157,46 @@ def _spend_page() -> flask.Response:
         return _invalid_query()
     view = dashboard.load_spend_view(_db_path(), window, _now())
     return render_page("spend.html", view)
+
+
+def json_response(body: dict, status: int = 200) -> flask.Response:
+    """Encodes an `api` body as a JSON response.
+
+    Keys keep the order `api` builds them in, and NaN or infinity would raise
+    instead of producing invalid JSON.
+    """
+    return flask.Response(
+        json.dumps(body, allow_nan=False),
+        status=status,
+        mimetype="application/json",
+    )
+
+
+def _api_metrics() -> flask.Response:
+    try:
+        window, metric = query.parse_metric_query(_query_params())
+    except ValueError:
+        return json_response(api.invalid_query_response(), status=400)
+    body = api.load_metrics_response(_db_path(), window, metric, _now())
+    return json_response(body)
+
+
+def _http_error(
+    error: exceptions.HTTPException,
+) -> flask.Response | exceptions.HTTPException:
+    """Returns API errors (404, 405, 500, ...) as JSON; pages keep Flask's.
+
+    Unhandled exceptions arrive here as a 500 after Flask has logged them; the
+    body names only the HTTP status, never the exception or a stack trace.
+    """
+    if not flask.request.path.startswith(API_PREFIX):
+        return error
+    # Keeps the error's headers, such as Allow on a 405.
+    response = error.get_response()
+    code = error.name.lower().replace(" ", "_")  # "Not Found" -> "not_found"
+    response.set_data(json.dumps(api.error_response(code, error.name)))
+    response.mimetype = "application/json"
+    return response
 
 
 def _add_security_headers(response: flask.Response) -> flask.Response:
