@@ -3,7 +3,7 @@
 An open-source project to independently measure LLM provider performance
 (time to first token, throughput, latency, reliability, price).
 
-It is being built in small, tested steps. **Current step: 003.**
+It is being built in small, tested steps. **Current step: 004.**
 
 > **Simulated data only.** The current implementation uses a dummy provider that
 > sleeps for a fixed time and then emits fake tokens. Its numbers do **not**
@@ -72,6 +72,19 @@ To look at the data (uses only Python):
 ```bash
 python3 -c "import sqlite3; [print(r) for r in sqlite3.connect('data/llm_metrics.db').execute('SELECT * FROM observations')]"
 ```
+
+### Simulated history
+
+To add a week of simulated hourly TTFT history (for upcoming graphs):
+
+```bash
+python3 -m llm_metrics.seed_history
+```
+
+This inserts 168 deterministic observations, one per hour from
+2026-10-23 00:00 to 2026-10-29 23:00 UTC, labelled `environment = 'test'`.
+Running it again adds nothing. It refuses to run with `APP_ENV=prod`.
+`./run.sh` does not seed; normal measurements are unaffected.
 
 To start over, delete the `data/` folder.
 

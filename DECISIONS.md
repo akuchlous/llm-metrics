@@ -37,3 +37,6 @@ Every step must preserve `./run.sh`, keep secrets/runtime artifacts out of Git, 
 - **D019 — UTC save timestamp.** `recorded_at` uses sortable ISO 8601 UTC text.
 - **D020 — `LLM_METRICS_DB_PATH` override.** Used mainly to isolate tests.
 - **D021 — Persist only successful measurements.** Dynamic SQL values use parameters.
+- **D022 — Fixed simulated history window.** Seeded TTFT history covers 2026-10-23 00:00 to 2026-10-29 23:00 UTC, hourly, from a fixed random seed. Fully reproducible; it does not move with the current date. Live measurements keep the save time (D019).
+- **D023 — Idempotence via unique index.** `UNIQUE (recorded_at, environment, provider, model, metric)` plus `INSERT OR IGNORE` for seeding. Created with `CREATE UNIQUE INDEX IF NOT EXISTS`, so Step 003 databases gain it without a migration. Live inserts stay plain `INSERT`.
+- **D024 — Seeding is test-only.** `python -m llm_metrics.seed_history` requires `APP_ENV=test` and writes only `environment = 'test'` rows; `./run.sh` never seeds.
