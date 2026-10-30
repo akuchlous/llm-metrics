@@ -72,3 +72,32 @@ exits with an error instead of silently running the dummy provider as `test`.
 so the real `.venv` is untouched. Because `run.sh` runs the whole test suite, the
 test sets `LLM_METRICS_INSIDE_RUN_SH_TEST=1` and the nested run skips it, to avoid
 recursion.
+
+## D016 — Engineering quality order
+For implementation and review, prioritize: **correctness → security →
+readability/maintainability → simplicity → minimal code**. Minimal line count is
+not a goal by itself. A slightly longer implementation is preferred when it is
+materially easier to understand, test, modify, or operate safely.
+
+## D017 — Avoid premature complexity and code bloat
+Implement only what the current step requires. Do not add abstractions,
+dependencies, configuration, helpers, interfaces, or future-proofing merely
+because they may be useful later. Good abstractions are welcome when current
+code already justifies them. Prefer the smallest clear design, not the fewest
+lines or the most generic architecture.
+
+## D018 — Design as a public repository
+Treat every committed file as potentially public. Never commit credentials,
+API keys, secrets, `.env` files, runtime databases, virtual environments,
+caches, or sensitive/private material. Each implementation step should include
+a public-repository/security review before moving to the next step. When a local
+web server is introduced, it must bind to loopback (`127.0.0.1`) by default and
+must not expose itself on `0.0.0.0` unless explicitly requested and documented.
+
+## D019 — Review gate between implementation steps
+After Claude implements a numbered step, ChatGPT independently reviews the
+actual repository changes for correctness, security/public-repository safety,
+measurement methodology, readability/maintainability, simplicity, and code
+bloat before the next numbered implementation prompt is created. A corrective
+prompt takes precedence over advancing to the next feature when material issues
+are found.
