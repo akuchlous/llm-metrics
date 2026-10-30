@@ -46,3 +46,29 @@ committed later by accident.
 
 ## D010 — CLI exit codes
 `0` on success, `2` on configuration errors (message on stderr).
+
+## D011 — `./run.sh` must always work
+From Step 002 onward the repository must never be left in a state where
+`./run.sh` does not work, and every step must preserve all previously working
+functionality. `./run.sh` is the primary way to run the project locally, so it is
+the baseline every change is checked against.
+
+## D012 — `run.sh` creates `.venv` with `--without-pip`
+The project has no third-party dependencies, so pip is not needed. On Debian
+(including Chromebook Linux) plain `python3 -m venv` fails unless the
+`python3-venv` package is installed; `--without-pip` avoids that. Revisit when
+the first dependency is added.
+
+## D013 — `run.sh` calls `.venv/bin/python` directly instead of `source activate`
+Same effect for this script, fewer moving parts, and no dependence on the
+caller's shell state. The venv is reused if `.venv/bin/python` exists.
+
+## D014 — `run.sh` respects an already-set `APP_ENV`, defaulting to `test`
+`APP_ENV=prod ./run.sh` therefore reaches the existing production guard and
+exits with an error instead of silently running the dummy provider as `test`.
+
+## D015 — End-to-end test of `run.sh` runs in a temporary copy
+`tests/test_run_script.py` copies the code to a temp dir and runs `./run.sh` there
+so the real `.venv` is untouched. Because `run.sh` runs the whole test suite, the
+test sets `LLM_METRICS_INSIDE_RUN_SH_TEST=1` and the nested run skips it, to avoid
+recursion.
