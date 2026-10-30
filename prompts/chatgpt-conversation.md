@@ -63,8 +63,8 @@ OpenRouter is a useful product reference: its provider/analytics surfaces emphas
 - Step 011 — errors, normalized failure categories, persisted failed attempts, and observed benchmark success/failure rate: complete and reviewed.
 - Step 012 — first real provider/model (OpenAI `gpt-6-luna`), explicit low-cost real-call path, official-price verification, and publishable benchmark API spend grouped by provider/model: complete; live path validated in Step 012a.
 - Step 012a — live validation cleanup: sanitized diagnostics kept, OpenAI `x-request-id` stored per attempt (schema v4), pricing verified against official docs, `reasoning.effort: none` confirmed by the official model page: complete and reviewed; 169 tests reported passing.
-- Step 013 — Metrics v1 data completeness: authoritative output tokens/sec, stable workload identity, measurement origin, and cache-aware request facts are implemented through schema v6. Review result: pass with known limitations; 192 tests reported passing and no paid call. OpenAI's current official prompt-caching documentation confirms explicit mode with no explicit breakpoints disables prompt caching for GPT-5.6+; live validation of this new request shape is still pending and should be done deliberately later.
-- Step 014 — production-web refactor, intentionally split into 014a/014b/... rather than a large rewrite. 014a is complete and reviewed: Flask application factory and HTTP routing live in `web.py`, with dependency direction `web -> dashboard -> storage`, 217 tests reported passing. 014b is now defined: move full-page HTML/CSS presentation out of Python into Jinja templates while preserving routes, metrics semantics, security, and product behavior. 014c will then separate view preparation from analytics/query orchestration.
+- Step 013 — Metrics v1 data completeness: authoritative output tokens/sec, stable workload identity, measurement origin, and cache-aware request facts are implemented through schema v6. Review result: pass with known limitations; 192 tests reported passing and no paid call.
+- Step 014 — production-web refactor, intentionally split into 014a/014b/... rather than a large rewrite. 014a is complete and reviewed. 014b is complete and reviewed: Jinja templates/static CSS own markup, `dashboard.py` builds no HTML, autoescaping/CSP are preserved, and 222 tests are reported passing. 014c is now defined: separate reusable analytics/application facts from presentation-specific view preparation without changing product behavior.
 
 The aggregate dashboard should answer: **How is this provider/model performing, under what workload/origin/cache conditions, and is performance changing?** The individual-call view should answer: **What exactly happened on this benchmark request, how much work did it do, how long did it take, what did it cost, was cached input reused, and did it succeed?** Simulated data must always be clearly labeled.
 
@@ -86,13 +86,17 @@ Sample size must accompany reliability and percentile claims. Different sample s
 
 ### Web/product architecture direction
 
-The dependency-free stdlib dashboard was appropriate for the measurement prototype, but `dashboard.py` is now large and mixes HTTP concerns with HTML generation and query/view orchestration. Productionization should separate concerns incrementally, not via a framework rewrite of the measurement core.
+Productionization should separate concerns incrementally, not via a framework rewrite of the measurement core.
 
-Target dependency direction:
+Current direction after 014b:
 
-`Flask routes/controllers -> application/analytics -> storage`, while benchmark/provider/measurement code remains independent of Flask. HTML moves to Jinja in 014b. SQLite remains until the deployment/database step earns PostgreSQL. Do not introduce Django/React/SQLAlchemy merely for architectural appearance.
+`Flask HTTP/Jinja -> dashboard view preparation -> analytics/application facts -> storage`
 
-014b presentation rule: Python prepares facts/view data; Jinja renders markup. Templates must remain deliberately dumb—no storage access, percentile/cost/reliability calculations, provider logic, or cache inference. Preserve Jinja autoescaping and the existing CSP; avoid `|safe`/Markup unless narrowly justified and tested. This step is separation, not visual redesign. The SVG chart may retain a small dedicated Python renderer if that is clearer than embedding geometry logic in Jinja, but full-page HTML and CSS must leave Python.
+while benchmark/provider/measurement code remains independent of Flask/Jinja. SQLite remains until the deployment/database step earns PostgreSQL. Do not introduce Django/React/SQLAlchemy merely for architectural appearance.
+
+014b established the presentation rule: Python prepares view data; Jinja renders markup. Templates remain deliberately dumb—no storage access, percentile/cost/reliability calculations, provider logic, or cache inference. Autoescaping and strict CSP remain part of the boundary.
+
+014c adds the next boundary: analytics/application code should expose natural/raw values (numbers, timestamps, counts, outcomes) while the dashboard/view layer owns human-facing formatting such as units, currency strings, unknown markers, links, and chart geometry. This makes analytics reusable later by a JSON API, use-case recommendation layer, or report generator without parsing display strings. Keep the implementation small; do not introduce a large DTO/service hierarchy merely for layering.
 
 ## Step 012 live validation
 
@@ -108,7 +112,7 @@ Operating budget: the project-wide constraint is **$10/day**, including LLM API 
 
 Step 013 review result: **pass; no corrective step required before the web refactor.** Parts 1–3 add effective output tokens/sec, required versioned workload identity, and explicit runner cloud/region. Part 4 adds requested cache policy plus provider-authoritative cached input tokens, preserving NULL versus reported zero and separating cache populations without inferring cache state from latency.
 
-Schema v6 preserves historical truth: old workload/origin remain unknown, old cache policy is `unknown`, and cached tokens remain NULL. The request/observation transaction and reliability semantics remain intact. OpenAI uses explicit cache mode with no breakpoints; current official OpenAI documentation confirms that for GPT-5.6+ this does not use prompt caching or create cache writes. The smoke prompt itself is too small to be cache-eligible, and the new cache-control request shape has not yet been exercised by a paid live call.
+Schema v6 preserves historical truth: old workload/origin remain unknown, old cache policy is `unknown`, and cached tokens remain NULL. OpenAI uses explicit cache mode with no breakpoints; live validation of this new cache-control request shape remains deliberately deferred.
 
 Known Step 013 limitations are acceptable: output tokens/sec is client-observed and biased high on tiny responses; workload versioning is a convention; origin is configured rather than independently verified; historical requests cannot be backfilled honestly; cached-input pricing is not modeled because controlled OpenAI benchmarks disable caching; aggregate reliability/spend views do not yet filter by cache policy.
 
@@ -116,8 +120,8 @@ Known Step 013 limitations are acceptable: output tokens/sec is client-observed 
 
 Step 014 is a sequence, not one rewrite:
 - **014a:** complete and reviewed — Flask app factory and HTTP boundary in `web.py`, preserving behavior and keeping benchmark/data modules framework-independent.
-- **014b:** implemented, pending review — `dashboard.py` returns view data (no HTML); `web.py` renders Jinja templates in `llm_metrics/templates/` (base layout, one template per page, nav/chart partials); CSS is a static file, so the CSP is now `style-src 'self'` without `'unsafe-inline'`; chart geometry stays in Python. Visible page text unchanged except step numbers removed from product copy. Analytics/view-model separation remains for 014c.
-- **014c:** separate route/controller view preparation from analytics/query orchestration so web code does not become the new monolith.
-- **014d+:** finish a production-web boundary (API/view organization, production serving/config/test hardening as justified) before cloud deployment. Keep each substep small and reviewable.
+- **014b:** complete and reviewed — full-page markup moved to Jinja templates, CSS to a static file, autoescaping and stricter CSP preserved, chart geometry remains in Python, and `dashboard.py` contains no HTML.
+- **014c:** prompt created — separate reusable analytics/application results from dashboard-specific presentation formatting. Analytics keeps natural values and population/statistical semantics; the view layer owns strings, links, unknown markers, currency/unit formatting, and chart geometry.
+- **014d+:** finish the production-web boundary (API/view organization and production serving/config/test hardening as justified) before cloud deployment. Keep each substep small and reviewable.
 
 Do not combine the Flask refactor with PostgreSQL, provider expansion, scheduling, cloud deployment, authentication, or a frontend SPA.
