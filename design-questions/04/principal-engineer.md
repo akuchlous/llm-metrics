@@ -1,5 +1,7 @@
 # Step 04 — Principal engineer
 
+**Step context:** Step 004 added a command that seeds 168 deterministic hourly simulated TTFT rows for a fixed week, idempotently via a unique index and `INSERT OR IGNORE`.
+
 **Question:** The history uses a fixed calendar week, not "the last 7 days". Defend or attack that.
 
 ## Answer

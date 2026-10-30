@@ -1,5 +1,7 @@
 # Step 06 — Principal engineer
 
+**Step context:** Step 006 added nearest-rank p50/p95/p99 TTFT to the dashboard and made `./run.sh` seed simulated history automatically in test mode (never in prod).
+
 **Question:** The percentiles are computed over the seeded week plus live runs together. Is that statistically sound?
 
 ## Answer

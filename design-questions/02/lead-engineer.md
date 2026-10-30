@@ -1,5 +1,7 @@
 # Step 02 — Lead engineer
 
+**Step context:** Step 002 added `./run.sh`: one command that creates/reuses `.venv` (without pip), runs all tests, and only if they pass runs the TTFT measurement.
+
 **Question:** Why does `run.sh` create the venv with `--without-pip`, and what does that cost?
 
 ## Answer

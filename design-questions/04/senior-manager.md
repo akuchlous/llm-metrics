@@ -1,5 +1,7 @@
 # Step 04 — Senior manager
 
+**Step context:** Step 004 added a command that seeds 168 deterministic hourly simulated TTFT rows for a fixed week, idempotently via a unique index and `INSERT OR IGNORE`.
+
 **Question:** Simulated data now looks realistic on a chart. How do you manage the risk of it being mistaken for real data?
 
 ## Answer

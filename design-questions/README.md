@@ -19,6 +19,7 @@ design-questions/
 
 Each file has:
 
+- **Step context:** one line on what that step built, so the file stands alone.
 - **Answer:** a strong answer grounded in the real implementation, decisions (`DECISIONS.md`) and step reports (`prompts/NNN-output.md`).
 - **Critique:** what was **good** about the decision or answer, what was **weak**, and how to **improve** it.
 

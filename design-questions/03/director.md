@@ -1,5 +1,7 @@
 # Step 03 — Director
 
+**Step context:** Step 003 persisted each successful TTFT measurement to a git-ignored SQLite file (`data/llm_metrics.db`) in one `observations` table with an `environment` column.
+
 **Question:** Is SQLite the right storage choice? What does reversing it cost later?
 
 ## Answer

@@ -1,5 +1,7 @@
 # Step 01 — Principal engineer
 
+**Step context:** Step 001 built a stdlib-only Python package that measures Time To First Token against a simulated streaming `DummyProvider`, with a `test`/`prod` switch (`prod` refuses to run) and a CLI.
+
 **Question:** Is `LLMProvider.stream(prompt) -> Iterator[str]` the right abstraction? How would you know it's wrong?
 
 ## Answer

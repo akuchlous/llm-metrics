@@ -1,5 +1,7 @@
 # Step 06 — Lead engineer
 
+**Step context:** Step 006 added nearest-rank p50/p95/p99 TTFT to the dashboard and made `./run.sh` seed simulated history automatically in test mode (never in prod).
+
 **Question:** Why nearest-rank percentiles, and what was the bug risk in implementing them?
 
 ## Answer

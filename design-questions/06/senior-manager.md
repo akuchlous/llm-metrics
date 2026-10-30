@@ -1,5 +1,7 @@
 # Step 06 — Senior manager
 
+**Step context:** Step 006 added nearest-rank p50/p95/p99 TTFT to the dashboard and made `./run.sh` seed simulated history automatically in test mode (never in prod).
+
 **Question:** This step reversed an earlier decision ("`./run.sh` never seeds"). How should teams handle reversing decisions?
 
 ## Answer

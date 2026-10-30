@@ -1,5 +1,7 @@
 # Step 01 — Senior manager
 
+**Step context:** Step 001 built a stdlib-only Python package that measures Time To First Token against a simulated streaming `DummyProvider`, with a `test`/`prod` switch (`prod` refuses to run) and a CLI.
+
 **Question:** The team is told to build in "extremely small steps". How do you stop that becoming slow, or becoming overbuilding by stealth?
 
 ## Answer

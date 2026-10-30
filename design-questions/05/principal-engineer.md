@@ -1,5 +1,7 @@
 # Step 05 — Principal engineer
 
+**Step context:** Step 005 added a stdlib-only local dashboard on `127.0.0.1` (HTML + server-rendered SVG chart, no JavaScript), started at the end of `./run.sh`.
+
 **Question:** The dashboard binds to `127.0.0.1` with a strict CSP. Is it secure? What did we miss?
 
 ## Answer

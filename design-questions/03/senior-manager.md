@@ -1,5 +1,7 @@
 # Step 03 — Senior manager
 
+**Step context:** Step 003 persisted each successful TTFT measurement to a git-ignored SQLite file (`data/llm_metrics.db`) in one `observations` table with an `environment` column.
+
 **Question:** How do you make sure tests never pollute a developer's real data?
 
 ## Answer

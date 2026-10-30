@@ -1,5 +1,7 @@
 # Step 02 — Director
 
+**Step context:** Step 002 added `./run.sh`: one command that creates/reuses `.venv` (without pip), runs all tests, and only if they pass runs the TTFT measurement.
+
 **Question:** The reference developer machine is a Chromebook. What are the implications for an open-source project?
 
 ## Answer

@@ -1,5 +1,7 @@
 # Step 01 — Lead engineer
 
+**Step context:** Step 001 built a stdlib-only Python package that measures Time To First Token against a simulated streaming `DummyProvider`, with a `test`/`prod` switch (`prod` refuses to run) and a CLI.
+
 **Question:** Where exactly should the TTFT timer start and stop, and what does that boundary include?
 
 ## Answer

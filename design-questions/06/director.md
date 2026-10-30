@@ -1,5 +1,7 @@
 # Step 06 — Director
 
+**Step context:** Step 006 added nearest-rank p50/p95/p99 TTFT to the dashboard and made `./run.sh` seed simulated history automatically in test mode (never in prod).
+
 **Question:** Which latency number should be the headline when comparing providers: p50, p95, or p99?
 
 ## Answer

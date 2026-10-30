@@ -1,5 +1,7 @@
 # Step 03 — Lead engineer
 
+**Step context:** Step 003 persisted each successful TTFT measurement to a git-ignored SQLite file (`data/llm_metrics.db`) in one `observations` table with an `environment` column.
+
 **Question:** Critique the `observations` schema, especially `value_ms` and `environment`.
 
 ## Answer

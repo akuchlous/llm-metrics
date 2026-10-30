@@ -1,5 +1,7 @@
 # Step 04 — Director
 
+**Step context:** Step 004 added a command that seeds 168 deterministic hourly simulated TTFT rows for a fixed week, idempotently via a unique index and `INSERT OR IGNORE`.
+
 **Question:** Why spend engineering time generating fake history instead of collecting real measurements?
 
 ## Answer

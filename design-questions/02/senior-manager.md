@@ -1,5 +1,7 @@
 # Step 02 — Senior manager
 
+**Step context:** Step 002 added `./run.sh`: one command that creates/reuses `.venv` (without pip), runs all tests, and only if they pass runs the TTFT measurement.
+
 **Question:** The rule is "never leave the repo in a state where `./run.sh` doesn't work". How do you enforce it?
 
 ## Answer

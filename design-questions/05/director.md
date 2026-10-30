@@ -1,5 +1,7 @@
 # Step 05 — Director
 
+**Step context:** Step 005 added a stdlib-only local dashboard on `127.0.0.1` (HTML + server-rendered SVG chart, no JavaScript), started at the end of `./run.sh`.
+
 **Question:** What would make this dashboard credible to people outside the team?
 
 ## Answer

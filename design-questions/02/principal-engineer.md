@@ -1,5 +1,7 @@
 # Step 02 — Principal engineer
 
+**Step context:** Step 002 added `./run.sh`: one command that creates/reuses `.venv` (without pip), runs all tests, and only if they pass runs the TTFT measurement.
+
 **Question:** `run.sh` runs the whole test suite before every run. Is that a good long-term design?
 
 ## Answer

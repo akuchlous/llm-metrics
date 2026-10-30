@@ -1,5 +1,7 @@
 # Step 05 — Senior manager
 
+**Step context:** Step 005 added a stdlib-only local dashboard on `127.0.0.1` (HTML + server-rendered SVG chart, no JavaScript), started at the end of `./run.sh`.
+
 **Question:** `./run.sh` changed from "runs and exits" to "keeps serving until Ctrl+C". How do you handle a behaviour change like that?
 
 ## Answer
