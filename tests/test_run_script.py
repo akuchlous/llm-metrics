@@ -1,4 +1,12 @@
+"""End-to-end tests of `./run.sh`.
+
+The script runs in a temporary copy of the repository so the real `.venv` and
+database are untouched; the copy's dashboard binds to a free port.
+"""
+
+import contextlib
 import os
+import pathlib
 import shutil
 import sqlite3
 import subprocess
@@ -6,25 +14,30 @@ import tempfile
 import threading
 import unittest
 import urllib.request
-from contextlib import closing
-from pathlib import Path
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
+REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 RUN_SH = REPO_ROOT / "run.sh"
 
-# run.sh runs the whole test suite, which includes this file. The end-to-end test
-# sets this variable when it calls run.sh so the nested run skips it (no recursion).
+# run.sh runs the whole test suite, which includes this file. The end-to-end
+# test sets this variable when it calls run.sh so the nested run skips it (no
+# recursion).
 NESTED = "LLM_METRICS_INSIDE_RUN_SH_TEST"
 
 
 def run_until_dashboard(cwd, env):
-    """Run ./run.sh. If it reaches the dashboard, fetch the page and stop it.
+    """Runs ./run.sh; if it reaches the dashboard, fetches the page and stops.
 
-    Returns (returncode, stdout, stderr, page). page is None if no dashboard started.
+    Returns:
+        (returncode, stdout, stderr, page); page is None if no dashboard
+        started.
     """
     proc = subprocess.Popen(
-        ["./run.sh"], cwd=cwd, env=env,
-        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+        ["./run.sh"],
+        cwd=cwd,
+        env=env,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
     )
     watchdog = threading.Timer(120, proc.kill)  # never hang the test suite
     watchdog.start()
@@ -47,6 +60,7 @@ def run_until_dashboard(cwd, env):
 
 
 class RunScriptTest(unittest.TestCase):
+
     def test_is_executable(self):
         self.assertTrue(os.access(RUN_SH, os.X_OK))
 
@@ -57,7 +71,7 @@ class RunScriptTest(unittest.TestCase):
     def test_end_to_end_in_a_copy(self):
         with tempfile.TemporaryDirectory() as tmp:
             # Copy into a temp dir so the real repository's .venv is untouched.
-            copy = Path(tmp) / "llm-metrics"
+            copy = pathlib.Path(tmp) / "llm-metrics"
             copy.mkdir()
             shutil.copy2(RUN_SH, copy / "run.sh")
             for name in ("llm_metrics", "tests"):
@@ -77,18 +91,24 @@ class RunScriptTest(unittest.TestCase):
             db_path = copy / "data" / "llm_metrics.db"
 
             def count_rows():
-                with closing(sqlite3.connect(db_path)) as conn:
-                    return conn.execute("SELECT COUNT(*) FROM observations").fetchone()[0]
+                with contextlib.closing(sqlite3.connect(db_path)) as conn:
+                    return conn.execute(
+                        "SELECT COUNT(*) FROM observations"
+                    ).fetchone()[0]
 
-            # prod on a fresh copy: never seeds, refuses to measure, no dashboard.
-            returncode, out, err, page = run_until_dashboard(copy, {**env, "APP_ENV": "prod"})
+            # prod on a fresh copy: never seeds, refuses to measure, no
+            # dashboard.
+            returncode, out, err, page = run_until_dashboard(
+                copy, {**env, "APP_ENV": "prod"}
+            )
             self.assertEqual(returncode, 2)
             self.assertIn("Creating Python environment", out)
             self.assertNotIn("Simulated history", out)
             self.assertIsNone(page)
             self.assertFalse(db_path.exists())
 
-            # First test-mode run: seeds 168 rows, saves 3 metrics, serves the dashboard.
+            # First test-mode run: seeds 168 rows, saves 4 metrics, serves the
+            # dashboard.
             _, out, err, page = run_until_dashboard(copy, env)
             self.assertNotIn("Creating Python environment", out)  # .venv reused
             self.assertIn("Tests passed", out)
@@ -99,24 +119,32 @@ class RunScriptTest(unittest.TestCase):
             self.assertRegex(out, r"Output token throughput: \d+\.\d tokens/s")
             self.assertRegex(out, r"Output chunk throughput: \d+\.\d chunks/s")
             self.assertIn("Workload: simulated.default.v1", out)
-            self.assertRegex(out, r"Saved attempt [0-9a-f]{32} with 4 observations to data/llm_metrics.db")
+            self.assertRegex(
+                out,
+                r"Saved attempt [0-9a-f]{32} with 4 observations to"
+                r" data/llm_metrics.db",
+            )
             self.assertEqual(count_rows(), 172)
             self.assertRegex(out, r"Dashboard: http://127\.0\.0\.1:\d+/")
             self.assertIsNotNone(page, out + err)
             self.assertIn("TEST / SIMULATED DATA", page)
             # How much seeded history falls in the default 7d window depends on
             # today's date; the live row just measured is always in it.
-            self.assertIn('href="/?window=7d&amp;metric=ttft" aria-current="page"', page)
+            self.assertIn(
+                'href="/?window=7d&amp;metric=ttft" aria-current="page"', page
+            )
             self.assertRegex(page, r"\d+ observations? in window")
             self.assertIn("p99", page)
 
-            # Second run: history already present, only the four live rows are added.
+            # Second run: history already present, only the four live rows are
+            # added.
             _, out, err, page = run_until_dashboard(copy, env)
             self.assertIn("0 new, 168 already present", out)
             self.assertEqual(count_rows(), 176)
             self.assertRegex(page, r"\d+ observations? in window")
 
-            # A failing test stops the run before seeding, measuring, or serving.
+            # A failing test stops the run before seeding, measuring, or
+            # serving.
             (copy / "tests" / "test_zz_fail.py").write_text(
                 "import unittest\n"
                 "class F(unittest.TestCase):\n"

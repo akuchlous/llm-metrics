@@ -22,6 +22,7 @@ Working:
 - Pages are labelled TEST / SIMULATED DATA or REAL PROVIDER DATA; `/requests?data=simulated|real` switches population.
 - 192 standard-library `unittest` tests (pass on Python 3.13); none touch the network.
 - No third-party dependencies. Network and secrets are used only by `real_smoke`.
+- All Python follows the Google Python Style Guide (D055): `pyink` formatting, isort `google` import order, and Google's `pylintrc` report no findings. These tools are optional development tools, not dependencies.
 
 Data from `./run.sh` is **simulated** and does not represent real LLM performance. Real data exists only after `real_smoke` is run.
 

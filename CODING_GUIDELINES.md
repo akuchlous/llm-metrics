@@ -29,6 +29,23 @@ Do not make unrelated style-only rewrites while implementing a focused step.
 - Preserve the repository's security rules: never persist or log API keys, prompts, generated responses, raw provider error bodies, or other sensitive material unless a future explicit design decision changes that policy.
 - New behavior needs focused tests. Bug fixes should normally include a regression test.
 
+## Checking style
+
+The tools below are development-only and are not installed into the project's
+`.venv`; install them anywhere (for example a separate virtual environment) and
+run from the repository root:
+
+```bash
+pyink --check llm_metrics tests                 # Google's formatter; settings in pyproject.toml
+isort --profile google --check-only llm_metrics tests
+pylint --rcfile=.pylintrc --disable=inconsistent-quotes llm_metrics tests
+```
+
+All three should report no findings. `.pylintrc` is Google's published
+configuration, unmodified. `inconsistent-quotes` is disabled because, on Python
+3.12+, pylint counts quotes inside f-string expressions, which must differ from
+the outer quotes while Python 3.10 is supported (see `DECISIONS.md`, D055).
+
 ## Comments and docstrings
 
 Comments and docstrings are part of the maintainable interface of the code. Write them for a competent engineer who has not participated in the current conversation. They should also provide enough semantic context for an AI coding agent to modify the code safely without reconstructing intent from Git history.

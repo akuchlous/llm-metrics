@@ -1,16 +1,25 @@
-"""Measurement of one benchmark attempt: outcome, token facts, total latency,
-TTFT, and output token and chunk throughput."""
+"""Measurement of one benchmark attempt.
+
+Owns the timer boundaries and the provider-contract checks: one provider call
+produces an outcome, token facts, and the metric observations below. It does
+not price, store, or print anything (see `benchmark`).
+
+All timings use `time.perf_counter()` (monotonic) and start just before
+`provider.stream()` is called, so connection setup, queueing, and prefill are
+inside every latency.
+"""
 
 import time
 
-from llm_metrics.outcomes import SUCCESS
-from llm_metrics.providers import LLMProvider, ProviderFailure, Usage
+from llm_metrics import outcomes
+from llm_metrics import providers
 
 # Every metric this module produces: name -> (display label, unit of `value`).
-# The metric name fixes the unit; never store a different unit under a name.
-# Total latency is listed first: it is the primary user-facing latency; TTFT is
-# diagnostic (streaming responsiveness). Token throughput is listed before chunk
-# throughput: it is the preferred throughput; chunks/s is kept for continuity.
+# The metric name fixes the unit; never store a different unit under an
+# existing name, because stored observations would silently change meaning.
+# Order is display order: total latency is the primary user-facing latency,
+# TTFT is a streaming diagnostic, and token throughput is preferred over chunk
+# throughput (kept for continuity with older data).
 METRICS = {
     "total_latency": ("Total latency", "ms"),
     "ttft": ("TTFT", "ms"),
@@ -20,46 +29,61 @@ METRICS = {
 
 
 class _InvalidResponse(Exception):
-    """The stream broke the provider contract (see LLMProvider)."""
+    """The stream broke the provider contract (see `LLMProvider.stream`)."""
 
 
 def measure_request(
-    provider: LLMProvider, prompt: str, max_output_tokens: int
+    provider: providers.LLMProvider, prompt: str, max_output_tokens: int
 ) -> tuple[dict, list[dict]]:
-    """Make one benchmark attempt (one provider call); return (attempt, results).
+    """Makes one benchmark attempt (exactly one provider call) and measures it.
 
-    `attempt` always has: provider, model, requested_max_output_tokens, outcome
-    ("success" or a failure category from outcomes.FAILURE_CATEGORIES),
-    input_tokens, output_tokens, failed_after_ms, provider_request_id (the
-    provider's own id for the request, from Usage or ProviderFailure; None if
-    unknown), cached_input_tokens (from Usage; None when not reported or on
-    failure).
+    Metric semantics (all measured from just before `stream()` is called):
 
-    On success: input_tokens/output_tokens come from the provider's final
-    `Usage` (never from chunk counts), failed_after_ms is None, and `results`
-    holds the metric observations, each {"provider", "model", "metric", "value"}
-    with the unit METRICS[metric][1]. All timings start just before `stream()`:
+    - total_latency (ms): until the stream is fully consumed.
+    - ttft (ms): until the first text item of any content, including empty.
+    - output_tokens_per_s: `Usage.output_tokens` divided by the time from the
+      first to the last non-empty chunk, so TTFT is excluded. The token count is
+      the provider's, for the whole response, while the timing is the client's
+      view of the stream: this is observed effective generation throughput, not
+      the provider's internal decoding speed. Tokens in the first chunk are
+      counted but its wait is not, so very short responses read high.
+    - output_chunks_per_s: (non-empty chunks - 1) over the same interval. A
+      chunk is one non-empty text item, not a token.
 
-    - total_latency: until the stream is fully consumed.
-    - ttft: until the first text item of any content (unchanged since Step 001).
-    - output_tokens_per_s: Usage.output_tokens / (time of last non-empty chunk -
-      time of first non-empty chunk). The token count is the provider's, for the
-      whole response; the timing is the client's view of the stream. Observed
-      effective generation throughput, not internal decoding speed. Omitted when
-      undefined (fewer than 2 non-empty chunks, no elapsed time, or no output
-      tokens reported).
-    - output_chunks_per_s: (non-empty chunks - 1) / (time of last non-empty
-      chunk - time of first); a chunk is one non-empty text item, not a token.
-      Omitted when undefined (fewer than 2 non-empty chunks, or no elapsed time).
+    A throughput is omitted (never stored as 0 or infinity) when undefined:
+    fewer than 2 non-empty chunks, no elapsed time between them, or (tokens/s
+    only) no output tokens reported.
 
-    On failure: token counts are None (unknown, not zero), `results` is empty
-    (partial timings are discarded, so success-only distributions stay clean),
-    and failed_after_ms is the time from request start until the failure was
-    detected; `diagnostics` holds the provider's sanitized debug details (never
-    stored). Failures are a ProviderFailure raised by the provider (its
-    category), or a contract violation detected here ("invalid_response"): no
-    text, usage missing or repeated, text after usage, or more output tokens
-    than requested. Any other exception is a bug and propagates.
+    Args:
+        provider: Provider to call once. Not retried.
+        prompt: Prompt text; passed through, never stored.
+        max_output_tokens: Output cap requested from the provider.
+
+    Returns:
+        (attempt, results). `attempt` always has "provider", "model",
+        "requested_max_output_tokens", "outcome" (`outcomes.SUCCESS` or a
+        failure category), "input_tokens", "output_tokens", "failed_after_ms",
+        "provider_request_id", and "cached_input_tokens".
+
+        On success: token facts come from the provider's `Usage` (never from
+        chunk counts), "failed_after_ms" is None, and `results` holds the metric
+        observations, each {"provider", "model", "metric", "value"} in the unit
+        `METRICS[metric][1]`.
+
+        On failure: token counts and cached tokens are None (unknown, not zero),
+        `results` is empty (partial timings are discarded so success-only
+        distributions stay clean), "failed_after_ms" is the time from request
+        start until the failure was detected, and "diagnostics" holds the
+        provider's sanitized debug details (never stored).
+
+        A failure is either a `ProviderFailure` raised by the provider (its
+        category), or a contract violation detected here, recorded as
+        "invalid_response": no text, usage missing or repeated, text after
+        usage, or more output tokens than requested.
+
+    Raises:
+        Exception: Any other exception is an llm-metrics bug, not a provider
+            outcome, and propagates unrecorded.
     """
     request_started = time.perf_counter()
     first_item_at = None
@@ -69,7 +93,7 @@ def measure_request(
     try:
         for item in provider.stream(prompt, max_output_tokens):
             now = time.perf_counter()
-            if isinstance(item, Usage):
+            if isinstance(item, providers.Usage):
                 if usage is not None:
                     raise _InvalidResponse("usage reported more than once")
                 usage = item
@@ -90,13 +114,18 @@ def measure_request(
             raise _InvalidResponse("no usage reported")
         if usage.output_tokens > max_output_tokens:
             raise _InvalidResponse("more output tokens than requested")
-    except (ProviderFailure, _InvalidResponse) as failure:
+    except (providers.ProviderFailure, _InvalidResponse) as failure:
         failed_at = time.perf_counter()
-        if isinstance(failure, ProviderFailure):
-            outcome, provider_request_id = failure.category, failure.provider_request_id
+        if isinstance(failure, providers.ProviderFailure):
+            outcome = failure.category
+            provider_request_id = failure.provider_request_id
         else:
             outcome = "invalid_response"
-            provider_request_id = usage.provider_request_id if usage is not None else None
+            # The provider may have identified the request before the contract
+            # violation was detected here (e.g. output above the cap).
+            provider_request_id = (
+                usage.provider_request_id if usage is not None else None
+            )
         attempt = {
             "provider": provider.name,
             "model": provider.model,
@@ -106,8 +135,8 @@ def measure_request(
             "output_tokens": None,
             "failed_after_ms": (failed_at - request_started) * 1000,
             "provider_request_id": provider_request_id,
-            "cached_input_tokens": None,  # unknown, not zero
-            # Sanitized local-debug details; not a storage column, never saved.
+            "cached_input_tokens": None,
+            # Not a storage column: printed by `real_smoke --debug` only.
             "diagnostics": getattr(failure, "diagnostics", {}),
         }
         return attempt, []
@@ -116,7 +145,7 @@ def measure_request(
         "provider": provider.name,
         "model": provider.model,
         "requested_max_output_tokens": max_output_tokens,
-        "outcome": SUCCESS,
+        "outcome": outcomes.SUCCESS,
         "input_tokens": usage.input_tokens,
         "output_tokens": usage.output_tokens,
         "failed_after_ms": None,
@@ -124,16 +153,31 @@ def measure_request(
         "cached_input_tokens": usage.cached_input_tokens,
     }
 
-    def result(metric: str, value: float) -> dict:
-        return {"provider": provider.name, "model": provider.model, "metric": metric, "value": value}
+    def observation(metric: str, value: float) -> dict:
+        return {
+            "provider": provider.name,
+            "model": provider.model,
+            "metric": metric,
+            "value": value,
+        }
 
     results = [
-        result("total_latency", (stream_finished - request_started) * 1000),
-        result("ttft", (first_item_at - request_started) * 1000),
+        observation(
+            "total_latency", (stream_finished - request_started) * 1000
+        ),
+        observation("ttft", (first_item_at - request_started) * 1000),
     ]
     if chunks >= 2 and last_chunk_at > first_chunk_at:
-        generation_s = last_chunk_at - first_chunk_at  # TTFT excluded
+        generation_s = last_chunk_at - first_chunk_at
         if usage.output_tokens >= 1:
-            results.append(result("output_tokens_per_s", usage.output_tokens / generation_s))
-        results.append(result("output_chunks_per_s", (chunks - 1) / generation_s))
+            # Zero reported tokens alongside visible text is contradictory, so
+            # no rate is recorded rather than a fabricated 0 tokens/s.
+            results.append(
+                observation(
+                    "output_tokens_per_s", usage.output_tokens / generation_s
+                )
+            )
+        results.append(
+            observation("output_chunks_per_s", (chunks - 1) / generation_s)
+        )
     return attempt, results
