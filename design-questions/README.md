@@ -56,3 +56,4 @@ Each file has:
 | [13](13/) | Metrics v1 data completeness | `prompts/013-metrics-v1-data-completeness.md` |
 | [14a](14a/) | Flask foundation | `prompts/014a-flask-foundation.md` |
 | [14b](14b/) | Jinja templates | `prompts/014b-jinja-templates.md` |
+| [14c](14c/) | Analytics vs view preparation | `prompts/014c-separate-analytics-view-preparation.md` |

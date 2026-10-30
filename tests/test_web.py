@@ -437,8 +437,33 @@ class ImportAndDependencyTest(unittest.TestCase):
             with self.subTest(module=path.name):
                 self.assertFalse(imported & WEB_PACKAGES)
 
+    def test_layers_import_only_inward(self):
+        # web -> dashboard -> analytics -> storage: the dashboard reads data
+        # only through analytics, and analytics knows nothing about pages.
+        forbidden = {
+            "dashboard.py": {"storage", "web"},
+            "analytics.py": {"dashboard", "web"},
+            "storage.py": {"analytics", "dashboard", "web"},
+        }
+        for name, banned in forbidden.items():
+            tree = ast.parse(
+                (REPO_ROOT / "llm_metrics" / name).read_text(encoding="utf-8")
+            )
+            imported = set()
+            for node in ast.walk(tree):
+                if (
+                    isinstance(node, ast.ImportFrom)
+                    and node.module == "llm_metrics"
+                ):
+                    imported |= {alias.name for alias in node.names}
+                elif isinstance(node, ast.ImportFrom) and node.module:
+                    imported.add(node.module.split(".")[-1])
+            with self.subTest(module=name):
+                self.assertFalse(imported & banned)
+
     def test_benchmark_and_data_layers_load_without_flask(self):
         modules = (
+            "analytics",
             "benchmark",
             "config",
             "dashboard",

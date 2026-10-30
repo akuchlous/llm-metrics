@@ -16,7 +16,9 @@ import time
 import unittest
 import urllib.parse
 
+from llm_metrics import analytics
 from llm_metrics import dashboard
+from llm_metrics import outcomes
 from llm_metrics import storage
 from llm_metrics import web
 
@@ -347,9 +349,15 @@ class ReliabilityTest(DashboardTestCase):
     def reliability_text(self, counts):
         """Returns the reliability section's text, cells separated by spaces."""
         start, end = dashboard.window_bounds("7d", NOW)
+        result = analytics.MetricWindow(
+            start=start,
+            end=end,
+            observations=(),
+            summary=None,
+            reliability=outcomes.success_rate(counts),
+        )
         page = self.render(
-            "aggregate.html",
-            dashboard.aggregate_view([], "7d", "ttft", start, end, counts),
+            "aggregate.html", dashboard.aggregate_view(result, "7d", "ttft")
         )
         section = page[
             page.index('<section class="reliability">') : page.index(
@@ -436,16 +444,21 @@ class EmptyAndRenderTest(DashboardTestCase):
 
     def test_single_observation(self):
         start, end = dashboard.window_bounds("24h", NOW)
-        page = self.render(
-            "aggregate.html",
-            dashboard.aggregate_view(
-                [("2026-11-30T11:00:00.000000Z", 101.0)],
-                "24h",
-                "ttft",
-                start,
-                end,
-                {},
+        observations = (
+            analytics.Observation(
+                analytics.parse_recorded_at("2026-11-30T11:00:00.000000Z"),
+                101.0,
             ),
+        )
+        result = analytics.MetricWindow(
+            start=start,
+            end=end,
+            observations=observations,
+            summary=analytics.summarize_metric(observations),
+            reliability=None,
+        )
+        page = self.render(
+            "aggregate.html", dashboard.aggregate_view(result, "24h", "ttft")
         )
         text = visible_text(page)
         for p in ("p50", "p95", "p99"):
@@ -726,9 +739,13 @@ class SpendPageTest(DashboardTestCase):
 
     def spend_page(self, rows, window="30d"):
         start, end = dashboard.window_bounds(window, NOW)
-        return self.render(
-            "spend.html", dashboard.spend_view(rows, window, start, end)
+        spend = analytics.Spend(
+            start=start,
+            end=end,
+            groups=tuple(rows),
+            totals=analytics.spend_totals(rows),
         )
+        return self.render("spend.html", dashboard.spend_view(spend, window))
 
     def cells_text(self, page):
         table = page[page.index("<table") : page.index("</table>")]
@@ -833,6 +850,107 @@ class RequestsDataSelectorTest(DashboardTestCase):
         )
         self.assertIn("TEST / SIMULATED DATA", page)
         self.assertNotIn("REAL PROVIDER DATA", page)
+
+
+class ViewPreparationTest(unittest.TestCase):
+    """Analytics facts become the same display text as before, without HTML."""
+
+    def test_aggregate_view_formats_summary_and_reliability(self):
+        start, end = dashboard.window_bounds("24h", NOW)
+        observations = (
+            analytics.Observation(NOW - datetime.timedelta(hours=2), 100.0),
+            analytics.Observation(NOW - datetime.timedelta(hours=1), 123.45),
+        )
+        result = analytics.MetricWindow(
+            start=start,
+            end=end,
+            observations=observations,
+            summary=analytics.summarize_metric(observations),
+            reliability=outcomes.success_rate({"success": 3, "timeout": 1}),
+        )
+        view = dashboard.aggregate_view(result, "24h", "ttft")
+        self.assertEqual(view["summary"]["latest_value"], "123.5 ms")
+        self.assertEqual(view["summary"]["latest_time"], "2026-11-30 11:00 UTC")
+        self.assertEqual(
+            view["summary"]["percentiles"],
+            [
+                {"name": "p50", "value": "100.0 ms"},
+                {"name": "p95", "value": "123.5 ms"},
+                {"name": "p99", "value": "123.5 ms"},
+            ],
+        )
+        self.assertEqual(view["reliability"]["success_percent"], "75.0")
+        self.assertEqual(view["reliability"]["failure_percent"], "25.0")
+        self.assertEqual(
+            view["window_label"],
+            {"start": "2026-11-29 12:00 UTC", "end": "2026-11-30 12:00 UTC"},
+        )
+        self.assertFalse(view["real_data"])
+
+    def test_empty_aggregate_view_has_no_summary_or_rate(self):
+        start, end = dashboard.window_bounds("7d", NOW)
+        result = analytics.MetricWindow(start, end, (), None, None)
+        view = dashboard.aggregate_view(result, "7d", "total_latency")
+        self.assertIsNone(view["summary"])
+        self.assertIsNone(view["reliability"])
+        self.assertEqual(view["metric_label"], "Total latency")
+
+    def test_request_rows_keep_unknown_distinct_from_zero(self):
+        attempt = {
+            "id": "abcdef0123456789",
+            "recorded_at": NOW,
+            "outcome": "timeout",
+            "metrics": {},
+            "input_tokens": None,
+            "output_tokens": None,
+            "requested_max_output_tokens": 64,
+            "total_cost": None,
+            "input_cost": None,
+            "output_cost": None,
+            "failed_after_ms": 1500.0,
+            "provider": "openai",
+            "model": "gpt-6-luna",
+            "workload_id": None,
+            "origin_cloud": None,
+            "origin_region": None,
+            "cache_policy": "unknown",
+            "cached_input_tokens": 0,
+        }
+        [row] = dashboard.requests_view([attempt], "real")["rows"]
+        self.assertEqual(row["outcome"], "Timeout")
+        self.assertTrue(row["failed"])
+        for key in ("total_latency", "input_tokens", "total_cost", "workload"):
+            self.assertEqual(row[key], "—")
+        self.assertEqual(row["origin"], "—")
+        self.assertEqual(row["cached_input_tokens"], "0")  # reported zero
+        self.assertEqual(row["failed_after"], "1500.0")
+        self.assertEqual(row["time"], "2026-11-30 12:00 UTC")
+
+    def test_spend_view_words_unknown_cost_and_totals(self):
+        groups = [
+            spend_row(),
+            spend_row(
+                model="none",
+                successful_calls=0,
+                failed_attempts=1,
+                input_tokens=None,
+                output_tokens=None,
+                total_cost=None,
+            ),
+        ]
+        start, end = dashboard.window_bounds("30d", NOW)
+        spend = analytics.Spend(
+            start, end, tuple(groups), analytics.spend_totals(groups)
+        )
+        view = dashboard.spend_view(spend, "30d")
+        self.assertEqual(view["rows"][0]["total_cost"], "$0.000029")
+        self.assertEqual(view["rows"][1]["total_cost"], "unknown")
+        self.assertEqual(view["rows"][1]["input_tokens"], "—")
+        self.assertEqual(view["total"]["total_cost"], "$0.000029")
+        self.assertEqual(view["total"]["failed_attempts"], 1)
+        self.assertTrue(view["real_data"])
+        empty = analytics.Spend(start, end, (), None)
+        self.assertIsNone(dashboard.spend_view(empty, "30d")["total"])
 
 
 if __name__ == "__main__":

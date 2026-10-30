@@ -1,52 +1,49 @@
-"""Dashboard pages: query validation, data loading, and page view data.
+"""Dashboard pages: query semantics and view preparation.
 
-This is the application/view layer between the HTTP boundary and storage:
+Sits between the HTTP boundary and analytics:
 
-    web (Flask routes, templates) -> dashboard (this module) -> storage
+    web (Flask routes, Jinja) -> dashboard (this module) -> analytics -> storage
 
-It owns what each page means: which query values are valid, which data
-population and time window a page shows, which facts it loads, and how each
-fact is worded for display (formatted numbers, "—" for unknown values, link
-targets). It returns plain dictionaries ("views") and never builds HTML: the
-Jinja templates in `llm_metrics/templates/` turn a view into markup, with
-autoescaping. It imports neither Flask nor Jinja.
+It owns:
 
-Every `*_view` function is pure (its inputs are explicit), and every
-`load_*_view` function reads storage and then calls it.
+- Query semantics: which query values are valid, what each window name
+  means, and which population each page shows (the aggregate page: simulated
+  dummy data; requests: the chosen "simulated" or "real" population; spend:
+  real data, fixed by `analytics`).
+- View preparation: turning `analytics` results (natural values) into
+  template-ready dictionaries: formatted numbers, "—" for unknown values,
+  "unknown" for unknown cost, human-readable UTC times, navigation links,
+  page labels, and the chart's SVG coordinates.
 
-Pages:
+It does not compute statistics or read storage (that is `analytics`), and it
+builds no HTML (the Jinja templates in `llm_metrics/templates/` do, with
+autoescaping). It imports neither Flask nor Jinja.
 
-- Aggregate (`aggregate.html`): for a window ending now (default 7d), the
-  observed benchmark success rate of all attempts, then one metric (default
-  ttft; any key of `latency.METRICS`) over successful attempts as percentiles
-  and a line chart. Simulated data only.
-- Recent requests (`requests.html`): the most recent individual attempts of
-  one data population ("simulated" or "real"; default simulated).
-- Benchmark API Spend (`spend.html`): the known API token cost of
-  llm-metrics' own real benchmark requests per provider/model (default 30d).
+Each page has a pure `*_view` function (an analytics result in, a view out)
+and a `load_*_view` function that asks `analytics` for the result first:
+
+- Aggregate (`aggregate.html`): success rate over all attempts, then one
+  metric over successful attempts as percentiles and a line chart.
+- Recent requests (`requests.html`): individual attempts of one population.
+- Benchmark API Spend (`spend.html`): llm-metrics' own real API spend.
 - Invalid query (`invalid_query.html`): the valid values, never the rejected
   one.
-
-Simulated and real data are never shown on the same page, and every view says
-which population it shows.
 """
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 import datetime
 import math
 import pathlib
 
+from llm_metrics import analytics
 from llm_metrics import latency
 from llm_metrics import outcomes
-from llm_metrics import percentiles
 from llm_metrics import providers
-from llm_metrics import storage
 
 # The aggregate page shows simulated observations from the dummy provider only.
-ENVIRONMENT = "test"
+ENVIRONMENT = analytics.SIMULATED_ENVIRONMENT
 PROVIDER = providers.DummyProvider.name
 MODEL = providers.DummyProvider.model
-PERCENTILES = (50, 95, 99)
 
 DEFAULT_METRIC = "ttft"
 
@@ -63,7 +60,10 @@ DEFAULT_WINDOW = "7d"
 RECENT_REQUESTS = 20  # Rows on the requests page.
 
 # Data populations: query value -> stored environment.
-DATA = {"simulated": "test", "real": "prod"}
+DATA = {
+    "simulated": analytics.SIMULATED_ENVIRONMENT,
+    "real": analytics.REAL_ENVIRONMENT,
+}
 DEFAULT_DATA = "simulated"
 
 # Spend accumulates slowly, so its default window is the longest one.
@@ -73,7 +73,7 @@ SPEND_DEFAULT_WINDOW = "30d"
 WIDTH, HEIGHT = 800, 300
 LEFT, RIGHT, TOP, BOTTOM = 60, 20, 20, 40
 
-# Shown for any fact that is unknown (NULL), so it is never mistaken for 0.
+# Shown for any fact that is unknown (None), so it is never mistaken for 0.
 UNKNOWN = "—"
 
 # Parsed query parameters: name -> every value submitted for it, in order.
@@ -82,137 +82,7 @@ UNKNOWN = "—"
 QueryParams = Mapping[str, list[str]]
 
 
-def _layout(active_view: str | None, real_data: bool) -> dict:
-    """Returns the facts the shared layout (`base.html`) needs.
-
-    Args:
-        active_view: Path of the current page, marked in the navigation, or
-            None when no page is current.
-        real_data: Whether the page shows real-provider data (blue label)
-            rather than simulated data (orange label).
-    """
-    return {
-        "active_view": active_view,
-        "real_data": real_data,
-        "simulated_provider": PROVIDER,
-        "simulated_model": MODEL,
-    }
-
-
-def _parse_time(recorded_at: str) -> datetime.datetime:
-    return datetime.datetime.strptime(
-        recorded_at, "%Y-%m-%dT%H:%M:%S.%fZ"
-    ).replace(tzinfo=datetime.timezone.utc)
-
-
-def _display_time(recorded_at: str) -> str:
-    return _parse_time(recorded_at).strftime("%Y-%m-%d %H:%M UTC")
-
-
-def _window_label(start: datetime.datetime, end: datetime.datetime) -> dict:
-    return {
-        "start": f"{start:%Y-%m-%d %H:%M} UTC",
-        "end": f"{end:%Y-%m-%d %H:%M} UTC",
-    }
-
-
-def _number(value: float | None, spec: str) -> str:
-    """Formats a number, or `UNKNOWN` when it is unknown (never shown as 0)."""
-    return UNKNOWN if value is None else format(value, spec)
-
-
-def _text(value: str | None) -> str:
-    """Returns stored text, or `UNKNOWN` when it is NULL."""
-    return UNKNOWN if value is None else value
-
-
-def _money(value: float | None) -> str:
-    """Formats USD, or "unknown" when no cost is known (never $0)."""
-    return "unknown" if value is None else f"${value:.6f}"
-
-
-def _chart(
-    observations: list[tuple[str, float]],
-    start: datetime.datetime,
-    end: datetime.datetime,
-) -> dict:
-    """Computes line-chart geometry for values over the whole window.
-
-    The x axis spans the full window and is proportional to time, so gaps in
-    the data are visible. All coordinates are numbers or number-formatted
-    strings; `chart.html` only places them in SVG elements. Keeping the
-    arithmetic here keeps the template free of calculations.
-
-    Args:
-        observations: Non-empty (recorded_at, value) pairs, oldest first.
-        start: Window start (left edge).
-        end: Window end (right edge).
-
-    Returns:
-        SVG coordinates: viewBox size, axis positions, the y-axis maximum, the
-        polyline points, and the latest point.
-    """
-    t_min, t_max = start.timestamp(), end.timestamp()
-    times = [_parse_time(t).timestamp() for t, _ in observations]
-    values = [v for _, v in observations]
-    # Headroom above the largest value, rounded up to a whole 100 units, and
-    # never 0, so the axis label stays readable and the line never touches the
-    # top edge.
-    y_max = max(100, math.ceil(max(values) * 1.1 / 100) * 100)
-
-    def x(t: float) -> float:
-        return LEFT + (t - t_min) / (t_max - t_min) * (WIDTH - LEFT - RIGHT)
-
-    def y(v: float) -> float:
-        return HEIGHT - BOTTOM - v / y_max * (HEIGHT - TOP - BOTTOM)
-
-    return {
-        "width": WIDTH,
-        "height": HEIGHT,
-        "left": LEFT,
-        "right_edge": WIDTH - RIGHT,
-        "top": TOP,
-        "axis_bottom": HEIGHT - BOTTOM,
-        # Text positions: y-axis numbers sit just left of the axis, the unit
-        # just right of it, and the time labels below the plot.
-        "axis_label_x": LEFT - 6,
-        "unit_label_x": LEFT + 6,
-        "top_label_y": TOP + 4,
-        "time_label_y": HEIGHT - 15,
-        "y_max": f"{y_max:.0f}",
-        "points": " ".join(
-            f"{x(t):.1f},{y(v):.1f}" for t, v in zip(times, values)
-        ),
-        "latest_x": f"{x(times[-1]):.1f}",
-        "latest_y": f"{y(values[-1]):.1f}",
-    }
-
-
-def _aggregate_links(window: str | None, metric: str | None) -> dict:
-    """Builds the metric and window links of the aggregate page.
-
-    Each link keeps the other current selection, so switching the window does
-    not reset the metric and vice versa. None means nothing is current.
-    """
-    keep_metric = metric or DEFAULT_METRIC
-    keep_window = window or DEFAULT_WINDOW
-
-    def link(href_window: str, href_metric: str, text: str, current: bool):
-        return {
-            "href": f"/?window={href_window}&metric={href_metric}",
-            "text": text,
-            "current": current,
-        }
-
-    return {
-        "metric_links": [
-            link(keep_window, name, label, name == metric)
-            for name, (label, _) in latency.METRICS.items()
-        ],
-        "window_links": [
-            link(name, keep_metric, name, name == window) for name in WINDOWS
-        ],
-    }
+# Query semantics.
 
 
 def _parse_choice(params: QueryParams, name: str, choices, default: str) -> str:
@@ -280,124 +150,224 @@ def parse_spend_query(params: QueryParams) -> str:
 def window_bounds(
     window: str, now: datetime.datetime
 ) -> tuple[datetime.datetime, datetime.datetime]:
-    """Returns (start, end) of `window` ending at `now`; both are inclusive."""
-    return now - WINDOWS[window], now
+    """Returns (start, end) of the named window ending at `now`; inclusive."""
+    return analytics.window_bounds(WINDOWS[window], now)
 
 
-def _reliability(outcome_counts: dict[str, int]) -> dict | None:
-    """Words the observed success rate over all attempts for display.
+# Display formatting: the only place analytics values become text.
+
+
+def _display_time(moment: datetime.datetime) -> str:
+    return f"{moment:%Y-%m-%d %H:%M} UTC"
+
+
+def _window_label(start: datetime.datetime, end: datetime.datetime) -> dict:
+    return {"start": _display_time(start), "end": _display_time(end)}
+
+
+def _number(value: float | None, spec: str) -> str:
+    """Formats a number, or `UNKNOWN` when it is unknown (never shown as 0)."""
+    return UNKNOWN if value is None else format(value, spec)
+
+
+def _text(value: str | None) -> str:
+    """Returns stored text, or `UNKNOWN` when it is None."""
+    return UNKNOWN if value is None else value
+
+
+def _money(value: float | None) -> str:
+    """Formats USD, or "unknown" when no cost is known (never $0)."""
+    return "unknown" if value is None else f"${value:.6f}"
+
+
+def _percent(fraction: float) -> str:
+    return f"{fraction * 100:.1f}"
+
+
+def _layout(active_view: str | None, real_data: bool) -> dict:
+    """Returns the facts the shared layout (`base.html`) needs.
+
+    Args:
+        active_view: Path of the current page, marked in the navigation, or
+            None when no page is current.
+        real_data: Whether the page shows real-provider data (blue label)
+            rather than simulated data (orange label).
+    """
+    return {
+        "active_view": active_view,
+        "real_data": real_data,
+        "simulated_provider": PROVIDER,
+        "simulated_model": MODEL,
+    }
+
+
+def _link(href: str, text: str, current: bool) -> dict:
+    return {"href": href, "text": text, "current": current}
+
+
+def _aggregate_links(window: str | None, metric: str | None) -> dict:
+    """Builds the metric and window links of the aggregate page.
+
+    Each link keeps the other current selection, so switching the window does
+    not reset the metric and vice versa. None means nothing is current.
+    """
+    keep_metric = metric or DEFAULT_METRIC
+    keep_window = window or DEFAULT_WINDOW
+    return {
+        "metric_links": [
+            _link(
+                f"/?window={keep_window}&metric={name}", label, name == metric
+            )
+            for name, (label, _) in latency.METRICS.items()
+        ],
+        "window_links": [
+            _link(f"/?window={name}&metric={keep_metric}", name, name == window)
+            for name in WINDOWS
+        ],
+    }
+
+
+def _chart(
+    observations: Sequence[analytics.Observation],
+    start: datetime.datetime,
+    end: datetime.datetime,
+) -> dict:
+    """Computes this dashboard's SVG line-chart geometry.
+
+    The x axis spans the full window and is proportional to time, so gaps in
+    the data are visible. All coordinates are numbers or number-formatted
+    strings; `_chart.html` only places them in SVG elements, so the template
+    stays free of calculations.
+
+    Args:
+        observations: Non-empty successful observations, oldest first.
+        start: Window start (left edge).
+        end: Window end (right edge).
 
     Returns:
-        None when there are no attempts (no rate is shown); otherwise counts,
-        percentages formatted to one decimal, and one (label, attempts) entry
-        per failure category.
+        SVG coordinates: viewBox size, axis and label positions, the y-axis
+        maximum, the polyline points, and the latest point.
     """
-    rate = outcomes.success_rate(outcome_counts)
-    if rate is None:
+    t_min, t_max = start.timestamp(), end.timestamp()
+    times = [
+        observation.recorded_at.timestamp() for observation in observations
+    ]
+    values = [observation.value for observation in observations]
+    # Headroom above the largest value, rounded up to a whole 100 units, and
+    # never 0, so the axis label stays readable and the line never touches the
+    # top edge.
+    y_max = max(100, math.ceil(max(values) * 1.1 / 100) * 100)
+
+    def x(t: float) -> float:
+        return LEFT + (t - t_min) / (t_max - t_min) * (WIDTH - LEFT - RIGHT)
+
+    def y(v: float) -> float:
+        return HEIGHT - BOTTOM - v / y_max * (HEIGHT - TOP - BOTTOM)
+
+    return {
+        "width": WIDTH,
+        "height": HEIGHT,
+        "left": LEFT,
+        "right_edge": WIDTH - RIGHT,
+        "top": TOP,
+        "axis_bottom": HEIGHT - BOTTOM,
+        # Text positions: y-axis numbers sit just left of the axis, the unit
+        # just right of it, and the time labels below the plot.
+        "axis_label_x": LEFT - 6,
+        "unit_label_x": LEFT + 6,
+        "top_label_y": TOP + 4,
+        "time_label_y": HEIGHT - 15,
+        "y_max": f"{y_max:.0f}",
+        "points": " ".join(
+            f"{x(t):.1f},{y(v):.1f}" for t, v in zip(times, values)
+        ),
+        "latest_x": f"{x(times[-1]):.1f}",
+        "latest_y": f"{y(values[-1]):.1f}",
+    }
+
+
+# Aggregate page.
+
+
+def _reliability_view(reliability: dict | None) -> dict | None:
+    """Words the observed success rate (all attempts) for display."""
+    if reliability is None:
         return None
     return {
-        "success_percent": f"{rate['success_rate'] * 100:.1f}",
-        "failure_percent": f"{rate['failure_rate'] * 100:.1f}",
-        "successes": rate["successes"],
-        "failures": rate["failures"],
-        "attempts": rate["attempts"],
+        "success_percent": _percent(reliability["success_rate"]),
+        "failure_percent": _percent(reliability["failure_rate"]),
+        "successes": reliability["successes"],
+        "failures": reliability["failures"],
+        "attempts": reliability["attempts"],
         "failures_by_category": [
-            {"label": label, "attempts": rate["failures_by_category"][category]}
+            {
+                "label": label,
+                "attempts": reliability["failures_by_category"][category],
+            }
             for category, label in outcomes.FAILURE_CATEGORIES.items()
         ],
     }
 
 
-def _metric_summary(
-    observations: list[tuple[str, float]],
-    unit: str,
-    start: datetime.datetime,
-    end: datetime.datetime,
-) -> dict | None:
-    """Summarizes one metric's successful observations, or None if empty.
-
-    Returns:
-        The latest value and its time, nearest-rank percentiles, the count,
-        the first and latest times, and the chart geometry.
-    """
-    if not observations:
+def _summary_view(result: analytics.MetricWindow, unit: str) -> dict | None:
+    """Words a metric summary and adds the chart, or None if empty."""
+    summary = result.summary
+    if summary is None:
         return None
-    latest_at, latest_value = observations[-1]
-    values = [value for _, value in observations]
     return {
-        "latest_value": f"{latest_value:.1f} {unit}",
-        "latest_time": _display_time(latest_at),
-        "first_time": _display_time(observations[0][0]),
-        "count": len(observations),
+        "latest_value": f"{summary.latest_value:.1f} {unit}",
+        "latest_time": _display_time(summary.latest_at),
+        "first_time": _display_time(summary.first_at),
+        "count": summary.count,
         "percentiles": [
-            {
-                "name": f"p{p}",
-                "value": f"{percentiles.percentile(values, p):.1f} {unit}",
-            }
-            for p in PERCENTILES
+            {"name": f"p{p}", "value": f"{value:.1f} {unit}"}
+            for p, value in summary.percentiles.items()
         ],
-        "chart": _chart(observations, start, end),
+        "chart": _chart(result.observations, result.start, result.end),
     }
 
 
 def aggregate_view(
-    observations: list[tuple[str, float]],
-    window: str,
-    metric: str,
-    start: datetime.datetime,
-    end: datetime.datetime,
-    outcome_counts: dict[str, int],
+    result: analytics.MetricWindow, window: str, metric: str
 ) -> dict:
-    """Builds the aggregate page's view for one window and metric.
-
-    The success rate covers every attempt, while every metric figure (count,
-    latest value, percentiles, chart) comes from `observations` alone, which
-    hold successful measurements only. Failed attempts therefore lower the
-    success rate without adding fabricated zero latencies.
+    """Prepares the aggregate page from one metric window.
 
     Args:
-        observations: (recorded_at, value) pairs of `metric`, oldest first.
+        result: Analytics for the selected population, window, and metric.
         window: Selected window name.
         metric: Selected metric name.
-        start: Inclusive window start.
-        end: Inclusive window end (now).
-        outcome_counts: {outcome: attempts} in the window.
 
     Returns:
         View data for `aggregate.html`. "summary" is None when the window has
-        no observations of the metric; "reliability" is None when it has no
-        attempts.
+        no successful observations of the metric; "reliability" is None when
+        it has no attempts.
     """
     label, unit = latency.METRICS[metric]
     return {
         **_layout("/", real_data=False),
         **_aggregate_links(window, metric),
         "window": window,
-        "window_label": _window_label(start, end),
+        "window_label": _window_label(result.start, result.end),
         "metric_label": label,
         "unit": unit,
-        "reliability": _reliability(outcome_counts),
-        "summary": _metric_summary(observations, unit, start, end),
+        "reliability": _reliability_view(result.reliability),
+        "summary": _summary_view(result, unit),
     }
 
 
 def load_aggregate_view(
     db_path: pathlib.Path, window: str, metric: str, now: datetime.datetime
 ) -> dict:
-    """Loads one metric and the outcome counts for a window; see
-    `aggregate_view`."""
+    """Loads the aggregate page's analytics and prepares its view."""
     start, end = window_bounds(window, now)
-    observations = storage.load_observations(
+    result = analytics.load_metric_window(
         db_path, ENVIRONMENT, PROVIDER, MODEL, metric, start=start, end=end
     )
-    counts = storage.count_outcomes(
-        db_path, ENVIRONMENT, PROVIDER, MODEL, start=start, end=end
-    )
-    return aggregate_view(observations, window, metric, start, end, counts)
+    return aggregate_view(result, window, metric)
 
 
 def invalid_query_view() -> dict:
-    """Builds the view listing every valid query value.
+    """Prepares the view listing every valid query value.
 
     The rejected value is deliberately not part of the view, so it can never
     be echoed back.
@@ -415,27 +385,30 @@ def invalid_query_view() -> dict:
     }
 
 
+# Requests page.
+
+
 def _origin(cloud: str | None, region: str | None) -> str:
     if cloud is None and region is None:
         return UNKNOWN
     return f"{_text(cloud)} / {_text(region)}"
 
 
-def _request_row(request: dict) -> dict:
-    """Words one stored request for the requests table.
+def _request_row(attempt: dict) -> dict:
+    """Words one attempt for the requests table.
 
     Unknown values (failed attempts, older rows) become `UNKNOWN`, never 0.
     """
-    metrics = request["metrics"]
-    failed = request["outcome"] != outcomes.SUCCESS
+    metrics = attempt["metrics"]
+    failed = attempt["outcome"] != outcomes.SUCCESS
     return {
-        "time": _display_time(request["recorded_at"]),
-        "id": request["id"],
-        "short_id": request["id"][:8],
+        "time": _display_time(attempt["recorded_at"]),
+        "id": attempt["id"],
+        "short_id": attempt["id"][:8],
         "failed": failed,
         "outcome": (
             outcomes.FAILURE_CATEGORIES.get(
-                request["outcome"], request["outcome"]
+                attempt["outcome"], attempt["outcome"]
             )
             if failed
             else "success"
@@ -444,27 +417,27 @@ def _request_row(request: dict) -> dict:
         "ttft": _number(metrics.get("ttft"), ".1f"),
         "tokens_per_s": _number(metrics.get("output_tokens_per_s"), ".1f"),
         "chunks_per_s": _number(metrics.get("output_chunks_per_s"), ".1f"),
-        "input_tokens": _number(request["input_tokens"], "d"),
-        "output_tokens": _number(request["output_tokens"], "d"),
-        "max_output_tokens": f"{request['requested_max_output_tokens']:d}",
-        "total_cost": _number(request["total_cost"], ".6f"),
-        "input_cost": _number(request["input_cost"], ".6f"),
-        "output_cost": _number(request["output_cost"], ".6f"),
-        "failed_after": _number(request["failed_after_ms"], ".1f"),
-        "provider": request["provider"],
-        "model": request["model"],
-        "workload": _text(request["workload_id"]),
-        "origin": _origin(request["origin_cloud"], request["origin_region"]),
-        "cache_policy": _text(request["cache_policy"]),
-        "cached_input_tokens": _number(request["cached_input_tokens"], "d"),
+        "input_tokens": _number(attempt["input_tokens"], "d"),
+        "output_tokens": _number(attempt["output_tokens"], "d"),
+        "max_output_tokens": f"{attempt['requested_max_output_tokens']:d}",
+        "total_cost": _number(attempt["total_cost"], ".6f"),
+        "input_cost": _number(attempt["input_cost"], ".6f"),
+        "output_cost": _number(attempt["output_cost"], ".6f"),
+        "failed_after": _number(attempt["failed_after_ms"], ".1f"),
+        "provider": attempt["provider"],
+        "model": attempt["model"],
+        "workload": _text(attempt["workload_id"]),
+        "origin": _origin(attempt["origin_cloud"], attempt["origin_region"]),
+        "cache_policy": _text(attempt["cache_policy"]),
+        "cached_input_tokens": _number(attempt["cached_input_tokens"], "d"),
     }
 
 
-def requests_view(requests: list[dict], data: str = DEFAULT_DATA) -> dict:
-    """Builds the requests page's view for one data population.
+def requests_view(attempts: list[dict], data: str = DEFAULT_DATA) -> dict:
+    """Prepares the requests page for one data population.
 
     Args:
-        requests: Requests as returned by `storage.load_recent_requests`,
+        attempts: Attempts as `analytics.load_recent_attempts` returns them,
             newest first.
         data: "simulated" or "real"; selects the label and explanations.
 
@@ -474,15 +447,10 @@ def requests_view(requests: list[dict], data: str = DEFAULT_DATA) -> dict:
     return {
         **_layout("/requests", real_data=data == "real"),
         "data_links": [
-            {
-                "href": f"/requests?data={name}",
-                "text": name,
-                "current": name == data,
-            }
-            for name in DATA
+            _link(f"/requests?data={name}", name, name == data) for name in DATA
         ],
         "recent_limit": RECENT_REQUESTS,
-        "rows": [_request_row(request) for request in requests],
+        "rows": [_request_row(attempt) for attempt in attempts],
     }
 
 
@@ -493,67 +461,59 @@ def load_requests_view(db_path: pathlib.Path, data: str) -> dict:
         db_path: Database to read.
         data: "simulated" or "real" (see `DATA`).
     """
-    requests = storage.load_recent_requests(
+    attempts = analytics.load_recent_attempts(
         db_path, DATA[data], RECENT_REQUESTS
     )
-    return requests_view(requests, data)
+    return requests_view(attempts, data)
 
 
-def _spend_row(row: dict) -> dict:
+# Spend page.
+
+
+def _spend_group_row(group: dict) -> dict:
     return {
-        "provider": row["provider"],
-        "model": row["model"],
-        "successful_calls": row["successful_calls"],
-        "input_tokens": _number(row["input_tokens"], "d"),
-        "output_tokens": _number(row["output_tokens"], "d"),
-        "total_cost": _money(row["total_cost"]),
-        "failed_attempts": row["failed_attempts"],
+        "provider": group["provider"],
+        "model": group["model"],
+        "successful_calls": group["successful_calls"],
+        "input_tokens": _number(group["input_tokens"], "d"),
+        "output_tokens": _number(group["output_tokens"], "d"),
+        "total_cost": _money(group["total_cost"]),
+        "failed_attempts": group["failed_attempts"],
     }
 
 
-def _spend_total(rows: list[dict]) -> dict:
-    """Totals spend over all groups. Costs sum known values only."""
-    known = [row["total_cost"] for row in rows if row["total_cost"] is not None]
+def _spend_totals_row(totals: analytics.SpendTotals | None) -> dict | None:
+    if totals is None:
+        return None
     return {
-        "successful_calls": sum(row["successful_calls"] for row in rows),
-        "input_tokens": sum(row["input_tokens"] or 0 for row in rows),
-        "output_tokens": sum(row["output_tokens"] or 0 for row in rows),
-        "total_cost": _money(sum(known) if known else None),
-        "failed_attempts": sum(row["failed_attempts"] for row in rows),
+        "successful_calls": totals.successful_calls,
+        "input_tokens": totals.input_tokens,
+        "output_tokens": totals.output_tokens,
+        "total_cost": _money(totals.total_cost),
+        "failed_attempts": totals.failed_attempts,
     }
 
 
-def spend_view(
-    rows: list[dict],
-    window: str,
-    start: datetime.datetime,
-    end: datetime.datetime,
-) -> dict:
-    """Builds the Benchmark API Spend view for one window (real data only).
+def spend_view(spend: analytics.Spend, window: str) -> dict:
+    """Prepares the Benchmark API Spend page (real data only).
 
     Args:
-        rows: Groups as returned by `storage.spend_by_model`.
+        spend: Spend analytics for the window.
         window: Selected window name.
-        start: Inclusive window start.
-        end: Inclusive window end (now).
 
     Returns:
-        View data for `spend.html`. "total" is None when there are no rows.
+        View data for `spend.html`. "total" is None when there are no groups.
     """
     return {
         **_layout("/spend", real_data=True),
         "window": window,
-        "window_label": _window_label(start, end),
+        "window_label": _window_label(spend.start, spend.end),
         "window_links": [
-            {
-                "href": f"/spend?window={name}",
-                "text": name,
-                "current": name == window,
-            }
+            _link(f"/spend?window={name}", name, name == window)
             for name in WINDOWS
         ],
-        "rows": [_spend_row(row) for row in rows],
-        "total": _spend_total(rows) if rows else None,
+        "rows": [_spend_group_row(group) for group in spend.groups],
+        "total": _spend_totals_row(spend.totals),
     }
 
 
@@ -562,5 +522,5 @@ def load_spend_view(
 ) -> dict:
     """Loads real-data spend for a window; see `spend_view`."""
     start, end = window_bounds(window, now)
-    rows = storage.spend_by_model(db_path, DATA["real"], start=start, end=end)
-    return spend_view(rows, window, start, end)
+    spend = analytics.load_benchmark_spend(db_path, start=start, end=end)
+    return spend_view(spend, window)

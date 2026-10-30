@@ -121,7 +121,7 @@ Known Step 013 limitations are acceptable: output tokens/sec is client-observed 
 Step 014 is a sequence, not one rewrite:
 - **014a:** complete and reviewed — Flask app factory and HTTP boundary in `web.py`, preserving behavior and keeping benchmark/data modules framework-independent.
 - **014b:** complete and reviewed — full-page markup moved to Jinja templates, CSS to a static file, autoescaping and stricter CSP preserved, chart geometry remains in Python, and `dashboard.py` contains no HTML.
-- **014c:** prompt created — separate reusable analytics/application results from dashboard-specific presentation formatting. Analytics keeps natural values and population/statistical semantics; the view layer owns strings, links, unknown markers, currency/unit formatting, and chart geometry.
+- **014c:** implemented, pending review — new `analytics.py` returns natural values (frozen dataclasses for metric windows, summaries, spend; existing success-rate dict and storage rows kept) and owns population rules; `dashboard.py` keeps query semantics + view preparation and no longer reads storage; direction `web → dashboard → analytics → storage` is test-enforced. Pages byte-identical to 014b.
 - **014d+:** finish the production-web boundary (API/view organization and production serving/config/test hardening as justified) before cloud deployment. Keep each substep small and reviewable.
 
 Do not combine the Flask refactor with PostgreSQL, provider expansion, scheduling, cloud deployment, authentication, or a frontend SPA.

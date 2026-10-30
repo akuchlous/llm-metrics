@@ -4,12 +4,12 @@ Usage: python -m llm_metrics.web   (serves http://127.0.0.1:8000/)
 
 Owns route dispatch, query parameter access, template rendering, HTTP status
 codes and headers, and serving on 127.0.0.1. What each page shows comes from
-`dashboard` (query validation, data loading through `storage`, view data);
-the markup lives in `llm_metrics/templates/` and the stylesheet in
-`llm_metrics/static/`. This module contains no SQL and no HTML. Dependency
-direction:
+`dashboard` (query semantics and view data), which gets its facts from
+`analytics`, which reads `storage`. The markup lives in
+`llm_metrics/templates/` and the stylesheet in `llm_metrics/static/`. This
+module contains no SQL and no HTML. Dependency direction:
 
-    web (Flask, Jinja templates) -> dashboard -> storage
+    web (Flask, Jinja templates) -> dashboard -> analytics -> storage
 
 This is the only module that imports Flask, Werkzeug, or Jinja. Measurement,
 providers, pricing, storage, and analytics must keep working without them.

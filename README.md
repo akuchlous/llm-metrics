@@ -203,7 +203,10 @@ maximum.
 
 The dashboard is a small Flask application with server-rendered pages (Jinja
 templates in `llm_metrics/templates/`, one stylesheet in `llm_metrics/static/`)
-and no JavaScript. It listens on `127.0.0.1` only, so it is not reachable from other
+and no JavaScript. Its code is layered so each concern has one owner: `web.py`
+(HTTP and template rendering) → `dashboard.py` (which data a page shows and how
+values are worded) → `analytics.py` (statistics over stored facts, as plain
+numbers and times) → `storage.py` (SQLite). It listens on `127.0.0.1` only, so it is not reachable from other
 machines, and never runs in Flask debug mode. On a
 Chromebook, open the printed URL in Chrome; if it does not load, try
 `http://localhost:8000/`. Stop it with Ctrl+C. If port 8000 is busy, use another:
