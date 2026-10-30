@@ -1,12 +1,16 @@
-"""Environment selection (APP_ENV) and provider wiring."""
+"""Environment selection (APP_ENV), provider wiring, and database location."""
 
 import os
 from collections.abc import Mapping
+from pathlib import Path
 
 from llm_metrics.providers import DummyProvider, LLMProvider
 
 VALID_ENVS = ("test", "prod")
 DEFAULT_ENV = "test"
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
+DEFAULT_DB_PATH = REPO_ROOT / "data" / "llm_metrics.db"
 
 
 class ConfigError(Exception):
@@ -39,3 +43,11 @@ def get_provider(app_env: str) -> LLMProvider:
             "Refusing to run: the dummy provider is not a production provider."
         )
     raise _invalid_env(app_env)
+
+
+def get_db_path(environ: Mapping[str, str] | None = None) -> Path:
+    """SQLite file for observations. LLM_METRICS_DB_PATH overrides the default
+    (used by tests so they never write to the developer's database)."""
+    if environ is None:
+        environ = os.environ
+    return Path(environ.get("LLM_METRICS_DB_PATH") or DEFAULT_DB_PATH)

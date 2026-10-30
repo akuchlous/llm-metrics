@@ -1,6 +1,14 @@
 import unittest
 
-from llm_metrics.config import ConfigError, get_app_env, get_provider
+from pathlib import Path
+
+from llm_metrics.config import (
+    DEFAULT_DB_PATH,
+    ConfigError,
+    get_app_env,
+    get_db_path,
+    get_provider,
+)
 from llm_metrics.providers import DummyProvider
 
 
@@ -30,6 +38,17 @@ class GetProviderTest(unittest.TestCase):
     def test_invalid_env_fails_clearly(self):
         with self.assertRaisesRegex(ConfigError, "Invalid APP_ENV"):
             get_provider("staging")
+
+
+class GetDbPathTest(unittest.TestCase):
+    def test_default_is_data_dir_in_repo(self):
+        self.assertEqual(get_db_path({}), DEFAULT_DB_PATH)
+        self.assertEqual(DEFAULT_DB_PATH.parts[-2:], ("data", "llm_metrics.db"))
+
+    def test_override(self):
+        self.assertEqual(
+            get_db_path({"LLM_METRICS_DB_PATH": "/tmp/x.db"}), Path("/tmp/x.db")
+        )
 
 
 if __name__ == "__main__":

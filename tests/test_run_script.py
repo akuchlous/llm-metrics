@@ -1,8 +1,10 @@
 import os
 import shutil
+import sqlite3
 import subprocess
 import tempfile
 import unittest
+from contextlib import closing
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -33,8 +35,18 @@ class RunScriptTest(unittest.TestCase):
                     copy / name,
                     ignore=shutil.ignore_patterns("__pycache__"),
                 )
-            env = {k: v for k, v in os.environ.items() if k != "APP_ENV"}
+            env = {
+                k: v
+                for k, v in os.environ.items()
+                if k not in ("APP_ENV", "LLM_METRICS_DB_PATH")
+            }
             env[NESTED] = "1"
+
+            db_path = copy / "data" / "llm_metrics.db"
+
+            def count_rows():
+                with closing(sqlite3.connect(db_path)) as conn:
+                    return conn.execute("SELECT COUNT(*) FROM observations").fetchone()[0]
 
             def run():
                 return subprocess.run(
@@ -49,12 +61,15 @@ class RunScriptTest(unittest.TestCase):
             self.assertIn("Provider: dummy", first.stdout)
             self.assertRegex(first.stdout, r"TTFT: \d+\.\d ms")
             self.assertTrue((copy / ".venv" / "bin" / "python").exists())
+            self.assertIn("Saved observation to data/llm_metrics.db", first.stdout)
+            self.assertEqual(count_rows(), 1)
 
             # Re-running reuses the existing .venv.
             second = run()
             self.assertEqual(second.returncode, 0, second.stdout + second.stderr)
             self.assertNotIn("Creating Python environment", second.stdout)
             self.assertIn("TTFT:", second.stdout)
+            self.assertEqual(count_rows(), 2)
 
             # A failing test stops the run before the measurement.
             (copy / "tests" / "test_zz_fail.py").write_text(
@@ -67,6 +82,7 @@ class RunScriptTest(unittest.TestCase):
             self.assertNotEqual(failed.returncode, 0)
             self.assertIn("Tests failed", failed.stderr)
             self.assertNotIn("TTFT:", failed.stdout)
+            self.assertEqual(count_rows(), 2)
 
 
 if __name__ == "__main__":

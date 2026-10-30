@@ -29,3 +29,9 @@ Every step must preserve `./run.sh`, avoid secrets/runtime artifacts in Git, and
 - **D013 — Use venv Python directly.** `run.sh` calls `.venv/bin/python` rather than activating the shell.
 - **D014 — Respect explicit `APP_ENV`.** `run.sh` defaults to `test` but preserves an exported value.
 - **D015 — Isolated run-script test.** End-to-end `run.sh` testing uses a temporary copy and avoids recursive self-testing.
+- **D016 — SQLite at `data/llm_metrics.db`.** Standard-library `sqlite3`; path anchored to the repo root, not the current directory; `data/` is git-ignored.
+- **D017 — One `observations` table with `environment`.** Columns `id`, `recorded_at`, `environment` (`CHECK` in `test`/`prod`), `provider`, `model`, `metric`, `value_ms`. `environment` keeps simulated rows distinguishable from future prod rows. `value_ms` makes the unit explicit; a non-millisecond metric will need a schema change.
+- **D018 — Initialize on every connect; no migrations.** `CREATE TABLE IF NOT EXISTS` is idempotent and needs no setup. A future schema change must handle existing database files explicitly.
+- **D019 — `recorded_at` is UTC save time.** Format `YYYY-MM-DDTHH:MM:SS.ffffffZ` (text order = time order), taken immediately after the measurement succeeds.
+- **D020 — `LLM_METRICS_DB_PATH` override.** Lets CLI tests use a temporary database; empty means unset.
+- **D021 — Persist only successful measurements.** `prod`, invalid config, or a failed measurement writes nothing. SQL values always use `?` placeholders.
