@@ -48,6 +48,7 @@ llm_metrics/
   __main__.py      CLI
 tests/             automated tests
 prompts/           prompt history and guidance
+design-questions/  interview-style design questions per step
 data/              runtime DB; git-ignored
 ```
 
