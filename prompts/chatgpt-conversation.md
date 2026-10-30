@@ -49,6 +49,7 @@ OpenRouter is a useful product reference: its provider/analytics surfaces emphas
 - Each step writes `prompts/NNN-output.md` and follows `prompts/DESIGN_QUESTIONS.md` for role-specific learning material.
 - Implementation drives learning: after review, discuss one or two questions grounded in the completed step.
 - Whenever ChatGPT creates or materially revises a pending numbered prompt, update this file in the same workflow.
+- `CODING_GUIDELINES.md` is the standing code-quality contract for all new/modified code. Follow Google Python style where appropriate, with correctness/security/readability ahead of mechanical style. Code and nearby comments/docstrings must be understandable to both human engineers and AI coding agents: descriptive names, explicit responsibilities/invariants, comments that explain non-obvious **why**, no chat-dependent commentary, no stale comments, and no unnecessary narration of obvious syntax. Future numbered prompts should require a coding-guideline review before commit.
 
 ## Implementation progression
 
