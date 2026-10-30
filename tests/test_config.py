@@ -4,9 +4,11 @@ from pathlib import Path
 
 from llm_metrics.config import (
     DEFAULT_DB_PATH,
+    DEFAULT_PORT,
     ConfigError,
     get_app_env,
     get_db_path,
+    get_port,
     get_provider,
 )
 from llm_metrics.providers import DummyProvider
@@ -49,6 +51,19 @@ class GetDbPathTest(unittest.TestCase):
         self.assertEqual(
             get_db_path({"LLM_METRICS_DB_PATH": "/tmp/x.db"}), Path("/tmp/x.db")
         )
+
+
+class GetPortTest(unittest.TestCase):
+    def test_default_and_override(self):
+        self.assertEqual(get_port({}), DEFAULT_PORT)
+        self.assertEqual(get_port({"LLM_METRICS_PORT": "8123"}), 8123)
+        self.assertEqual(get_port({"LLM_METRICS_PORT": "0"}), 0)
+
+    def test_invalid_port_fails_clearly(self):
+        for bad in ("abc", "-1", "70000", "80.5"):
+            with self.subTest(bad=bad):
+                with self.assertRaisesRegex(ConfigError, "Invalid LLM_METRICS_PORT"):
+                    get_port({"LLM_METRICS_PORT": bad})
 
 
 if __name__ == "__main__":

@@ -3,7 +3,9 @@ import shutil
 import sqlite3
 import subprocess
 import tempfile
+import threading
 import unittest
+import urllib.request
 from contextlib import closing
 from pathlib import Path
 
@@ -13,6 +15,35 @@ RUN_SH = REPO_ROOT / "run.sh"
 # run.sh runs the whole test suite, which includes this file. The end-to-end test
 # sets this variable when it calls run.sh so the nested run skips it (no recursion).
 NESTED = "LLM_METRICS_INSIDE_RUN_SH_TEST"
+
+
+def run_until_dashboard(cwd, env):
+    """Run ./run.sh. If it reaches the dashboard, fetch the page and stop it.
+
+    Returns (returncode, stdout, stderr, page). page is None if no dashboard started.
+    """
+    proc = subprocess.Popen(
+        ["./run.sh"], cwd=cwd, env=env,
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+    )
+    watchdog = threading.Timer(120, proc.kill)  # never hang the test suite
+    watchdog.start()
+    try:
+        stdout, page = "", None
+        for line in proc.stdout:
+            stdout += line
+            if line.startswith("Dashboard: "):
+                url = line.split()[1]
+                with urllib.request.urlopen(url, timeout=10) as response:
+                    page = response.read().decode("utf-8")
+                proc.terminate()
+                break
+        returncode = proc.wait(timeout=30)
+        return returncode, stdout, proc.stderr.read(), page
+    finally:
+        watchdog.cancel()
+        proc.stdout.close()
+        proc.stderr.close()
 
 
 class RunScriptTest(unittest.TestCase):
@@ -41,6 +72,7 @@ class RunScriptTest(unittest.TestCase):
                 if k not in ("APP_ENV", "LLM_METRICS_DB_PATH")
             }
             env[NESTED] = "1"
+            env["LLM_METRICS_PORT"] = "0"  # any free port
 
             db_path = copy / "data" / "llm_metrics.db"
 
@@ -48,42 +80,47 @@ class RunScriptTest(unittest.TestCase):
                 with closing(sqlite3.connect(db_path)) as conn:
                     return conn.execute("SELECT COUNT(*) FROM observations").fetchone()[0]
 
-            def run():
-                return subprocess.run(
-                    ["./run.sh"], cwd=copy, env=env,
-                    capture_output=True, text=True, timeout=120,
-                )
-
-            first = run()
-            self.assertEqual(first.returncode, 0, first.stdout + first.stderr)
-            self.assertIn("Creating Python environment", first.stdout)
-            self.assertIn("Tests passed", first.stdout)
-            self.assertIn("Provider: dummy", first.stdout)
-            self.assertRegex(first.stdout, r"TTFT: \d+\.\d ms")
+            # First run: creates .venv, measures, saves, then serves the dashboard.
+            _, out, err, page = run_until_dashboard(copy, env)
+            self.assertIn("Creating Python environment", out)
+            self.assertIn("Tests passed", out)
+            self.assertIn("Provider: dummy", out)
+            self.assertRegex(out, r"TTFT: \d+\.\d ms")
             self.assertTrue((copy / ".venv" / "bin" / "python").exists())
-            self.assertIn("Saved observation to data/llm_metrics.db", first.stdout)
+            self.assertIn("Saved observation to data/llm_metrics.db", out)
             self.assertEqual(count_rows(), 1)
+            self.assertRegex(out, r"Dashboard: http://127\.0\.0\.1:\d+/")
+            self.assertIsNotNone(page, out + err)
+            self.assertIn("TEST / SIMULATED DATA", page)
+            self.assertIn("All 1 observations", page)
 
             # Re-running reuses the existing .venv.
-            second = run()
-            self.assertEqual(second.returncode, 0, second.stdout + second.stderr)
-            self.assertNotIn("Creating Python environment", second.stdout)
-            self.assertIn("TTFT:", second.stdout)
+            _, out, err, page = run_until_dashboard(copy, env)
+            self.assertNotIn("Creating Python environment", out)
+            self.assertIn("TTFT:", out)
             self.assertEqual(count_rows(), 2)
+            self.assertIn("All 2 observations", page)
 
-            # A failing test stops the run before the measurement.
+            # A failing test stops the run before the measurement and dashboard.
             (copy / "tests" / "test_zz_fail.py").write_text(
                 "import unittest\n"
                 "class F(unittest.TestCase):\n"
                 "    def test_fail(self):\n"
                 "        self.fail('deliberate')\n"
             )
-            failed = run()
-            self.assertNotEqual(failed.returncode, 0)
-            self.assertIn("Tests failed", failed.stderr)
-            self.assertNotIn("TTFT:", failed.stdout)
+            returncode, out, err, page = run_until_dashboard(copy, env)
+            self.assertNotEqual(returncode, 0)
+            self.assertIn("Tests failed", err)
+            self.assertNotIn("TTFT:", out)
+            self.assertIsNone(page)
             self.assertEqual(count_rows(), 2)
 
+            # prod refuses to measure, so the dashboard is not started either.
+            (copy / "tests" / "test_zz_fail.py").unlink()
+            returncode, out, err, page = run_until_dashboard(copy, {**env, "APP_ENV": "prod"})
+            self.assertEqual(returncode, 2)
+            self.assertIsNone(page)
+            self.assertEqual(count_rows(), 2)
 
 if __name__ == "__main__":
     unittest.main()

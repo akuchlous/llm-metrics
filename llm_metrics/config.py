@@ -1,4 +1,4 @@
-"""Environment selection (APP_ENV), provider wiring, and database location."""
+"""Environment selection (APP_ENV), provider wiring, database path, dashboard port."""
 
 import os
 from collections.abc import Mapping
@@ -11,6 +11,7 @@ DEFAULT_ENV = "test"
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_DB_PATH = REPO_ROOT / "data" / "llm_metrics.db"
+DEFAULT_PORT = 8000
 
 
 class ConfigError(Exception):
@@ -51,3 +52,13 @@ def get_db_path(environ: Mapping[str, str] | None = None) -> Path:
     if environ is None:
         environ = os.environ
     return Path(environ.get("LLM_METRICS_DB_PATH") or DEFAULT_DB_PATH)
+
+
+def get_port(environ: Mapping[str, str] | None = None) -> int:
+    """Dashboard port. LLM_METRICS_PORT overrides the default; 0 picks a free port."""
+    if environ is None:
+        environ = os.environ
+    value = environ.get("LLM_METRICS_PORT") or str(DEFAULT_PORT)
+    if not value.isdigit() or int(value) > 65535:
+        raise ConfigError(f"Invalid LLM_METRICS_PORT={value!r}. Expected 0-65535.")
+    return int(value)

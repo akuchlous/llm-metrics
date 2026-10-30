@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# One-command local run: prepare .venv, run the tests, then run the measurement.
+# One-command local run: prepare .venv, run the tests, run the measurement,
+# then serve the dashboard until Ctrl+C.
 # Usage: ./run.sh
 set -euo pipefail
 
@@ -31,4 +32,6 @@ echo "✓ Tests passed"
 export APP_ENV="${APP_ENV:-test}"
 echo "✓ Starting $APP_ENV measurement"
 echo
-exec "$PYTHON" -m llm_metrics
+"$PYTHON" -m llm_metrics
+echo
+exec "$PYTHON" -m llm_metrics.dashboard

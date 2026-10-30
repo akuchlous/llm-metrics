@@ -3,7 +3,7 @@
 An open-source project to independently measure LLM provider performance
 (time to first token, throughput, latency, reliability, price).
 
-It is being built in small, tested steps. **Current step: 004.**
+It is being built in small, tested steps. **Current step: 005.**
 
 > **Simulated data only.** The current implementation uses a dummy provider that
 > sleeps for a fixed time and then emits fake tokens. Its numbers do **not**
@@ -29,7 +29,7 @@ cd llm-metrics
 
 `./run.sh` creates a `.venv` virtual environment on first run (and reuses it
 afterwards), runs all tests, and only if they pass runs the TTFT measurement in
-`test` mode:
+`test` mode and then starts the local dashboard:
 
 ```
 LLM Metrics — local test environment
@@ -42,9 +42,28 @@ Model: dummy-model-v1
 Metric: TTFT
 TTFT: 100.3 ms
 Saved observation to data/llm_metrics.db
+
+Dashboard: http://127.0.0.1:8000/  (Ctrl+C to stop)
 ```
 
-If any test fails, the test output is shown and the measurement is not run.
+If any test fails, the test output is shown and nothing else runs.
+
+## Dashboard
+
+Open the printed URL in a browser. The page shows the provider and model, a
+**TEST / SIMULATED DATA** label, the latest TTFT, and a TTFT-over-time line chart
+of all stored simulated observations (including the fixed seeded week, however
+old it is). To see the full chart, seed the history once:
+
+```bash
+python3 -m llm_metrics.seed_history
+```
+
+The dashboard uses only the Python standard library, has no JavaScript, and
+listens on `127.0.0.1` only, so it is not reachable from other machines. On a
+Chromebook, open the printed URL in Chrome; if it does not load, try
+`http://localhost:8000/`. Stop it with Ctrl+C. If port 8000 is busy, use another:
+`LLM_METRICS_PORT=8001 ./run.sh`.
 
 ## Manual commands (for development and debugging)
 
@@ -55,6 +74,7 @@ python3 -m venv --without-pip .venv   # no dependencies, so no pip needed
 source .venv/bin/activate
 python -m unittest -v               # run the tests
 APP_ENV=test python -m llm_metrics  # run the dummy measurement
+python -m llm_metrics.dashboard     # serve the dashboard only
 ```
 
 ## Stored observations

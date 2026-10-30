@@ -78,3 +78,16 @@ def save_new_observations(
     with closing(connect(db_path)) as conn, conn:
         cursor = conn.executemany("INSERT OR IGNORE INTO " + _INSERT_TARGET, rows)
         return cursor.rowcount
+
+
+def load_observations(
+    db_path: Path, environment: str, provider: str, model: str, metric: str
+) -> list[tuple[str, float]]:
+    """Return (recorded_at, value_ms) for matching observations, oldest first."""
+    with closing(connect(db_path)) as conn:
+        return conn.execute(
+            "SELECT recorded_at, value_ms FROM observations"
+            " WHERE environment = ? AND provider = ? AND model = ? AND metric = ?"
+            " ORDER BY recorded_at, id",
+            (environment, provider, model, metric),
+        ).fetchall()
