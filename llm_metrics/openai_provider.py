@@ -224,9 +224,14 @@ class OpenAIProvider(LLMProvider):
                                       response_status=_safe(final.get("status")),
                                       **_error_fields(final.get("error")))
                     elif kind == "error":
-                        code = str(event.get("code") or "")
+                        # Details may be nested ({"type": "error", "error": {...}})
+                        # or top-level; the event's own "type" is always "error".
+                        nested = event.get("error")
+                        details = nested if isinstance(nested, dict) else {
+                            k: v for k, v in event.items() if k != "type"}
+                        code = str(details.get("code") or "")
                         category = "rate_limited" if "rate_limit" in code else "provider_error"
-                        raise failure(category, "event:error", **_error_fields(event))
+                        raise failure(category, "event:error", **_error_fields(details))
             except ProviderFailure as e:
                 if not e.diagnostics:  # e.g. invalid_response from _events/_usage
                     e.diagnostics = {"where": "stream", **stream_info}

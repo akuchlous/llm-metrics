@@ -4,7 +4,7 @@ _Last updated: Step 012 — 2026-10-30_
 
 ## Current state
 
-**Step 012 complete:** first real provider (OpenAI `gpt-6-luna`, Responses API, standard library only) behind the existing boundary, callable only via `python -m llm_metrics.real_smoke` (one paid call, key from `OPENAI_API_KEY`, stored as `prod`); Benchmark API Spend page; real and simulated data labelled and separated. The first live smoke call (run by the owner) **failed as `provider_error` after 5.4 s**; the cause is not yet known. Follow-up: sanitized `--debug` diagnostics and `reasoning.effort: none` were added; the next manual call should use `python -m llm_metrics.real_smoke --debug`. Price $0.10 / $0.50 per 1M verified by the owner on 2026-10-30.
+**Step 012 complete:** first real provider (OpenAI `gpt-6-luna`, Responses API, standard library only) behind the existing boundary, callable only via `python -m llm_metrics.real_smoke` (one paid call, key from `OPENAI_API_KEY`, stored as `prod`); Benchmark API Spend page; real and simulated data labelled and separated. Two live smoke calls (run by the owner) **failed as `provider_error`** (5.4 s; then 1.1 s with `--debug`: HTTP 200 followed by an in-stream `error` event, details nested and not yet visible); the cause is not yet known. Follow-up: sanitized `--debug` diagnostics and `reasoning.effort: none` were added; the next manual call should use `python -m llm_metrics.real_smoke --debug`. Price $0.10 / $0.50 per 1M verified by the owner on 2026-10-30.
 
 Working:
 - `./run.sh` creates/reuses `.venv`, runs tests, seeds simulated TTFT history (test only, idempotent), makes one benchmark attempt (outcome, tokens, total latency, TTFT, throughput, cost), then serves the dashboard at `http://127.0.0.1:8000/` until Ctrl+C.
@@ -16,7 +16,7 @@ Working:
 - Recent requests view (`/requests`): the 20 most recent `test` attempts with outcome (FAILED + category), tokens, total latency (primary), TTFT, chunk throughput, costs, and failed-after time; unknown values shown as "—"; labelled simulated.
 - Benchmark API Spend (`/spend?window=`, default 30d, real data only): per provider/model successful paid calls, tokens, known total cost, failed attempts (cost unknown), and a grand total.
 - Pages are labelled TEST / SIMULATED DATA or REAL PROVIDER DATA; `/requests?data=simulated|real` switches population.
-- 156 standard-library `unittest` tests (pass on Python 3.11 and 3.13); none touch the network.
+- 159 standard-library `unittest` tests (pass on Python 3.11 and 3.13); none touch the network.
 - No third-party dependencies. Network and secrets are used only by `real_smoke`.
 
 Data from `./run.sh` is **simulated** and does not represent real LLM performance. Real data exists only after `real_smoke` is run.

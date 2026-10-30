@@ -182,3 +182,19 @@ python3 -m llm_metrics.real_smoke --debug
 ```
 
 Then share the printed `Debug (sanitized, not stored): …` line.
+
+## Follow-up 2: second live call (`--debug`)
+
+The owner's run printed `where=event:error, http_status=200, request_id=req_e7b69a029b404d379527b117fff3212e, error_type=error`, after 1087.2 ms (attempt `b113ba9a…`, stored as `provider_error`).
+
+**Reading:** OpenAI accepted the HTTP request (200) and then sent an in-stream `error` event, which is path 3 of 4. `error_type=error` exposed a diagnostics bug: the event's own `type` (always `"error"`) was reported, while the real `code`/`type`/`param` live in a nested `error` object that wasn't read. The rate-limit check had the same blind spot. A fast in-stream error after a 200 suggests OpenAI rejected something in our request (candidates: `reasoning.effort: "none"`, `store: false`, parameter combination), but this is **unconfirmed** until the nested code/param are visible.
+
+**Change:** for `error` events, read details from the nested `error` object when present, otherwise from the top-level fields excluding the event's own `type`. The rate-limit code check uses the same details. Same sanitization; nothing stored.
+
+**Tests:** 159, OK on Python 3.13 and 3.11. New: the nested live shape reports `error_code`/`error_type`/`error_param` with the request id; the event type isn't reported as `error_type`; a nested `rate_limit_exceeded` code maps to `rate_limited`.
+
+**Choices made:**
+- **No change to classification yet.** Pending the next diagnostics, in-stream errors still record `provider_error`.
+- **Open question for after the next run:** if the code shows an `invalid_request_error`, should in-stream request errors be treated like HTTP 4xx (`RequestRejected`, not recorded)? And should the two `provider_error` rows already stored be kept as history, or relabeled?
+
+**Next manual step:** one more run with `python3 -m llm_metrics.real_smoke --debug`.

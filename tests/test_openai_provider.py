@@ -253,6 +253,32 @@ class DiagnosticsTest(unittest.TestCase):
         self.assertEqual(attempt["diagnostics"]["error_param"], "reasoning.effort")
         self.assert_no_free_text(attempt["diagnostics"])
 
+    def test_nested_error_event_details_are_reported(self):
+        # Shape seen live: HTTP 200, then {"type": "error", "error": {...}}.
+        event = {"type": "error", "sequence_number": 1, "error": {
+            "type": "invalid_request_error", "code": "unsupported_value",
+            "param": "reasoning.effort", "message": SECRETISH}}
+        response = FakeResponse(sse(event))
+        response.headers = {"x-request-id": "req_e7b69a029b404d379527b117fff3212e"}
+        response.status = 200
+        attempt = self.failed(response=response)
+        self.assertEqual(attempt["outcome"], "provider_error")
+        self.assertEqual(attempt["diagnostics"], {
+            "where": "event:error", "http_status": "200",
+            "request_id": "req_e7b69a029b404d379527b117fff3212e",
+            "error_code": "unsupported_value", "error_type": "invalid_request_error",
+            "error_param": "reasoning.effort"})
+        self.assert_no_free_text(attempt["diagnostics"])
+
+    def test_event_type_is_not_reported_as_error_type(self):
+        attempt = self.failed(response=FakeResponse(sse({"type": "error", "code": "server_error"})))
+        self.assertNotIn("error_type", attempt["diagnostics"])
+        self.assertEqual(attempt["diagnostics"]["error_code"], "server_error")
+
+    def test_nested_rate_limit_code_maps_to_rate_limited(self):
+        event = {"type": "error", "error": {"code": "rate_limit_exceeded", "type": "requests"}}
+        self.assertEqual(self.failed(response=FakeResponse(sse(event)))["outcome"], "rate_limited")
+
     def test_incomplete_reason_is_reported(self):
         event = {"type": "response.incomplete", "response": {"incomplete_details": {"reason": "content_filter"}}}
         attempt = self.failed(response=FakeResponse(sse(delta("a"), event)))
