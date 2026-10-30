@@ -31,27 +31,29 @@ class CLITest(unittest.TestCase):
             timeout=30,
         )
 
-    def test_test_env_prints_ttft(self):
+    def test_test_env_prints_both_metrics(self):
         proc = self.run_cli("test")
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertIn("Provider: dummy", proc.stdout)
         self.assertIn("Model: dummy-model-v1", proc.stdout)
-        self.assertIn("Metric: TTFT", proc.stdout)
         self.assertRegex(proc.stdout, r"TTFT: \d+\.\d ms")
+        self.assertRegex(proc.stdout, r"Total latency: \d+\.\d ms")
 
-    def test_test_env_saves_one_observation(self):
+    def test_test_env_saves_ttft_and_total_latency_from_one_request(self):
         proc = self.run_cli("test")
         self.assertEqual(proc.returncode, 0, proc.stderr)
-        self.assertIn("Saved observation to", proc.stdout)
+        self.assertIn("Saved 2 observations to", proc.stdout)
         with closing(sqlite3.connect(self.db_path)) as conn:
             rows = conn.execute(
-                "SELECT environment, provider, model, metric, value_ms FROM observations"
+                "SELECT recorded_at, environment, provider, model, metric, value_ms"
+                " FROM observations ORDER BY id"
             ).fetchall()
-        self.assertEqual(len(rows), 1)
-        environment, provider, model, metric, value_ms = rows[0]
-        self.assertEqual((environment, provider, model, metric),
-                         ("test", "dummy", "dummy-model-v1", "ttft"))
-        self.assertGreater(value_ms, 0)
+        self.assertEqual([r[4] for r in rows], ["ttft", "total_latency"])
+        for _, environment, provider, model, _, value_ms in rows:
+            self.assertEqual((environment, provider, model), ("test", "dummy", "dummy-model-v1"))
+            self.assertGreater(value_ms, 0)
+        self.assertEqual(rows[0][0], rows[1][0])  # same request, same timestamp
+        self.assertGreaterEqual(rows[1][5], rows[0][5])  # total >= TTFT
 
     def test_prod_env_fails_without_measuring(self):
         proc = self.run_cli("prod")

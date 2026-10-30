@@ -17,7 +17,8 @@ class LLMProvider:
 class DummyProvider(LLMProvider):
     """Simulated streaming provider. Never calls a network service.
 
-    Waits `first_token_delay_s` seconds, then yields `tokens` one by one.
+    Waits `first_token_delay_s` seconds, then yields `tokens` one by one,
+    waiting `inter_token_delay_s` seconds before each token after the first.
     """
 
     name = "dummy"
@@ -27,10 +28,15 @@ class DummyProvider(LLMProvider):
         self,
         first_token_delay_s: float = 0.1,
         tokens: tuple[str, ...] = ("This", " is", " a", " dummy", " response."),
+        inter_token_delay_s: float = 0.02,
     ):
         self.first_token_delay_s = first_token_delay_s
         self.tokens = tokens
+        self.inter_token_delay_s = inter_token_delay_s
 
     def stream(self, prompt: str) -> Iterator[str]:
         time.sleep(self.first_token_delay_s)
-        yield from self.tokens
+        for i, token in enumerate(self.tokens):
+            if i > 0:
+                time.sleep(self.inter_token_delay_s)
+            yield token

@@ -88,29 +88,30 @@ class RunScriptTest(unittest.TestCase):
             self.assertIsNone(page)
             self.assertFalse(db_path.exists())
 
-            # First test-mode run: seeds 168 rows, measures 1, serves the dashboard.
+            # First test-mode run: seeds 168 rows, saves TTFT + total latency, serves the dashboard.
             _, out, err, page = run_until_dashboard(copy, env)
             self.assertNotIn("Creating Python environment", out)  # .venv reused
             self.assertIn("Tests passed", out)
             self.assertIn("168 new, 0 already present", out)
             self.assertIn("Provider: dummy", out)
             self.assertRegex(out, r"TTFT: \d+\.\d ms")
-            self.assertIn("Saved observation to data/llm_metrics.db", out)
-            self.assertEqual(count_rows(), 169)
+            self.assertRegex(out, r"Total latency: \d+\.\d ms")
+            self.assertIn("Saved 2 observations to data/llm_metrics.db", out)
+            self.assertEqual(count_rows(), 170)
             self.assertRegex(out, r"Dashboard: http://127\.0\.0\.1:\d+/")
             self.assertIsNotNone(page, out + err)
             self.assertIn("TEST / SIMULATED DATA", page)
             # How much seeded history falls in the default 7d window depends on
             # today's date; the live row just measured is always in it.
-            self.assertIn('href="/?window=7d" aria-current="page"', page)
-            self.assertRegex(page, r"\d+ observations in window")
+            self.assertIn('href="/?window=7d&amp;metric=ttft" aria-current="page"', page)
+            self.assertRegex(page, r"\d+ observations? in window")
             self.assertIn("p99", page)
 
-            # Second run: history already present, only the live row is added.
+            # Second run: history already present, only the two live rows are added.
             _, out, err, page = run_until_dashboard(copy, env)
             self.assertIn("0 new, 168 already present", out)
-            self.assertEqual(count_rows(), 170)
-            self.assertRegex(page, r"\d+ observations in window")
+            self.assertEqual(count_rows(), 172)
+            self.assertRegex(page, r"\d+ observations? in window")
 
             # A failing test stops the run before seeding, measuring, or serving.
             (copy / "tests" / "test_zz_fail.py").write_text(
@@ -124,7 +125,8 @@ class RunScriptTest(unittest.TestCase):
             self.assertIn("Tests failed", err)
             self.assertNotIn("TTFT:", out)
             self.assertIsNone(page)
-            self.assertEqual(count_rows(), 170)
+            self.assertEqual(count_rows(), 172)
+
 
 if __name__ == "__main__":
     unittest.main()

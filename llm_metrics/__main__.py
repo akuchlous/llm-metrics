@@ -1,11 +1,11 @@
-"""CLI: run one TTFT measurement. Usage: APP_ENV=test python -m llm_metrics"""
+"""CLI: measure TTFT and total latency for one request. Usage: APP_ENV=test python -m llm_metrics"""
 
 import os
 import sys
 
 from llm_metrics.config import ConfigError, get_app_env, get_db_path, get_provider
-from llm_metrics.storage import save_observation
-from llm_metrics.ttft import measure_ttft
+from llm_metrics.latency import measure_latency
+from llm_metrics.storage import save_observations
 
 PROMPT = "Say hello."
 
@@ -18,15 +18,15 @@ def main() -> int:
         print(f"Error: {e}", file=sys.stderr)
         return 2
 
-    result = measure_ttft(provider, PROMPT)
-    print(f"Provider: {result['provider']}")
-    print(f"Model: {result['model']}")
-    print("Metric: TTFT")
-    print(f"TTFT: {result['value_ms']:.1f} ms")
+    ttft, total = measure_latency(provider, PROMPT)
+    print(f"Provider: {ttft['provider']}")
+    print(f"Model: {ttft['model']}")
+    print(f"TTFT: {ttft['value_ms']:.1f} ms")
+    print(f"Total latency: {total['value_ms']:.1f} ms")
 
     db_path = get_db_path()
-    save_observation(db_path, result, app_env)
-    print(f"Saved observation to {os.path.relpath(db_path)}")
+    save_observations(db_path, [ttft, total], app_env)
+    print(f"Saved 2 observations to {os.path.relpath(db_path)}")
     return 0
 
 

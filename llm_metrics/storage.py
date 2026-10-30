@@ -59,11 +59,15 @@ def _row(recorded_at: datetime, environment: str, result: dict) -> tuple:
     )
 
 
-def save_observation(db_path: Path, result: dict, environment: str) -> None:
-    """Append one measurement result (as returned by measure_ttft), timestamped now."""
-    row = _row(datetime.now(timezone.utc), environment, result)
-    with closing(connect(db_path)) as conn, conn:  # inner `conn` commits the insert
-        conn.execute("INSERT INTO " + _INSERT_TARGET, row)
+def save_observations(db_path: Path, results: list[dict], environment: str) -> None:
+    """Append measurement results from one request, all timestamped now.
+
+    The rows are written in one transaction: either all are saved or none.
+    """
+    recorded_at = datetime.now(timezone.utc)
+    rows = [_row(recorded_at, environment, result) for result in results]
+    with closing(connect(db_path)) as conn, conn:  # inner `conn` commits the inserts
+        conn.executemany("INSERT INTO " + _INSERT_TARGET, rows)
 
 
 def save_new_observations(

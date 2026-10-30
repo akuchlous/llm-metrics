@@ -47,3 +47,4 @@ Each file has:
 | [05](05/) | First local dashboard | `prompts/005-first-ttft-dashboard.md` |
 | [06](06/) | TTFT percentiles | `prompts/006-ttft-percentiles.md` |
 | [07](07/) | TTFT time windows | `prompts/007-time-windows.md` |
+| [08](08/) | Total response latency | `prompts/008-total-response-latency.md` |

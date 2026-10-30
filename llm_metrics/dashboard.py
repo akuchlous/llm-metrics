@@ -1,9 +1,10 @@
-"""Local TTFT dashboard: one HTML page with a server-rendered SVG line chart.
+"""Local latency dashboard: one HTML page with a server-rendered SVG line chart.
 
 Usage: python -m llm_metrics.dashboard   (serves http://127.0.0.1:8000/)
 
-GET /?window=24h|7d|30d selects a time window ending at the current UTC time
-(default 7d). Any other window value is rejected with HTTP 400.
+GET /?window=24h|7d|30d&metric=ttft|total_latency selects a time window ending
+at the current UTC time (default 7d) and a metric (default ttft). Any other,
+empty, or repeated value is rejected with HTTP 400.
 
 Uses only the standard library. Binds to 127.0.0.1 so it is not reachable from
 other machines. Shows only simulated test observations from the dummy provider.
@@ -24,12 +25,18 @@ from llm_metrics.storage import load_observations
 
 HOST = "127.0.0.1"
 
-# What the dashboard displays: simulated TTFT from the dummy provider only.
+# What the dashboard displays: simulated observations from the dummy provider only.
 ENVIRONMENT = "test"
 PROVIDER = DummyProvider.name
 MODEL = DummyProvider.model
-METRIC = "ttft"
 PERCENTILES = (50, 95, 99)
+
+# Selectable metrics: stored metric name -> display label.
+METRICS = {
+    "ttft": "TTFT",
+    "total_latency": "Total latency",
+}
+DEFAULT_METRIC = "ttft"
 
 # Selectable windows, each ending at the current UTC time. The default is 7d:
 # with hourly data it holds ~168 observations, enough for nearest-rank p99 to
@@ -50,7 +57,7 @@ PAGE = """<!doctype html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>llm-metrics — TTFT</title>
+<title>llm-metrics — latency</title>
 <style>
   body {{ font-family: system-ui, sans-serif; max-width: 900px; margin: 2rem auto; padding: 0 1rem; color: #1a1a1a; background: #fff; }}
   .label {{ display: inline-block; background: #b45309; color: #fff; font-weight: 700; padding: .3rem .7rem; border-radius: 4px; letter-spacing: .05em; }}
@@ -65,7 +72,7 @@ PAGE = """<!doctype html>
 <body>
 <h1>llm-metrics</h1>
 <p class="label">TEST / SIMULATED DATA</p>
-<p>Provider: <b>{provider}</b> · Model: <b>{model}</b> · Metric: <b>TTFT</b></p>
+<p>Provider: <b>{provider}</b> · Model: <b>{model}</b></p>
 <p class="muted">Simulated observations from the dummy provider. Not real LLM performance.</p>
 {body}
 </body>
@@ -81,7 +88,9 @@ def _display_time(recorded_at: str) -> str:
     return _parse_time(recorded_at).strftime("%Y-%m-%d %H:%M UTC")
 
 
-def _chart_svg(observations: list[tuple[str, float]], start: datetime, end: datetime) -> str:
+def _chart_svg(
+    observations: list[tuple[str, float]], label: str, start: datetime, end: datetime
+) -> str:
     """Line chart of value_ms over the whole window (x is proportional to time)."""
     t_min, t_max = start.timestamp(), end.timestamp()
     times = [_parse_time(t).timestamp() for t, _ in observations]
@@ -97,7 +106,7 @@ def _chart_svg(observations: list[tuple[str, float]], start: datetime, end: date
 
     points = " ".join(f"{x(t):.1f},{y(v):.1f}" for t, v in zip(times, values))
     axis_bottom = HEIGHT - BOTTOM
-    return f"""<svg viewBox="0 0 {WIDTH} {HEIGHT}" role="img" aria-label="TTFT over time">
+    return f"""<svg viewBox="0 0 {WIDTH} {HEIGHT}" role="img" aria-label="{label} over time">
   <line x1="{LEFT}" y1="{TOP}" x2="{LEFT}" y2="{axis_bottom}" stroke="#999"/>
   <line x1="{LEFT}" y1="{axis_bottom}" x2="{WIDTH - RIGHT}" y2="{axis_bottom}" stroke="#999"/>
   <text x="{LEFT - 6}" y="{TOP + 4}" text-anchor="end" font-size="12">{y_max:.0f} ms</text>
@@ -109,26 +118,42 @@ def _chart_svg(observations: list[tuple[str, float]], start: datetime, end: date
 </svg>"""
 
 
-def _window_nav(selected: str | None) -> str:
-    links = []
-    for name in WINDOWS:
-        current = ' aria-current="page"' if name == selected else ""
-        links.append(f'<a href="/?window={name}"{current}>{name}</a>')
-    return '<nav aria-label="Time window">Window: ' + "".join(links) + "</nav>"
+def _nav(window: str | None, metric: str | None) -> str:
+    """Window and metric links. Each link keeps the other current selection."""
+    keep_metric = metric or DEFAULT_METRIC
+    keep_window = window or DEFAULT_WINDOW
+
+    def link(href_window: str, href_metric: str, text: str, current: bool) -> str:
+        aria = ' aria-current="page"' if current else ""
+        return f'<a href="/?window={href_window}&amp;metric={href_metric}"{aria}>{text}</a>'
+
+    windows = "".join(link(w, keep_metric, w, w == window) for w in WINDOWS)
+    metrics = "".join(link(keep_window, m, label, m == metric) for m, label in METRICS.items())
+    return (
+        f'<nav aria-label="Metric">Metric: {metrics}</nav>\n'
+        f'<nav aria-label="Time window">Window: {windows}</nav>'
+    )
 
 
-def parse_window(query: str) -> str:
-    """Return the window named by a URL query string, or DEFAULT_WINDOW if absent.
+def _parse_choice(params: dict[str, list[str]], name: str, choices, default: str) -> str:
+    values = params.get(name)
+    if values is None:
+        return default
+    if len(values) != 1 or values[0] not in choices:
+        raise ValueError(f"Invalid {name}.")
+    return values[0]
 
-    Raises ValueError for any other value, an empty value, or a repeated parameter.
+
+def parse_query(query: str) -> tuple[str, str]:
+    """Return (window, metric) from a URL query string, using defaults when absent.
+
+    Raises ValueError for an unknown, empty, or repeated window or metric.
     Other query parameters are ignored.
     """
-    values = parse_qs(query, keep_blank_values=True).get("window")
-    if values is None:
-        return DEFAULT_WINDOW
-    if len(values) != 1 or values[0] not in WINDOWS:
-        raise ValueError("Unknown time window.")
-    return values[0]
+    params = parse_qs(query, keep_blank_values=True)
+    window = _parse_choice(params, "window", WINDOWS, DEFAULT_WINDOW)
+    metric = _parse_choice(params, "metric", METRICS, DEFAULT_METRIC)
+    return window, metric
 
 
 def window_bounds(window: str, now: datetime) -> tuple[datetime, datetime]:
@@ -137,20 +162,25 @@ def window_bounds(window: str, now: datetime) -> tuple[datetime, datetime]:
 
 
 def render_page(
-    observations: list[tuple[str, float]], window: str, start: datetime, end: datetime
+    observations: list[tuple[str, float]],
+    window: str,
+    metric: str,
+    start: datetime,
+    end: datetime,
 ) -> str:
-    """Full HTML page for one window's (recorded_at, value_ms) observations, oldest first.
+    """Full HTML page for one metric and window's (recorded_at, value_ms) rows, oldest first.
 
     Every derived value (count, latest, percentiles, chart) uses `observations`.
     """
+    label = METRICS[metric]
     header = (
-        _window_nav(window)
+        _nav(window, metric)
         + f'\n<p class="muted">Window {window}: {start:%Y-%m-%d %H:%M} UTC'
         f" to {end:%Y-%m-%d %H:%M} UTC (now), inclusive.</p>\n"
     )
     if not observations:
         body = (
-            f"<p><b>No observations in the selected window ({window}).</b> Run "
+            f"<p><b>No {label} observations in the selected window ({window}).</b> Run "
             "<code>./run.sh</code> to record one, or choose a longer window.</p>"
         )
     else:
@@ -160,35 +190,37 @@ def render_page(
             f"p{p} <b>{percentile(values, p):.1f} ms</b>" for p in PERCENTILES
         )
         body = (
-            f'<p class="muted">Latest TTFT ({_display_time(latest_at)})</p>\n'
+            f'<p class="muted">Latest {label} ({_display_time(latest_at)})</p>\n'
             f'<p class="latest">{latest_value:.1f} ms</p>\n'
-            f'<p class="percentiles">TTFT {summary}'
+            f'<p class="percentiles">{label} {summary}'
             f' <span class="muted">(nearest-rank, n = {len(observations)})</span></p>\n'
-            f'<p class="muted">{len(observations)} observations in window,'
+            f'<p class="muted">{len(observations)} observation{"" if len(observations) == 1 else "s"} in window,'
             f" first {_display_time(observations[0][0])}, latest {_display_time(latest_at)}.</p>\n"
-            + _chart_svg(observations, start, end)
+            + _chart_svg(observations, label, start, end)
         )
     return PAGE.format(provider=escape(PROVIDER), model=escape(MODEL), body=header + body)
 
 
-def render_invalid_window_page() -> str:
-    """Page for an unknown window value. The bad value is not echoed back."""
+def render_invalid_query_page() -> str:
+    """Page for an invalid window or metric. The bad value is not echoed back."""
     body = (
-        _window_nav(None)
-        + "\n<p><b>Unknown time window.</b> Choose one of: "
+        _nav(None, None)
+        + "\n<p><b>Invalid window or metric.</b> Windows: "
         + ", ".join(WINDOWS)
-        + f". The default is {DEFAULT_WINDOW}.</p>"
+        + f" (default {DEFAULT_WINDOW}). Metrics: "
+        + ", ".join(METRICS)
+        + f" (default {DEFAULT_METRIC}).</p>"
     )
     return PAGE.format(provider=escape(PROVIDER), model=escape(MODEL), body=body)
 
 
-def build_page(db_path: Path, window: str, now: datetime) -> str:
-    """Load the window's observations from SQLite and render the page."""
+def build_page(db_path: Path, window: str, metric: str, now: datetime) -> str:
+    """Load one metric's observations for the window from SQLite and render the page."""
     start, end = window_bounds(window, now)
     observations = load_observations(
-        db_path, ENVIRONMENT, PROVIDER, MODEL, METRIC, start=start, end=end
+        db_path, ENVIRONMENT, PROVIDER, MODEL, metric, start=start, end=end
     )
-    return render_page(observations, window, start, end)
+    return render_page(observations, window, metric, start, end)
 
 
 class _Handler(BaseHTTPRequestHandler):
@@ -198,12 +230,12 @@ class _Handler(BaseHTTPRequestHandler):
             self.send_error(404)
             return
         try:
-            window = parse_window(url.query)
+            window, metric = parse_query(url.query)
         except ValueError:
-            self._send_html(400, render_invalid_window_page())
+            self._send_html(400, render_invalid_query_page())
             return
         now = datetime.now(timezone.utc)
-        self._send_html(200, build_page(self.server.db_path, window, now))
+        self._send_html(200, build_page(self.server.db_path, window, metric, now))
 
     def _send_html(self, status: int, page: str) -> None:
         body = page.encode("utf-8")

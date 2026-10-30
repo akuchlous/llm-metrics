@@ -3,7 +3,7 @@
 An open-source project to independently measure LLM provider performance
 (time to first token, throughput, latency, reliability, price).
 
-It is being built in small, tested steps. **Current step: 007.**
+It is being built in small, tested steps. **Current step: 008.**
 
 > **Simulated data only.** The current implementation uses a dummy provider that
 > sleeps for a fixed time and then emits fake tokens. Its numbers do **not**
@@ -11,11 +11,16 @@ It is being built in small, tested steps. **Current step: 007.**
 
 ## What it measures (so far)
 
-One metric: **Time To First Token (TTFT)**.
+Two metrics from each streamed request, measured in a single pass:
 
-TTFT is the wall-clock time from the moment a request is started until the first
-token of the streamed response is received. It is measured with
-`time.perf_counter()` (monotonic, high resolution) and reported in milliseconds.
+- **Time To First Token (TTFT)** (`ttft`): wall-clock time from the moment the
+  request is started until the first token is received.
+- **Total response latency** (`total_latency`): wall-clock time from the same
+  start until the stream is fully consumed (the last token is received).
+
+Both use `time.perf_counter()` (monotonic, high resolution), are reported in
+milliseconds, and are saved as separate observations. Total latency is never
+less than TTFT.
 
 ## Quick start (Chromebook Linux terminal or any Linux)
 
@@ -44,7 +49,8 @@ Provider: dummy
 Model: dummy-model-v1
 Metric: TTFT
 TTFT: 100.3 ms
-Saved observation to data/llm_metrics.db
+Total latency: 180.9 ms
+Saved 2 observations to data/llm_metrics.db
 
 Dashboard: http://127.0.0.1:8000/  (Ctrl+C to stop)
 ```
@@ -54,16 +60,18 @@ If any test fails, the test output is shown and nothing else runs.
 ## Dashboard
 
 Open the printed URL in a browser. The page shows the provider and model, a
-**TEST / SIMULATED DATA** label, links to choose a time window (**24h**, **7d**,
-**30d**; default **7d**), and for the selected window: the observation count,
-the latest TTFT, TTFT p50/p95/p99, and a TTFT-over-time line chart.
+**TEST / SIMULATED DATA** label, links to choose a metric (**TTFT** or **Total
+latency**; default TTFT) and a time window (**24h**, **7d**, **30d**; default
+**7d**), and for the selected metric and window: the observation count, the
+latest value, p50/p95/p99, and a line chart over time.
 
-Windows end at the current UTC time: `/?window=24h` shows observations with
-`now − 24h <= recorded_at <= now` (both ends inclusive). Everything on the page
-is computed from that same set of observations. Any other `window` value returns
-an error page listing the valid choices. The seeded history is a fixed week
-(2026-10-23 to 2026-10-29), so as time passes it moves out of the shorter
-windows; that is expected.
+Windows end at the current UTC time: `/?window=24h&metric=total_latency` shows
+total-latency observations with `now − 24h <= recorded_at <= now` (both ends
+inclusive). Everything on the page is computed from that same set of
+observations. Any other, empty, or repeated `window` or `metric` value returns an
+error page listing the valid choices. The seeded history is a fixed week
+(2026-10-23 to 2026-10-29) of TTFT only, so as time passes it moves out of the
+shorter windows, and total latency has only live measurements; that is expected.
 
 Percentiles use the **nearest-rank** method over the selected window's
 observations (the same ones as the chart): sort the values and take the one at rank ⌈p × n / 100⌉. The result is

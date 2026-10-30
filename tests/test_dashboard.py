@@ -11,11 +11,12 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from llm_metrics.dashboard import (
+    DEFAULT_METRIC,
     DEFAULT_WINDOW,
     HOST,
     build_page,
     make_server,
-    parse_window,
+    parse_query,
     render_page,
     window_bounds,
 )
@@ -28,6 +29,14 @@ NOW = datetime(2026, 11, 30, 12, 0, tzinfo=timezone.utc)
 
 def visible_text(page):
     return re.sub(r"\s+", " ", re.sub(r"<[^>]+>", "", page))
+
+
+def link(window, metric):
+    return f'href="/?window={window}&amp;metric={metric}"'
+
+
+def current(window, metric):
+    return link(window, metric) + ' aria-current="page"'
 
 
 def chart_point_count(page):
@@ -74,19 +83,30 @@ class LoadObservationsTest(DashboardTestCase):
 
 
 class WindowTest(DashboardTestCase):
-    def test_parse_window(self):
-        self.assertEqual(parse_window(""), DEFAULT_WINDOW)
+    def test_parse_query_defaults_and_values(self):
         self.assertEqual(DEFAULT_WINDOW, "7d")
-        self.assertEqual(parse_window("other=1"), DEFAULT_WINDOW)
+        self.assertEqual(DEFAULT_METRIC, "ttft")
+        self.assertEqual(parse_query(""), ("7d", "ttft"))
+        self.assertEqual(parse_query("other=1"), ("7d", "ttft"))
         for name in ("24h", "7d", "30d"):
-            self.assertEqual(parse_window(f"window={name}"), name)
+            self.assertEqual(parse_query(f"window={name}"), (name, "ttft"))
+        self.assertEqual(parse_query("metric=total_latency"), ("7d", "total_latency"))
+        self.assertEqual(parse_query("metric=ttft&window=30d"), ("30d", "ttft"))
 
     def test_invalid_window_rejected(self):
         for query in ("window=", "window=1h", "window=7D", "window=365d",
                       "window=24h&window=7d", "window=%3Cscript%3E"):
             with self.subTest(query=query):
                 with self.assertRaises(ValueError):
-                    parse_window(query)
+                    parse_query(query)
+
+    def test_invalid_metric_rejected(self):
+        for query in ("metric=", "metric=TTFT", "metric=total", "metric=throughput",
+                      "metric=ttft&metric=total_latency", "metric=ttft&metric=ttft",
+                      "metric=%3Cscript%3E", "window=7d&metric=bogus"):
+            with self.subTest(query=query):
+                with self.assertRaises(ValueError):
+                    parse_query(query)
 
     def test_window_bounds_are_relative_to_now(self):
         self.assertEqual(window_bounds("24h", NOW), (NOW - timedelta(hours=24), NOW))
@@ -115,7 +135,7 @@ class BuildPageTest(DashboardTestCase):
         }
         for window, (count, p50, p95, p99) in expected.items():
             with self.subTest(window=window):
-                page = build_page(self.db_path, window, NOW)
+                page = build_page(self.db_path, window, "ttft", NOW)
                 text = visible_text(page)
                 self.assertIn(f"{count} observations in window", text)
                 self.assertIn(f"n = {count}", text)
@@ -127,35 +147,86 @@ class BuildPageTest(DashboardTestCase):
                 self.assertNotIn("9999", text)    # older than 30d: never shown
 
     def test_selected_window_is_marked(self):
-        page = build_page(self.db_path, "24h", NOW)
-        self.assertIn('href="/?window=24h" aria-current="page"', page)
-        self.assertNotIn('href="/?window=7d" aria-current', page)
+        page = build_page(self.db_path, "24h", "ttft", NOW)
+        self.assertIn(current("24h", "ttft"), page)
+        self.assertNotIn(current("7d", "ttft"), page)
+        # Metric links keep the selected window; window links keep the metric.
+        self.assertIn(link("24h", "total_latency"), page)
+        self.assertIn(link("30d", "ttft"), page)
 
     def test_label_still_present(self):
-        self.assertIn("TEST / SIMULATED DATA", build_page(self.db_path, "7d", NOW))
+        self.assertIn("TEST / SIMULATED DATA", build_page(self.db_path, "7d", "ttft", NOW))
+
+
+class MetricSelectionTest(DashboardTestCase):
+    def setUp(self):
+        super().setUp()
+        # One request at each age stores both metrics, as the CLI does.
+        for age, ttft, total in [
+            (timedelta(hours=1), 100.0, 180.0),
+            (timedelta(hours=5), 110.0, 200.0),
+            (timedelta(days=3), 300.0, 400.0),   # outside 24h
+        ]:
+            recorded_at = NOW - age
+            self.save(recorded_at, ttft, metric="ttft")
+            self.save(recorded_at, total, metric="total_latency")
+        self.save(NOW - timedelta(hours=2), 999.0, metric="ttft")  # extra TTFT-only row
+
+    def test_each_metric_uses_only_its_own_population(self):
+        expected = {
+            # (window, metric): (count, p50, p95, latest)
+            ("24h", "ttft"): (3, "110.0", "999.0", "100.0"),  # sorted 100, 110, 999
+            ("24h", "total_latency"): (2, "180.0", "200.0", "180.0"),
+            ("7d", "ttft"): (4, "110.0", "999.0", "100.0"),
+            ("7d", "total_latency"): (3, "200.0", "400.0", "180.0"),
+        }
+        for (window, metric), (count, p50, p95, latest) in expected.items():
+            with self.subTest(window=window, metric=metric):
+                page = build_page(self.db_path, window, metric, NOW)
+                text = visible_text(page)
+                self.assertIn(f"{count} observations in window", text)
+                self.assertIn(f"n = {count}", text)
+                self.assertEqual(chart_point_count(page), count)
+                self.assertIn(f"p50 {p50} ms", text)
+                self.assertIn(f"p95 {p95} ms", text)
+                self.assertIn(f"{latest} ms", text)
+                self.assertIn(current(window, metric), page)
+                if metric == "total_latency":
+                    self.assertNotIn("999.0", text)  # a TTFT-only value never leaks in
+                    self.assertIn("Total latency p50", text)
+                else:
+                    self.assertIn("TTFT p50", text)
+
+    def test_empty_metric_in_window_renders_cleanly(self):
+        page = build_page(self.db_path, "24h", "total_latency", NOW + timedelta(days=10))
+        text = visible_text(page)
+        self.assertIn("No Total latency observations in the selected window (24h)", text)
+        self.assertNotIn("<svg", page)
+        self.assertIn("TEST / SIMULATED DATA", text)
 
 
 class EmptyAndRenderTest(DashboardTestCase):
     def test_empty_valid_window_renders_cleanly(self):
         self.save(NOW - timedelta(days=3), 120.0)  # outside 24h
-        page = build_page(self.db_path, "24h", NOW)
+        page = build_page(self.db_path, "24h", "ttft", NOW)
         text = visible_text(page)
-        self.assertIn("No observations in the selected window (24h)", text)
+        self.assertIn("No TTFT observations in the selected window (24h)", text)
         self.assertIn("TEST / SIMULATED DATA", text)
         self.assertNotIn("<svg", page)
         self.assertNotIn("p50", text)
         self.assertTrue(page.rstrip().endswith("</html>"))
 
     def test_empty_database_renders_cleanly(self):
-        page = build_page(self.db_path, "7d", NOW)
-        self.assertIn("No observations in the selected window", page)
+        page = build_page(self.db_path, "7d", "ttft", NOW)
+        self.assertIn("observations in the selected window", page)
 
     def test_single_observation(self):
         start, end = window_bounds("24h", NOW)
-        page = render_page([("2026-11-30T11:00:00.000000Z", 101.0)], "24h", start, end)
+        page = render_page([("2026-11-30T11:00:00.000000Z", 101.0)], "24h", "ttft", start, end)
         text = visible_text(page)
         for p in ("p50", "p95", "p99"):
             self.assertIn(f"{p} 101.0 ms", text)
+        self.assertIn("1 observation in window", text)
         self.assertEqual(chart_point_count(page), 1)
 
 
@@ -184,32 +255,36 @@ class ServerTest(DashboardTestCase):
         self.assertIn("default-src 'none'", headers["Content-Security-Policy"])
         self.assertIn("123.4 ms", page)
         self.assertIn("2 observations in window", visible_text(page))
-        self.assertIn('href="/?window=7d" aria-current="page"', page)  # default
+        self.assertIn(current("7d", "ttft"), page)  # defaults
 
         status, _, page = self.get(base + "/?window=24h")
         self.assertEqual(status, 200)
-        self.assertIn('href="/?window=24h" aria-current="page"', page)
+        self.assertIn(current("24h", "ttft"), page)
 
         with self.assertRaises(urllib.error.HTTPError) as ctx:
             urllib.request.urlopen(base + "/missing", timeout=10)
         self.assertEqual(ctx.exception.code, 404)
 
-    def test_invalid_window_is_400_with_valid_choices(self):
+    def test_invalid_window_or_metric_is_400_with_valid_choices(self):
         _, base = self.start_server()
-        with self.assertRaises(urllib.error.HTTPError) as ctx:
-            urllib.request.urlopen(base + "/?window=%3Cscript%3E", timeout=10)
-        self.assertEqual(ctx.exception.code, 400)
-        self.assertIn("default-src 'none'", ctx.exception.headers["Content-Security-Policy"])
-        page = ctx.exception.read().decode("utf-8")
-        self.assertIn("Unknown time window", page)
-        self.assertIn('href="/?window=30d"', page)
-        self.assertNotIn("<script", page)  # the bad value is not echoed
+        for query in ("window=%3Cscript%3E", "window=24h&window=7d",
+                      "metric=%3Cscript%3E", "metric=ttft&metric=total_latency", "metric="):
+            with self.subTest(query=query):
+                with self.assertRaises(urllib.error.HTTPError) as ctx:
+                    urllib.request.urlopen(f"{base}/?{query}", timeout=10)
+                self.assertEqual(ctx.exception.code, 400)
+                self.assertIn("default-src 'none'", ctx.exception.headers["Content-Security-Policy"])
+                page = ctx.exception.read().decode("utf-8")
+                self.assertIn("Invalid window or metric", page)
+                self.assertIn(link("30d", "ttft"), page)
+                self.assertIn(link("7d", "total_latency"), page)
+                self.assertNotIn("<script", page)  # the bad value is not echoed
 
     def test_empty_database(self):
         _, base = self.start_server()
         status, _, page = self.get(base + "/")
         self.assertEqual(status, 200)
-        self.assertIn("No observations in the selected window", page)
+        self.assertIn("observations in the selected window", page)
 
     def test_port_in_use_fails_clearly(self):
         busy = make_server(self.db_path, port=0)
