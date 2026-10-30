@@ -1,0 +1,37 @@
+{#- Shared layout for every dashboard page.
+
+    Context (from dashboard._layout):
+      active_view         path of the current page, or None
+      real_data           true: real-provider data label; false: simulated
+      simulated_provider  provider shown on simulated pages
+      simulated_model     model shown on simulated pages
+
+    Pages fill the "content" block. Every value is autoescaped; this layout
+    loads only the local stylesheet and no scripts.
+-#}
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>llm-metrics</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='dashboard.css') }}">
+</head>
+<body>
+<h1>llm-metrics</h1>
+<nav class="views" aria-label="View">
+{% for path, name in [("/", "Aggregate"), ("/requests", "Recent requests"), ("/spend", "Benchmark API Spend")] %}
+<a href="{{ path }}"{% if path == active_view %} aria-current="page"{% endif %}>{{ name }}</a>
+{% endfor %}
+</nav>
+{% if real_data %}
+<p class="label real">REAL PROVIDER DATA</p>
+<p class="muted">Real API calls made by llm-metrics' own benchmark runner. Never mixed with simulated data.</p>
+{% else %}
+<p class="label">TEST / SIMULATED DATA</p>
+<p>Provider: <b>{{ simulated_provider }}</b> · Model: <b>{{ simulated_model }}</b></p>
+<p class="muted">Simulated observations from the dummy provider. Not real LLM performance.</p>
+{% endif %}
+{% block content %}{% endblock %}
+</body>
+</html>

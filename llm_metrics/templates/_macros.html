@@ -1,0 +1,7 @@
+{#- Small presentation helpers shared by several pages. -#}
+
+{#- A run of navigation links. Each link is {"href", "text", "current"};
+    the current one is marked with aria-current="page". -#}
+{% macro nav_links(links) -%}
+{% for link in links %}<a href="{{ link.href }}"{% if link.current %} aria-current="page"{% endif %}>{{ link.text }}</a> {% endfor %}
+{%- endmacro %}

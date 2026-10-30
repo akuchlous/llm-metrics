@@ -55,3 +55,4 @@ Each file has:
 | [12a](12a/) | Live validation cleanup and request traceability | `prompts/012a-live-validation-cleanup.md` |
 | [13](13/) | Metrics v1 data completeness | `prompts/013-metrics-v1-data-completeness.md` |
 | [14a](14a/) | Flask foundation | `prompts/014a-flask-foundation.md` |
+| [14b](14b/) | Jinja templates | `prompts/014b-jinja-templates.md` |

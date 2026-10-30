@@ -1,0 +1,11 @@
+{#- Shown with HTTP 400 for an invalid query value. Lists the valid values;
+    the rejected value is not in the context, so it can never be echoed.
+    Context: see dashboard.invalid_query_view. -#}
+{% extends "base.html" %}
+{% block content %}
+{% include "_aggregate_nav.html" %}
+<p><b>Invalid window or metric</b> (or data) value.
+Windows: {{ windows | join(", ") }} (default {{ default_window }}; {{ spend_default_window }} on Benchmark API Spend).
+Metrics: {{ metrics | join(", ") }} (default {{ default_metric }}).
+Data on Recent requests: {{ data_values | join(", ") }} (default {{ default_data }}).</p>
+{% endblock %}

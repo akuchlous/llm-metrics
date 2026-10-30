@@ -201,8 +201,9 @@ observations (the same ones as the chart): sort the values and take the one at r
 always a real observed value; with fewer than 100 observations, p99 equals the
 maximum.
 
-The dashboard is a small Flask application with server-rendered pages and no
-JavaScript. It listens on `127.0.0.1` only, so it is not reachable from other
+The dashboard is a small Flask application with server-rendered pages (Jinja
+templates in `llm_metrics/templates/`, one stylesheet in `llm_metrics/static/`)
+and no JavaScript. It listens on `127.0.0.1` only, so it is not reachable from other
 machines, and never runs in Flask debug mode. On a
 Chromebook, open the printed URL in Chrome; if it does not load, try
 `http://localhost:8000/`. Stop it with Ctrl+C. If port 8000 is busy, use another:

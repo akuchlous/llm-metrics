@@ -1,0 +1,6 @@
+{#- Metric and window links of the aggregate page (also shown on the
+    invalid-query page). Context: metric_links, window_links, each a list of
+    {"href", "text", "current"} built by dashboard._aggregate_links. -#}
+{% from "_macros.html" import nav_links %}
+<nav aria-label="Metric">Metric: {{ nav_links(metric_links) }}</nav>
+<nav aria-label="Time window">Window: {{ nav_links(window_links) }}</nav>

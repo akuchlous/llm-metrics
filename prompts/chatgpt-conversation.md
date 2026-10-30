@@ -116,7 +116,7 @@ Known Step 013 limitations are acceptable: output tokens/sec is client-observed 
 
 Step 014 is a sequence, not one rewrite:
 - **014a:** complete and reviewed — Flask app factory and HTTP boundary in `web.py`, preserving behavior and keeping benchmark/data modules framework-independent.
-- **014b:** pending implementation — extract full-page HTML/CSS from Python into Jinja templates, keep templates dumb and autoescaped, preserve routes/security/behavior, and leave analytics/view-model separation for 014c.
+- **014b:** implemented, pending review — `dashboard.py` returns view data (no HTML); `web.py` renders Jinja templates in `llm_metrics/templates/` (base layout, one template per page, nav/chart partials); CSS is a static file, so the CSP is now `style-src 'self'` without `'unsafe-inline'`; chart geometry stays in Python. Visible page text unchanged except step numbers removed from product copy. Analytics/view-model separation remains for 014c.
 - **014c:** separate route/controller view preparation from analytics/query orchestration so web code does not become the new monolith.
 - **014d+:** finish a production-web boundary (API/view organization, production serving/config/test hardening as justified) before cloud deployment. Keep each substep small and reviewable.
 

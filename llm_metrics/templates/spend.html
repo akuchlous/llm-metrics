@@ -1,0 +1,25 @@
+{#- Benchmark API Spend page (real data only). Context: see
+    dashboard.spend_view. Costs are already worded in Python ("unknown",
+    never $0, when no cost is known). -#}
+{% extends "base.html" %}
+{% from "_macros.html" import nav_links %}
+{% block content %}
+<h2>Benchmark API Spend</h2>
+<nav aria-label="Time window">Window: {{ nav_links(window_links) }}</nav>
+<p class="muted">Window {{ window }}: {{ window_label.start }} to {{ window_label.end }} (now), inclusive.</p>
+<p>This is <b>the API token cost incurred by llm-metrics to run its own benchmark requests</b>, from the token counts each provider reported and the rates stored with each request (USD).
+It is <b>not</b> the provider's revenue, not what every user pays, not hosting or infrastructure cost, and not a workload-independent price comparison.
+Only real provider requests are included; simulated data never is.</p>
+<p class="muted">Spend counts successful calls only. A failed attempt's cost is unknown (a provider may still have billed part of it), so it is counted under <i>Failed attempts</i>, never added as $0.</p>
+{% if rows %}
+<div class="table-wrap"><table>
+<tr><th>Provider</th><th>Model</th><th>Successful paid calls</th><th>Input tokens</th><th>Output tokens</th><th>Total cost</th><th>Failed attempts (cost unknown)</th></tr>
+{% for row in rows %}
+<tr><td>{{ row.provider }}</td><td>{{ row.model }}</td><td>{{ row.successful_calls }}</td><td>{{ row.input_tokens }}</td><td>{{ row.output_tokens }}</td><td class="primary">{{ row.total_cost }}</td><td>{{ row.failed_attempts }}</td></tr>
+{% endfor %}
+<tr class="total"><td>All providers</td><td></td><td>{{ total.successful_calls }}</td><td>{{ total.input_tokens }}</td><td>{{ total.output_tokens }}</td><td>{{ total.total_cost }}</td><td>{{ total.failed_attempts }}</td></tr>
+</table></div>
+{% else %}
+<p><b>No real benchmark attempts in the selected window ({{ window }}).</b></p>
+{% endif %}
+{% endblock %}

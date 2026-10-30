@@ -1,0 +1,18 @@
+{#- Line chart of one metric over the selected window.
+
+    The geometry is computed in Python (dashboard._chart): this template only
+    places precomputed coordinates and numbers in SVG elements, so it contains
+    no arithmetic. Context: chart (coordinates), metric_label, unit,
+    window_label ({"start", "end"}).
+-#}
+<svg viewBox="0 0 {{ chart.width }} {{ chart.height }}" role="img" aria-label="{{ metric_label }} over time">
+  <line x1="{{ chart.left }}" y1="{{ chart.top }}" x2="{{ chart.left }}" y2="{{ chart.axis_bottom }}" stroke="#999"/>
+  <line x1="{{ chart.left }}" y1="{{ chart.axis_bottom }}" x2="{{ chart.right_edge }}" y2="{{ chart.axis_bottom }}" stroke="#999"/>
+  <text x="{{ chart.axis_label_x }}" y="{{ chart.top_label_y }}" text-anchor="end" font-size="12">{{ chart.y_max }}</text>
+  <text x="{{ chart.axis_label_x }}" y="{{ chart.axis_bottom }}" text-anchor="end" font-size="12">0</text>
+  <text x="{{ chart.unit_label_x }}" y="{{ chart.top_label_y }}" font-size="12" fill="#555">{{ unit }}</text>
+  <text x="{{ chart.left }}" y="{{ chart.time_label_y }}" font-size="12">{{ window_label.start }}</text>
+  <text x="{{ chart.right_edge }}" y="{{ chart.time_label_y }}" text-anchor="end" font-size="12">{{ window_label.end }} (now)</text>
+  <polyline fill="none" stroke="#2563eb" stroke-width="1.5" points="{{ chart.points }}"/>
+  <circle cx="{{ chart.latest_x }}" cy="{{ chart.latest_y }}" r="4" fill="#2563eb"/>
+</svg>

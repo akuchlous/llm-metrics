@@ -2,14 +2,16 @@
 
 Usage: python -m llm_metrics.web   (serves http://127.0.0.1:8000/)
 
-Owns route dispatch, query parameter access, HTTP status codes and headers,
-and serving on 127.0.0.1. What each page shows comes from `dashboard`
-(query validation, data loading through `storage`, HTML rendering), so this
-module contains no SQL and no HTML. Dependency direction:
+Owns route dispatch, query parameter access, template rendering, HTTP status
+codes and headers, and serving on 127.0.0.1. What each page shows comes from
+`dashboard` (query validation, data loading through `storage`, view data);
+the markup lives in `llm_metrics/templates/` and the stylesheet in
+`llm_metrics/static/`. This module contains no SQL and no HTML. Dependency
+direction:
 
-    web (Flask) -> dashboard -> storage
+    web (Flask, Jinja templates) -> dashboard -> storage
 
-This is the only module that imports Flask or Werkzeug. Measurement,
+This is the only module that imports Flask, Werkzeug, or Jinja. Measurement,
 providers, pricing, storage, and analytics must keep working without them.
 
 Routes (GET only; unknown paths are 404):
@@ -22,8 +24,10 @@ An invalid query value returns 400 with the list of valid values; the value
 itself is never echoed.
 
 Security: binds to 127.0.0.1 only, never runs in debug mode (no Werkzeug
-debugger, no stack traces in responses), and sends a Content-Security-Policy
-on every response that allows no scripts or external loads.
+debugger, no stack traces in responses), renders every value with Jinja
+autoescaping (no `|safe` or `Markup` anywhere), and sends a
+Content-Security-Policy on every response that allows no scripts, no inline
+styles, and nothing external: only the stylesheet served from this app.
 """
 
 import datetime
@@ -38,9 +42,9 @@ from llm_metrics import config
 from llm_metrics import dashboard
 
 HOST = "127.0.0.1"
-# The pages have no scripts and load nothing external, so the policy blocks
-# everything except their inline styles.
-CONTENT_SECURITY_POLICY = "default-src 'none'; style-src 'unsafe-inline'"
+# The pages have no scripts and load only /static/dashboard.css, so the policy
+# blocks everything else, including inline styles and scripts.
+CONTENT_SECURITY_POLICY = "default-src 'none'; style-src 'self'"
 # Key in `app.config` holding the SQLite database path the pages read.
 DB_PATH_KEY = "LLM_METRICS_DB_PATH"
 
@@ -59,10 +63,15 @@ def create_app(db_path: pathlib.Path | None = None) -> flask.Flask:
     Returns:
         A configured Flask application.
     """
+    # Templates and the stylesheet are found next to this module, in
+    # llm_metrics/templates/ and llm_metrics/static/ (served at /static/).
     app = flask.Flask(__name__)
     # Flask reads FLASK_DEBUG from the environment; debug mode must never be
     # enabled by accident because it can expose stack traces.
     app.debug = False
+    # Drop the whitespace left by template tags, so the HTML stays readable.
+    app.jinja_env.trim_blocks = True
+    app.jinja_env.lstrip_blocks = True
     app.config[DB_PATH_KEY] = (
         config.get_db_path() if db_path is None else db_path
     )
@@ -87,12 +96,26 @@ def _now() -> datetime.datetime:
     return datetime.datetime.now(datetime.timezone.utc)
 
 
-def _html(page: str, status: int = 200) -> flask.Response:
+def render_page(template: str, view: dict, status: int = 200) -> flask.Response:
+    """Renders a page template with its view as an HTML response.
+
+    Must run inside a request (or test request) context, because templates
+    build the stylesheet URL with `url_for`.
+
+    Args:
+        template: Template file in llm_metrics/templates/, e.g. "spend.html".
+        view: View data from a `dashboard.*_view` function; its keys become
+            template variables.
+        status: HTTP status code.
+    """
+    page = flask.render_template(template, **view)
     return flask.Response(page, status=status, mimetype="text/html")
 
 
 def _invalid_query() -> flask.Response:
-    return _html(dashboard.render_invalid_query_page(), status=400)
+    return render_page(
+        "invalid_query.html", dashboard.invalid_query_view(), status=400
+    )
 
 
 def _aggregate_page() -> flask.Response:
@@ -100,7 +123,8 @@ def _aggregate_page() -> flask.Response:
         window, metric = dashboard.parse_query(_query_params())
     except ValueError:
         return _invalid_query()
-    return _html(dashboard.build_page(_db_path(), window, metric, _now()))
+    view = dashboard.load_aggregate_view(_db_path(), window, metric, _now())
+    return render_page("aggregate.html", view)
 
 
 def _requests_page() -> flask.Response:
@@ -108,7 +132,8 @@ def _requests_page() -> flask.Response:
         data = dashboard.parse_requests_query(_query_params())
     except ValueError:
         return _invalid_query()
-    return _html(dashboard.build_requests_page(_db_path(), data))
+    view = dashboard.load_requests_view(_db_path(), data)
+    return render_page("requests.html", view)
 
 
 def _spend_page() -> flask.Response:
@@ -116,7 +141,8 @@ def _spend_page() -> flask.Response:
         window = dashboard.parse_spend_query(_query_params())
     except ValueError:
         return _invalid_query()
-    return _html(dashboard.build_spend_page(_db_path(), window, _now()))
+    view = dashboard.load_spend_view(_db_path(), window, _now())
+    return render_page("spend.html", view)
 
 
 def _add_security_headers(response: flask.Response) -> flask.Response:

@@ -18,6 +18,7 @@ import urllib.parse
 
 from llm_metrics import dashboard
 from llm_metrics import storage
+from llm_metrics import web
 
 DUMMY_IDENTITY = {"provider": "dummy", "model": "dummy-model-v1"}
 DUMMY = {**DUMMY_IDENTITY, "metric": "ttft"}
@@ -49,12 +50,34 @@ def chart_point_count(page):
 
 
 class DashboardTestCase(unittest.TestCase):
-    """Gives each test its own temporary database at `self.db_path`."""
+    """Gives each test its own temporary database and an app that reads it.
+
+    Pages are rendered with the real templates. Views come from `dashboard`
+    with an explicit "now", so no test depends on the machine clock; the HTTP
+    routes themselves are tested in test_web.py.
+    """
 
     def setUp(self):
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
         self.db_path = pathlib.Path(tmp.name) / "observations.db"
+        self.app = web.create_app(self.db_path)
+
+    def render(self, template, view):
+        """Renders a page template with a view, as the routes do."""
+        with self.app.test_request_context():
+            return web.render_page(template, view).get_data(as_text=True)
+
+    def aggregate_page(self, window, metric, now=NOW):
+        return self.render(
+            "aggregate.html",
+            dashboard.load_aggregate_view(self.db_path, window, metric, now),
+        )
+
+    def requests_page(self, data="simulated"):
+        return self.render(
+            "requests.html", dashboard.load_requests_view(self.db_path, data)
+        )
 
     def save(self, recorded_at, value, environment="test", **overrides):
         result = {**DUMMY, "value": value, **overrides}
@@ -194,7 +217,7 @@ class BuildPageTest(DashboardTestCase):
         }
         for window, (count, p50, p95, p99) in expected.items():
             with self.subTest(window=window):
-                page = dashboard.build_page(self.db_path, window, "ttft", NOW)
+                page = self.aggregate_page(window, "ttft", NOW)
                 text = visible_text(page)
                 self.assertIn(f"{count} observations in window", text)
                 self.assertIn(f"n = {count}", text)
@@ -208,7 +231,7 @@ class BuildPageTest(DashboardTestCase):
                 self.assertNotIn("9999", text)  # older than 30d: never shown
 
     def test_selected_window_is_marked(self):
-        page = dashboard.build_page(self.db_path, "24h", "ttft", NOW)
+        page = self.aggregate_page("24h", "ttft", NOW)
         self.assertIn(current("24h", "ttft"), page)
         self.assertNotIn(current("7d", "ttft"), page)
         # Metric links keep the selected window; window links keep the metric.
@@ -218,7 +241,7 @@ class BuildPageTest(DashboardTestCase):
     def test_label_still_present(self):
         self.assertIn(
             "TEST / SIMULATED DATA",
-            dashboard.build_page(self.db_path, "7d", "ttft", NOW),
+            self.aggregate_page("7d", "ttft", NOW),
         )
 
 
@@ -254,7 +277,7 @@ class MetricSelectionTest(DashboardTestCase):
         }
         for (window, metric), (count, p50, p95, latest) in expected.items():
             with self.subTest(window=window, metric=metric):
-                page = dashboard.build_page(self.db_path, window, metric, NOW)
+                page = self.aggregate_page(window, metric, NOW)
                 text = visible_text(page)
                 self.assertIn(f"{count} observations in window", text)
                 self.assertIn(f"n = {count}", text)
@@ -286,9 +309,7 @@ class MetricSelectionTest(DashboardTestCase):
         }
         for window, (count, p50, p99) in expected.items():
             with self.subTest(window=window):
-                page = dashboard.build_page(
-                    self.db_path, window, "output_chunks_per_s", NOW
-                )
+                page = self.aggregate_page(window, "output_chunks_per_s", NOW)
                 text = visible_text(page)
                 self.assertIn("Output chunk throughput p50", text)
                 self.assertIn(f"p50 {p50} chunks/s", text)
@@ -305,18 +326,13 @@ class MetricSelectionTest(DashboardTestCase):
                 self.assertNotIn("999.0", text)  # older than 30d
                 self.assertIn(current(window, "output_chunks_per_s"), page)
         # The latency metrics' populations are untouched by throughput rows.
-        ttft_text = visible_text(
-            dashboard.build_page(self.db_path, "24h", "ttft", NOW)
-        )
+        ttft_text = visible_text(self.aggregate_page("24h", "ttft", NOW))
         self.assertIn("n = 3", ttft_text)
         self.assertNotIn("chunks/s", ttft_text.split("Window 24h")[1])
 
     def test_empty_metric_in_window_renders_cleanly(self):
-        page = dashboard.build_page(
-            self.db_path,
-            "24h",
-            "total_latency",
-            NOW + datetime.timedelta(days=10),
+        page = self.aggregate_page(
+            "24h", "total_latency", NOW + datetime.timedelta(days=10)
         )
         text = visible_text(page)
         self.assertIn(
@@ -328,10 +344,13 @@ class MetricSelectionTest(DashboardTestCase):
 
 class ReliabilityTest(DashboardTestCase):
 
-    def render(self, counts):
+    def reliability_text(self, counts):
         """Returns the reliability section's text, cells separated by spaces."""
         start, end = dashboard.window_bounds("7d", NOW)
-        page = dashboard.render_page([], "7d", "ttft", start, end, counts)
+        page = self.render(
+            "aggregate.html",
+            dashboard.aggregate_view([], "7d", "ttft", start, end, counts),
+        )
         section = page[
             page.index('<section class="reliability">') : page.index(
                 "</section>"
@@ -340,7 +359,9 @@ class ReliabilityTest(DashboardTestCase):
         return re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", section))
 
     def test_success_rate_and_failures_by_category(self):
-        text = self.render({"success": 7, "rate_limited": 2, "timeout": 1})
+        text = self.reliability_text(
+            {"success": 7, "rate_limited": 2, "timeout": 1}
+        )
         self.assertIn("Observed benchmark success rate (7d)", text)
         self.assertIn("70.0%", text)
         self.assertIn("7 of 10 attempts succeeded (3 failed, 30.0%)", text)
@@ -352,12 +373,12 @@ class ReliabilityTest(DashboardTestCase):
         self.assertIn("not the provider's overall uptime", text)
 
     def test_no_attempts_shows_no_rate(self):
-        text = self.render({})
+        text = self.reliability_text({})
         self.assertIn("No benchmark attempts in the selected window (7d)", text)
         self.assertNotIn("%", text)
 
     def test_all_failed_is_zero_percent_not_no_rate(self):
-        self.assertIn("0.0%", self.render({"provider_error": 3}))
+        self.assertIn("0.0%", self.reliability_text({"provider_error": 3}))
 
     def test_failures_count_for_rate_but_not_for_percentiles(self):
         now = datetime.datetime.now(
@@ -386,11 +407,8 @@ class ReliabilityTest(DashboardTestCase):
                 "test",
             )
         text = visible_text(
-            dashboard.build_page(
-                self.db_path,
-                "24h",
-                "total_latency",
-                now + datetime.timedelta(seconds=5),
+            self.aggregate_page(
+                "24h", "total_latency", now + datetime.timedelta(seconds=5)
             )
         )
         self.assertIn("1 of 3 attempts succeeded (2 failed, 66.7%)", text)
@@ -404,7 +422,7 @@ class EmptyAndRenderTest(DashboardTestCase):
 
     def test_empty_valid_window_renders_cleanly(self):
         self.save(NOW - datetime.timedelta(days=3), 120.0)  # outside 24h
-        page = dashboard.build_page(self.db_path, "24h", "ttft", NOW)
+        page = self.aggregate_page("24h", "ttft", NOW)
         text = visible_text(page)
         self.assertIn("No TTFT observations in the selected window (24h)", text)
         self.assertIn("TEST / SIMULATED DATA", text)
@@ -413,18 +431,21 @@ class EmptyAndRenderTest(DashboardTestCase):
         self.assertTrue(page.rstrip().endswith("</html>"))
 
     def test_empty_database_renders_cleanly(self):
-        page = dashboard.build_page(self.db_path, "7d", "ttft", NOW)
+        page = self.aggregate_page("7d", "ttft", NOW)
         self.assertIn("observations in the selected window", page)
 
     def test_single_observation(self):
         start, end = dashboard.window_bounds("24h", NOW)
-        page = dashboard.render_page(
-            [("2026-11-30T11:00:00.000000Z", 101.0)],
-            "24h",
-            "ttft",
-            start,
-            end,
-            {},
+        page = self.render(
+            "aggregate.html",
+            dashboard.aggregate_view(
+                [("2026-11-30T11:00:00.000000Z", 101.0)],
+                "24h",
+                "ttft",
+                start,
+                end,
+                {},
+            ),
         )
         text = visible_text(page)
         for p in ("p50", "p95", "p99"):
@@ -461,9 +482,7 @@ def metric_results(**values):
 class RequestsViewTest(DashboardTestCase):
 
     def test_empty_state(self):
-        page = dashboard.render_requests_page(
-            storage.load_recent_requests(self.db_path, "test", 20)
-        )
+        page = self.requests_page("simulated")
         text = visible_text(page)
         self.assertIn("TEST / SIMULATED DATA", text)
         self.assertIn("No benchmark attempts yet", text)
@@ -488,9 +507,7 @@ class RequestsViewTest(DashboardTestCase):
             ),
             "test",
         )
-        page = dashboard.render_requests_page(
-            storage.load_recent_requests(self.db_path, "test", 20)
-        )
+        page = self.requests_page("simulated")
         text = visible_text(page)
         self.assertIn("TEST / SIMULATED DATA", text)
         self.assertIn("simulated tokenizer", text)
@@ -564,9 +581,7 @@ class RequestsViewTest(DashboardTestCase):
             "failed_after_ms": 42.0,
         }
         request_id = storage.save_request(self.db_path, failed, [], "test")
-        page = dashboard.render_requests_page(
-            storage.load_recent_requests(self.db_path, "test", 20)
-        )
+        page = self.requests_page("simulated")
         row = page[page.index(request_id[:8]) :]
         cells = re.findall(r"<td[^>]*>(.*?)</td>", row)
         self.assertEqual(
@@ -598,9 +613,7 @@ class RequestsViewTest(DashboardTestCase):
                     " = ?",
                     (request_id,),
                 )
-        page = dashboard.render_requests_page(
-            storage.load_recent_requests(self.db_path, "test", 20)
-        )
+        page = self.requests_page("simulated")
         cells = re.findall(
             r"<td[^>]*>(.*?)</td>", page[page.index(request_id[:8]) :]
         )
@@ -626,9 +639,7 @@ class RequestsViewTest(DashboardTestCase):
                     metric_results(total_latency=1.0),
                     "test",
                 )
-                page = dashboard.render_requests_page(
-                    storage.load_recent_requests(self.db_path, "test", 20)
-                )
+                page = self.requests_page("simulated")
                 row = page[page.index(request_id[:8]) :]
                 cells = re.findall(
                     r"<td[^>]*>(.*?)</td>", row[: row.index("</tr>")]
@@ -667,11 +678,7 @@ class RequestsViewTest(DashboardTestCase):
             ],
             "prod",
         )
-        text = visible_text(
-            dashboard.render_requests_page(
-                storage.load_recent_requests(self.db_path, "prod", 20), "real"
-            )
-        )
+        text = visible_text(self.requests_page("real"))
         for value in ("56.0", "36.4", "smoke.short_text.v2", "aws / us-east-1"):
             self.assertIn(value, text)
 
@@ -682,9 +689,7 @@ class RequestsViewTest(DashboardTestCase):
             metric_results(total_latency=1.0),
             "test",
         )
-        page = dashboard.render_requests_page(
-            storage.load_recent_requests(self.db_path, "test", 20)
-        )
+        page = self.requests_page("simulated")
         self.assertNotIn("<script>x", page)
         self.assertIn("&lt;script&gt;x", page)
 
@@ -692,9 +697,7 @@ class RequestsViewTest(DashboardTestCase):
         storage.save_request(
             self.db_path, REQUEST, metric_results(total_latency=1.0), "prod"
         )
-        page = dashboard.render_requests_page(
-            storage.load_recent_requests(self.db_path, "test", 20)
-        )
+        page = self.requests_page("simulated")
         self.assertIn("No benchmark attempts yet", page)
 
 
@@ -721,16 +724,18 @@ def spend_row(
 
 class SpendPageTest(DashboardTestCase):
 
-    def render(self, rows, window="30d"):
+    def spend_page(self, rows, window="30d"):
         start, end = dashboard.window_bounds(window, NOW)
-        return dashboard.render_spend_page(rows, window, start, end)
+        return self.render(
+            "spend.html", dashboard.spend_view(rows, window, start, end)
+        )
 
     def cells_text(self, page):
         table = page[page.index("<table") : page.index("</table>")]
         return re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", table))
 
     def test_explains_what_spend_is_and_is_not(self):
-        text = visible_text(self.render([]))
+        text = visible_text(self.spend_page([]))
         self.assertIn("REAL PROVIDER DATA", text)
         self.assertNotIn("TEST / SIMULATED DATA", text)
         self.assertIn(
@@ -750,7 +755,7 @@ class SpendPageTest(DashboardTestCase):
         )
 
     def test_rows_per_provider_model_and_grand_total(self):
-        page = self.render(
+        page = self.spend_page(
             [
                 spend_row(),
                 spend_row(
@@ -786,10 +791,13 @@ class SpendPageTest(DashboardTestCase):
             self.db_path, REQUEST, metric_results(total_latency=1.0), "test"
         )  # simulated
         text = visible_text(
-            dashboard.build_spend_page(
-                self.db_path,
-                "30d",
-                datetime.datetime.now(datetime.timezone.utc),
+            self.render(
+                "spend.html",
+                dashboard.load_spend_view(
+                    self.db_path,
+                    "30d",
+                    datetime.datetime.now(datetime.timezone.utc),
+                ),
             )
         )
         self.assertIn("No real benchmark attempts", text)
@@ -811,9 +819,7 @@ class RequestsDataSelectorTest(DashboardTestCase):
         storage.save_request(
             self.db_path, real, metric_results(total_latency=900.0), "prod"
         )
-        page = dashboard.render_requests_page(
-            storage.load_recent_requests(self.db_path, "prod", 20), "real"
-        )
+        page = self.requests_page("real")
         text = visible_text(page)
         self.assertIn("REAL PROVIDER DATA", text)
         self.assertNotIn("TEST / SIMULATED DATA", text)
@@ -822,7 +828,9 @@ class RequestsDataSelectorTest(DashboardTestCase):
         self.assertIn('href="/requests?data=real" aria-current="page"', page)
 
     def test_simulated_requests_keep_the_simulated_label(self):
-        page = dashboard.render_requests_page([], "simulated")
+        page = self.render(
+            "requests.html", dashboard.requests_view([], "simulated")
+        )
         self.assertIn("TEST / SIMULATED DATA", page)
         self.assertNotIn("REAL PROVIDER DATA", page)
 

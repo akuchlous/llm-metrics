@@ -1,8 +1,10 @@
 # Project status
 
-_Last updated: Step 014a — 2026-10-30_
+_Last updated: Step 014b — 2026-10-30_
 
 ## Current state
+
+**Step 014b complete: presentation in Jinja templates.** `dashboard.py` no longer builds HTML: it returns view data (formatted values, "—" for unknown, link targets, chart coordinates) and `web.py` renders it with templates in `llm_metrics/templates/`; the stylesheet moved to `llm_metrics/static/dashboard.css`, so the CSP now allows only same-origin stylesheets (`style-src 'self'`, no `'unsafe-inline'`). Visible page content is unchanged apart from removing development step numbers from product copy (D058).
 
 **Step 014a complete: Flask foundation.** The dashboard's HTTP boundary is now a small Flask application (`llm_metrics/web.py`, `create_app()` factory) in place of `http.server`; routes, query validation, page content, and status codes are unchanged. `dashboard.py` is the HTTP-free application/view layer (validation, data loading via `storage`, HTML rendering); HTML stays in Python until 014b moves it to templates. Flask is the first runtime dependency: pinned with hashes in `requirements.txt` and installed by `run.sh` (D056, D057). Nothing outside `web.py` imports Flask.
 
@@ -22,7 +24,7 @@ Working:
 - Recent requests view (`/requests`): the 20 most recent attempts with outcome (FAILED + category), tokens, total latency (primary), TTFT, token throughput (before chunk throughput), chunk throughput, costs, failed-after time, provider / model, workload, and origin; unknown values shown as "—"; labelled simulated or real.
 - Benchmark API Spend (`/spend?window=`, default 30d, real data only): per provider/model successful paid calls, tokens, known total cost, failed attempts (cost unknown), and a grand total.
 - Pages are labelled TEST / SIMULATED DATA or REAL PROVIDER DATA; `/requests?data=simulated|real` switches population.
-- 217 `unittest` tests (pass on Python 3.13 in the project venv); none reach external networks (two web tests serve on 127.0.0.1). Web routes are tested with Flask's test client.
+- 222 `unittest` tests (pass on Python 3.13 in the project venv); none reach external networks (two web tests serve on 127.0.0.1). Web routes are tested with Flask's test client; page tests render the real templates.
 - One runtime dependency, Flask (with its libraries), used only by `web.py`. Provider network access and secrets are used only by `real_smoke`.
 - All Python follows the Google Python Style Guide (D055): `pyink` formatting, isort `google` import order, and Google's `pylintrc` report no findings. These tools are optional development tools, not dependencies.
 
@@ -60,8 +62,10 @@ llm_metrics/
   pricing.py       all prices (USD per 1M tokens) + PRICE_PROVENANCE + request_cost
   storage.py       SQLite init + transactional versioned upgrade; save_request; time-window reads; request reads; count_outcomes; spend_by_model
   seed_history.py  deterministic simulated TTFT history + seed command
-  web.py           Flask HTTP boundary: create_app(), routes /, /requests, /spend, status codes, CSP header, serving on 127.0.0.1
-  dashboard.py     page logic without HTTP: query validation, data loading via storage, HTML rendering
+  web.py           Flask HTTP boundary: create_app(), routes /, /requests, /spend, render_page (Jinja), status codes, CSP header, serving on 127.0.0.1
+  dashboard.py     page logic without HTTP or HTML: query validation, data loading via storage, view data (*_view / load_*_view)
+  templates/       Jinja templates: base.html, aggregate.html, requests.html, spend.html, invalid_query.html, partials (_aggregate_nav, _chart, _macros)
+  static/          dashboard.css (served at /static/dashboard.css)
   percentiles.py   nearest-rank percentile (no HTML)
   config.py        environment, DB path, dashboard port
   __main__.py      CLI
@@ -71,7 +75,7 @@ design-questions/  interview-style design questions per step
 data/              runtime DB; git-ignored
 ```
 
-Flow: `environment → provider → measure_request (one stream → attempt with outcome + metrics) → price_for (+ request_cost on success) → print → save_request (attempt + observations, one transaction)`; dashboard: `GET /?window=&metric= → web route (Flask query args) → dashboard.parse_query → dashboard.build_page → window_bounds(now) → storage.load_observations / count_outcomes → render HTML/SVG → web response (status, CSP)`.
+Flow: `environment → provider → measure_request (one stream → attempt with outcome + metrics) → price_for (+ request_cost on success) → print → save_request (attempt + observations, one transaction)`; dashboard: `GET /?window=&metric= → web route (Flask query args) → dashboard.parse_query → dashboard.load_aggregate_view → window_bounds(now) → storage.load_observations / count_outcomes → view data (formatted values, chart coordinates) → web.render_page("aggregate.html") → Jinja (autoescaped HTML/SVG) → response (status, CSP)`.
 
 SQLite (schema version 6, `PRAGMA user_version`; older databases upgrade in place, transactionally, keeping all rows):
 - `requests` (one row per attempt): `id` (UUID hex, our identity), `recorded_at`, `environment`, `provider`, `model`, `outcome`, `input_tokens`, `requested_max_output_tokens`, `output_tokens`, `input_price_per_1m`, `output_price_per_1m`, `input_cost`, `output_cost`, `total_cost` (USD, unrounded), `failed_after_ms`, `provider_request_id` (OpenAI `x-request-id`; NULL when unknown), `workload_id`, `origin_cloud`, `origin_region` (required for new attempts; NULL for rows before Step 013), `cache_policy` (`disabled` / `enabled` / `provider_default` / `unknown`, CHECKed; `unknown` for rows before schema version 6), `cached_input_tokens` (provider-reported; NULL = not reported). A CHECK enforces: success → tokens/costs known, `failed_after_ms` NULL; failure → tokens/costs NULL, `failed_after_ms` set.
@@ -103,7 +107,7 @@ A unique index on observations (`recorded_at`, `environment`, `provider`, `model
 - Seeded and live dummy rows are both `test`/`dummy`; they are told apart only by timestamp (seeded rows are on the hour, before 2026-10-30).
 - Dashboard has three fixed windows only; no custom ranges, provider filters, zoom, tooltips, or auto-refresh (reload the page).
 - Within a window, seeded and live rows are still mixed (no source filter).
-- HTML is still built in Python (`dashboard.py`); templates come in 014b. The dashboard uses Werkzeug's single-threaded development server, fine for local use only; production serving is out of scope until deployment.
+- `dashboard.py` still mixes page/query orchestration (populations, windows, storage calls, percentile summaries) with display wording (number formats, "—"); separating view preparation from analytics is 014c. The dashboard uses Werkzeug's single-threaded development server, fine for local use only; production serving is out of scope until deployment.
 - A fresh checkout needs network access to PyPI on its first `./run.sh` (and whenever `requirements.txt` changes); there is no offline wheel cache. Tests must run under the project venv.
 - Non-GET requests now return 405 (previously 501); HEAD is answered automatically for GET routes.
 - With fewer than 100 observations, nearest-rank p99 equals the maximum.

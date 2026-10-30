@@ -26,7 +26,9 @@ from llm_metrics import storage
 from llm_metrics import web
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
-CSP = "default-src 'none'; style-src 'unsafe-inline'"
+CSP = "default-src 'none'; style-src 'self'"
+# Packages only the web layer may import (Flask and what it brings).
+WEB_PACKAGES = {"flask", "werkzeug", "jinja2", "markupsafe"}
 
 SIMULATED_REQUEST = {
     "provider": "dummy",
@@ -234,6 +236,25 @@ class RoutingTest(WebTestCase):
                     response.headers["Content-Security-Policy"], CSP
                 )
 
+    def test_stylesheet_is_served_locally_and_allowed_by_the_csp(self):
+        response, page = self.get("/")
+        self.assertIn(
+            '<link rel="stylesheet" href="/static/dashboard.css">', page
+        )
+        # No inline styles or scripts: the CSP no longer allows them.
+        self.assertNotIn("<style", page)
+        self.assertNotIn("style=", page)
+        self.assertNotIn("<script", page)
+        self.assertNotIn(
+            "unsafe-inline", response.headers["Content-Security-Policy"]
+        )
+        css = self.client.get("/static/dashboard.css")
+        self.assertEqual(css.status_code, 200)
+        self.assertEqual(css.mimetype, "text/css")
+        self.assertIn(".label.real", css.get_data(as_text=True))
+        self.assertEqual(css.headers["Content-Security-Policy"], CSP)
+        css.close()
+
     def test_only_get_is_allowed(self):
         for path in ("/", "/requests", "/spend"):
             with self.subTest(path=path):
@@ -245,6 +266,84 @@ class RoutingTest(WebTestCase):
             self.assertEqual(self.client.get(path).status_code, 200)
         # setUp's patches raise on any connection, so reaching this line means
         # no route opened one.
+
+
+class TemplateSafetyTest(WebTestCase):
+    """Rendering escapes every stored value and keeps product copy clean."""
+
+    HOSTILE = '<script>alert("x")</script>&<b>'
+
+    def test_stored_text_is_escaped_on_every_page(self):
+        hostile_request = {
+            **REAL_REQUEST,
+            "provider": self.HOSTILE,
+            "model": self.HOSTILE,
+            "workload_id": self.HOSTILE,
+            "origin_cloud": self.HOSTILE,
+            "origin_region": self.HOSTILE,
+        }
+        storage.save_request(self.db_path, hostile_request, [], "prod")
+        for path in ("/requests?data=real", "/spend"):
+            with self.subTest(path=path):
+                response, page = self.get(path)
+                self.assertEqual(response.status_code, 200)
+                self.assertNotIn("<script>", page)
+                self.assertNotIn("&<b>", page)
+                self.assertIn(
+                    "&lt;script&gt;alert(&#34;x&#34;)&lt;/script&gt;"
+                    "&amp;&lt;b&gt;",
+                    page,
+                )
+
+    def test_templates_never_bypass_autoescaping(self):
+        template_dir = REPO_ROOT / "llm_metrics" / "templates"
+        templates = sorted(template_dir.glob("*.html"))
+        self.assertTrue(templates)
+        for template in templates:
+            source = template.read_text(encoding="utf-8")
+            with self.subTest(template=template.name):
+                self.assertNotRegex(source, r"\|\s*safe\b")
+                self.assertNotIn("Markup", source)
+                self.assertNotRegex(source, r"{%-?\s*autoescape")
+                self.assertNotIn("<script", source)
+                self.assertNotIn("<style", source)
+
+    def test_pages_do_not_mention_development_steps(self):
+        storage.save_request(self.db_path, SIMULATED_REQUEST, [], "test")
+        for path in (
+            "/",
+            "/requests",
+            "/requests?data=real",
+            "/spend",
+            "/?window=bad",
+        ):
+            with self.subTest(path=path):
+                _, page = self.get(path)
+                self.assertNotRegex(page, r"Step \d")
+
+
+class AppIsolationTest(unittest.TestCase):
+
+    def test_apps_on_different_databases_share_no_state(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            first_db = pathlib.Path(tmp) / "first.db"
+            second_db = pathlib.Path(tmp) / "second.db"
+            first_id = storage.save_request(
+                first_db, SIMULATED_REQUEST, [], "test"
+            )
+            second_id = storage.save_request(
+                second_db, SIMULATED_REQUEST, [], "test"
+            )
+            first = web.create_app(first_db).test_client()
+            second = web.create_app(second_db).test_client()
+            # Interleaved requests: each app keeps showing only its own data.
+            for _ in range(2):
+                first_page = first.get("/requests").get_data(as_text=True)
+                second_page = second.get("/requests").get_data(as_text=True)
+                self.assertIn(first_id[:8], first_page)
+                self.assertNotIn(second_id[:8], first_page)
+                self.assertIn(second_id[:8], second_page)
+                self.assertNotIn(first_id[:8], second_page)
 
 
 class AppFactoryTest(unittest.TestCase):
@@ -283,7 +382,9 @@ class AppFactoryTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             app = web.create_app(pathlib.Path(tmp) / "x.db")
             with mock.patch.object(
-                dashboard, "build_page", side_effect=RuntimeError("secret-xyz")
+                dashboard,
+                "load_aggregate_view",
+                side_effect=RuntimeError("secret-xyz"),
             ), self.assertLogs(app.logger, level="ERROR") as logs:
                 response = app.test_client().get("/")
         # The error is logged on the server, not sent to the browser.
@@ -320,7 +421,7 @@ class ImportAndDependencyTest(unittest.TestCase):
             self.assertEqual(proc.stdout, "")
             self.assertFalse(db_path.exists())
 
-    def test_only_the_web_module_imports_flask_or_werkzeug(self):
+    def test_only_the_web_module_imports_web_frameworks(self):
         for path in sorted((REPO_ROOT / "llm_metrics").glob("*.py")):
             if path.name == "web.py":
                 continue
@@ -334,7 +435,7 @@ class ImportAndDependencyTest(unittest.TestCase):
                 elif isinstance(node, ast.ImportFrom) and node.module:
                     imported.add(node.module.split(".")[0])
             with self.subTest(module=path.name):
-                self.assertFalse(imported & {"flask", "werkzeug"})
+                self.assertFalse(imported & WEB_PACKAGES)
 
     def test_benchmark_and_data_layers_load_without_flask(self):
         modules = (
@@ -357,7 +458,7 @@ class ImportAndDependencyTest(unittest.TestCase):
             f"for name in {modules!r}:\n"
             "    importlib.import_module('llm_metrics.' + name)\n"
             "loaded = sorted(m for m in sys.modules\n"
-            "                if m.split('.')[0] in ('flask', 'werkzeug'))\n"
+            f"                if m.split('.')[0] in {sorted(WEB_PACKAGES)!r})\n"
             "print(loaded)\n"
         )
         proc = run_python(code)

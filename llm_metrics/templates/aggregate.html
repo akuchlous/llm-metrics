@@ -1,0 +1,34 @@
+{#- Aggregate page: success rate over all attempts, then one metric over
+    successful attempts. Context: see dashboard.aggregate_view. -#}
+{% extends "base.html" %}
+{% block content %}
+{% include "_aggregate_nav.html" %}
+<p class="muted">Window {{ window }}: {{ window_label.start }} to {{ window_label.end }} (now), inclusive.</p>
+<section class="reliability">
+<h2>Observed benchmark success rate ({{ window }})</h2>
+<p class="muted">All benchmark attempts made by this runner in the window, successful or not. This is what our runner observed, not the provider's overall uptime.</p>
+{% if reliability %}
+<p class="latest">{{ reliability.success_percent }}%</p>
+<p>{{ reliability.successes }} of {{ reliability.attempts }} attempts succeeded ({{ reliability.failures }} failed, {{ reliability.failure_percent }}%).</p>
+<table>
+<tr><th>Failure category</th><th>Attempts</th></tr>
+{% for category in reliability.failures_by_category %}
+<tr><td>{{ category.label }}</td><td>{{ category.attempts }}</td></tr>
+{% endfor %}
+</table>
+{% else %}
+<p><b>No benchmark attempts in the selected window ({{ window }})</b>, so no success rate.</p>
+{% endif %}
+</section>
+<h2>{{ metric_label }} (successful attempts only)</h2>
+{% if summary %}
+<p class="muted">Latest {{ metric_label }} ({{ summary.latest_time }})</p>
+<p class="latest">{{ summary.latest_value }}</p>
+<p class="percentiles">{{ metric_label }} {% for percentile in summary.percentiles %}{{ percentile.name }} <b>{{ percentile.value }}</b>{% if not loop.last %} · {% endif %}{% endfor %} <span class="muted">(nearest-rank, n = {{ summary.count }})</span></p>
+<p class="muted">{{ summary.count }} observation{% if summary.count != 1 %}s{% endif %} in window, first {{ summary.first_time }}, latest {{ summary.latest_time }}.</p>
+{% set chart = summary.chart %}
+{% include "_chart.html" %}
+{% else %}
+<p><b>No {{ metric_label }} observations in the selected window ({{ window }}).</b> Run <code>./run.sh</code> to record one, or choose a longer window.</p>
+{% endif %}
+{% endblock %}

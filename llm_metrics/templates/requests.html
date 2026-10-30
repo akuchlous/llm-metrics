@@ -1,0 +1,53 @@
+{#- Recent requests page: one row per benchmark attempt of one data
+    population. Context: see dashboard.requests_view. Every cell value is
+    already worded in Python ("—" for unknown, never 0). -#}
+{% extends "base.html" %}
+{% from "_macros.html" import nav_links %}
+{% block content %}
+<h2>Recent requests</h2>
+<nav aria-label="Data">Data: {{ nav_links(data_links) }}</nav>
+<p class="muted">The {{ recent_limit }} most recent benchmark attempts, successful or failed.
+{% if real_data %}
+Token counts are reported by the provider; costs use the rates stored with each request (USD).
+{% else %}
+Token counts use a <b>simulated</b> tokenizer and costs use <b>simulated</b> prices (USD); they do not match any real provider.
+{% endif %}
+Total latency is a successful request's response time; TTFT is shown for streaming diagnostics.
+Token throughput is the provider's output token count divided by the time from the first to the last output chunk (TTFT excluded); chunk throughput counts stream chunks, not tokens.
+<i>Workload</i> is the benchmark case that was run; <i>Origin</i> is where the benchmark runner executed (cloud / region), not where the provider served it.
+<i>Cache policy</i> is what the request asked of the provider's prompt cache (<i>disabled</i>: uncached / cold-ish; <i>provider_default</i> or <i>unknown</i>: not established); <i>Cached input</i> is the provider-reported cached input tokens (— = not reported, which is not zero).
+For failed attempts, tokens, cost, and performance are unknown (—); <i>Failed after</i> is the time until the failure was detected.</p>
+{% if rows %}
+{#- Most important columns first: time, latency, tokens, total cost. #}
+<div class="table-wrap"><table>
+<tr><th>Time (UTC)</th><th>Request</th><th>Outcome</th><th>Total latency (ms)</th><th>TTFT (ms)</th><th>Throughput (tokens/s)</th><th>Throughput (chunks/s)</th><th>Input tokens</th><th>Output tokens</th><th>Max output tokens</th><th>Total cost ($)</th><th>Input cost ($)</th><th>Output cost ($)</th><th>Failed after (ms)</th><th>Provider / model</th><th>Workload</th><th>Origin</th><th>Cache policy</th><th>Cached input tokens</th></tr>
+{% for row in rows %}
+<tr>
+<td>{{ row.time }}</td>
+<td><code title="{{ row.id }}">{{ row.short_id }}</code></td>
+<td>{% if row.failed %}<span class="failed">FAILED</span>: {% endif %}{{ row.outcome }}</td>
+<td class="primary">{{ row.total_latency }}</td>
+<td>{{ row.ttft }}</td>
+<td>{{ row.tokens_per_s }}</td>
+<td>{{ row.chunks_per_s }}</td>
+<td>{{ row.input_tokens }}</td>
+<td>{{ row.output_tokens }}</td>
+<td>{{ row.max_output_tokens }}</td>
+<td class="primary">{{ row.total_cost }}</td>
+<td>{{ row.input_cost }}</td>
+<td>{{ row.output_cost }}</td>
+<td>{{ row.failed_after }}</td>
+<td>{{ row.provider }} / {{ row.model }}</td>
+<td>{{ row.workload }}</td>
+<td>{{ row.origin }}</td>
+<td>{{ row.cache_policy }}</td>
+<td>{{ row.cached_input_tokens }}</td>
+</tr>
+{% endfor %}
+</table></div>
+{% elif real_data %}
+<p><b>No real benchmark attempts yet. Run <code>python -m llm_metrics.real_smoke</code> (one paid request).</b></p>
+{% else %}
+<p><b>No benchmark attempts yet. Run <code>./run.sh</code> to record one.</b></p>
+{% endif %}
+{% endblock %}
