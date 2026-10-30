@@ -4,8 +4,11 @@ POST https://api.openai.com/v1/responses with `stream: true`. The server-sent
 event stream is translated into the LLMProvider contract:
 
 - `response.output_text.delta` -> its text, as one chunk
-- `response.completed`         -> Usage(input_tokens, output_tokens) from the
-                                  response's authoritative `usage` (last item)
+- `response.completed`         -> Usage(input_tokens, output_tokens, and
+                                  cached_input_tokens from
+                                  usage.input_tokens_details.cached_tokens when
+                                  reported) from the response's authoritative
+                                  `usage` (last item)
 - `response.incomplete` because `max_output_tokens` was reached -> Usage too:
                                   the cap was hit, the output is still valid
 - other event types are ignored
@@ -52,6 +55,13 @@ TIMEOUT_S = 60  # connect and per-read socket timeout
 # 2026-10-30): "`reasoning.effort` supports `none`, `low`, `medium` (default),
 # `high`, `xhigh`, and `max`."
 REASONING_EFFORT = "none"
+# Explicit cache mode with no breakpoints: per the official prompt caching guide
+# (https://developers.openai.com/api/docs/guides/prompt-caching, "GPT-5.6 and
+# later", checked 2026-10-30): "When no explicit breakpoints are placed, the
+# request does not use prompt caching or create cache writes." Recorded as
+# cache_policy "disabled". If the model rejected the field, the request would
+# fail with HTTP 400 (RequestRejected, not recorded; --debug shows error_param).
+PROMPT_CACHE_OPTIONS = {"mode": "explicit"}
 _ERROR_BODY_LIMIT = 64 * 1024  # bytes read from an HTTP error body to find its code
 _SAFE_TOKEN = re.compile(r"[A-Za-z0-9_.:-]{1,100}")
 # Error codes/types meaning our account cannot pay, not that the provider failed.
@@ -138,10 +148,20 @@ def _usage(response: dict, provider_request_id: str | None) -> Usage:
     except (KeyError, TypeError):
         raise ProviderFailure("invalid_response", "final event without usage") from None
     for count in (input_tokens, output_tokens):
-        if not isinstance(count, int) or isinstance(count, bool) or count < 0:
+        if not _is_count(count):
             raise ProviderFailure("invalid_response", "usage counts are not non-negative integers")
+    # usage.input_tokens_details.cached_tokens: absent means not reported (None),
+    # never 0. When present it must be a count within input_tokens.
+    details = usage.get("input_tokens_details")
+    cached = details.get("cached_tokens") if isinstance(details, dict) else None
+    if cached is not None and not (_is_count(cached) and cached <= input_tokens):
+        raise ProviderFailure("invalid_response", "cached_tokens is not a count within input_tokens")
     return Usage(input_tokens=input_tokens, output_tokens=output_tokens,
-                 provider_request_id=provider_request_id)
+                 provider_request_id=provider_request_id, cached_input_tokens=cached)
+
+
+def _is_count(value) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool) and value >= 0
 
 
 def _events(lines: Iterator[bytes]) -> Iterator[dict]:
@@ -168,6 +188,7 @@ def _events(lines: Iterator[bytes]) -> Iterator[dict]:
 
 class OpenAIProvider(LLMProvider):
     name = "openai"
+    cache_policy = "disabled"  # PROMPT_CACHE_OPTIONS, sent with every request
 
     def __init__(
         self,
@@ -192,6 +213,7 @@ class OpenAIProvider(LLMProvider):
             "stream": True,
             "store": False,  # do not keep the response on OpenAI's side
             "reasoning": {"effort": REASONING_EFFORT},
+            "prompt_cache_options": PROMPT_CACHE_OPTIONS,
         }
         return urllib.request.Request(
             API_URL,

@@ -64,6 +64,7 @@ class MeasureRequestTest(unittest.TestCase):
             "output_tokens": 7,                   # what was generated: 25 chars
             "failed_after_ms": None,
             "provider_request_id": None,          # the dummy provider has none
+            "cached_input_tokens": None,          # not reported by the dummy: unknown, not 0
         })
         # 5 chunks were streamed, yet 7 tokens are reported.
         self.assertNotEqual(request["output_tokens"], 5)

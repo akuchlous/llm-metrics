@@ -24,8 +24,9 @@ from llm_metrics.pricing import PRICE_PROVENANCE
 API_KEY_VARIABLE = "OPENAI_API_KEY"
 MODEL = "gpt-6-luna"
 # The smoke benchmark case: this prompt, cap, and request shape (streaming,
-# store false, reasoning effort none). Change the version if any of them changes.
-WORKLOAD_ID = "smoke.short_text.v1"
+# store false, reasoning effort none, prompt caching disabled). Change the
+# version if any of them changes. (v1: the same without the cache control.)
+WORKLOAD_ID = "smoke.short_text.v2"
 # Harmless, deterministic, text-only; no tools, files, images, or search.
 PROMPT = "Reply with one short friendly sentence greeting a benchmark tool."
 MAX_OUTPUT_TOKENS = 64

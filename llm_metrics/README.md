@@ -9,7 +9,7 @@ Its responsibility is to measure LLM-provider behavior, persist raw observations
 ## Current modules
 
 - `outcomes.py` — attempt outcomes: `success` and the stable internal failure categories; the observed success-rate calculation.
-- `providers.py` — provider interface (text chunks, then a final `Usage` with token counts; `ProviderFailure(category)` on failure) and the simulated `DummyProvider` (simulated tokenizer, output cap, deterministic simulated failures).
+- `providers.py` — cache-policy vocabulary (`CACHE_POLICIES`); provider interface (text chunks, then a final `Usage` with token counts and optional cached input tokens; each provider's `cache_policy`; `ProviderFailure(category)` on failure) and the simulated `DummyProvider` (simulated tokenizer, output cap, deterministic simulated failures).
 - `latency.py` — metric catalogue (`METRICS`: label and unit per metric) and single-pass measurement of a benchmark attempt: outcome, token facts from `Usage`, plus (on success) total latency, TTFT, and output token and chunk throughput.
 - `pricing.py` — the only place prices are defined (USD per 1M tokens), with their source and verification date (`PRICE_PROVENANCE`), and the per-request cost formula.
 - `openai_provider.py` — the first real provider: OpenAI Responses API over `urllib` (no SDK), translating the event stream into text chunks + `Usage` and mapping errors to failure categories.

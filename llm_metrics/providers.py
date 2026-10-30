@@ -7,6 +7,15 @@ from dataclasses import dataclass
 
 from llm_metrics.outcomes import FAILURE_CATEGORIES
 
+# What a benchmark request asked of the provider's prompt/prefix cache. A
+# requested policy, not a claim about every internal provider cache:
+#   disabled          the request used a documented provider control that
+#                     establishes no cache reuse
+#   enabled           the request explicitly allowed/requested cache reuse
+#   provider_default  no cache control was sent; the provider decides
+#   unknown           cannot be established (attempts before Step 013)
+CACHE_POLICIES = ("disabled", "enabled", "provider_default", "unknown")
+
 
 @dataclass(frozen=True)
 class Usage:
@@ -17,11 +26,15 @@ class Usage:
     `provider_request_id` is the provider's own identifier for the request
     (e.g. OpenAI's x-request-id), if it gave one: diagnostic metadata stored
     beside llm-metrics' own request id, never a replacement for it.
+    `cached_input_tokens` is the provider-reported part of input_tokens read
+    from its prompt cache: 0 when the provider reported zero, None when it did
+    not report it. Never inferred.
     """
 
     input_tokens: int
     output_tokens: int
     provider_request_id: str | None = None
+    cached_input_tokens: int | None = None
 
 
 class ProviderFailure(Exception):
@@ -51,10 +64,13 @@ class LLMProvider:
     are not tokens: a chunk may hold zero, one, or several provider tokens.
     The provider must not generate more than `max_output_tokens` output tokens.
     On failure it raises ProviderFailure (possibly after some chunks).
+    `cache_policy` (one of CACHE_POLICIES) is what every request this provider
+    sends asks of the provider's cache; it is stored with each attempt.
     """
 
     name: str
     model: str
+    cache_policy: str = "provider_default"
 
     def stream(self, prompt: str, max_output_tokens: int) -> Iterator[str | Usage]:
         raise NotImplementedError

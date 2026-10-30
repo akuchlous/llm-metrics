@@ -56,7 +56,7 @@ Every attempt also records two facts about how it was run:
 
 - **Workload** (`workload_id`): the benchmark case, i.e. what test was run, as a
   stable versioned name. `simulated.default.v1` is the simulated run
-  (`./run.sh`); `smoke.short_text.v1` is the real smoke request. A changed
+  (`./run.sh`); `smoke.short_text.v2` is the real smoke request. A changed
   prompt, cap, or request shape gets a new version.
 - **Origin** (`origin_cloud` / `origin_region`): where the benchmark runner
   executed, not where the provider served the request. It is set with
@@ -65,6 +65,30 @@ Every attempt also records two facts about how it was run:
   lowercase letters, digits and inner hyphens (at most 63 characters); anything
   else stops the run before any request. The origin is never guessed from IP
   addresses, geolocation, or cloud metadata services.
+
+Two cache facts are recorded per attempt, because prompt caching can change
+TTFT, latency, and cost a lot:
+
+- **Cache policy** (`cache_policy`): what the request asked of the provider's
+  prompt cache. `disabled`: a documented provider control for no cache reuse
+  was sent (the real smoke request sets OpenAI's explicit cache mode with no
+  breakpoints, which per OpenAI's prompt caching guide "does not use prompt
+  caching or create cache writes"). `enabled`: cache reuse was explicitly
+  requested. `provider_default`: no cache control was sent (the simulated
+  provider). `unknown`: attempts recorded before this was tracked.
+- **Cached input tokens** (`cached_input_tokens`): the part of the input the
+  provider *reports* it read from its cache (OpenAI:
+  `usage.input_tokens_details.cached_tokens`). `0` means the provider reported
+  zero; empty (—) means it was not reported, which is not the same as zero. It
+  is never guessed from latency or repeated prompts.
+
+Terminology: **uncached / cold-ish** means the request disabled caching and/or
+the provider reported 0 cached input tokens. It does not mean every internal
+provider cache was cold. **cached / warm** means the provider reported cached
+input tokens, or the benchmark deliberately enabled caching. Default and
+unknown cache states are shown as such, never as cold. Different cache policies
+are different populations and should not be combined into one performance
+claim.
 
 Timings use `time.perf_counter()` (monotonic, high resolution).
 
@@ -113,16 +137,18 @@ Provider: dummy
 Model: dummy-model-v1
 Workload: simulated.default.v1
 Origin: local / unknown
+Cache policy: provider_default
 Outcome: success
-Total latency: 181.7 ms
-TTFT: 100.2 ms
-Output token throughput: 85.9 tokens/s
-Output chunk throughput: 49.1 chunks/s
+Total latency: 181.1 ms
+TTFT: 100.3 ms
+Output token throughput: 86.7 tokens/s
+Output chunk throughput: 49.6 chunks/s
 Input tokens: 3 (simulated)
+Cached input tokens: not reported
 Output tokens: 7 of max 64 (simulated)
 Cost: $0.000062 (input $0.000006 + output $0.000056) (simulated)
 Rates: $2.00 input / $8.00 output per 1M tokens (simulated)
-Saved attempt 458744d1d960455489bab4d23a1edc63 with 4 observations to data/llm_metrics.db
+Saved attempt 8e5578e2e1024fe6b868f77b1ecfc801 with 4 observations to data/llm_metrics.db
 
 Dashboard: http://127.0.0.1:8000/  (Ctrl+C to stop)
 ```
@@ -148,7 +174,7 @@ are never mixed on one page.
   with time, attempt id, outcome (success or FAILED with its category), total
   latency, TTFT, token throughput, chunk throughput, input/output/max tokens,
   total/input/output cost, for failures the time until the failure, provider /
-  model, workload, and origin. Unknown values show as
+  model, workload, origin, cache policy, and cached input tokens. Unknown values show as
   "—". Measurements recorded before Step 010 have no attempt details and are
   not listed.
 - **Benchmark API Spend** (`/spend`, real data only): for a time window (default
@@ -240,7 +266,9 @@ existing rows are kept: Step 009 renamed the `value_ms` column to `value`
 Step-010 requests recorded as successes; Step 012a added
 `requests.provider_request_id` (schema version 4), NULL for existing rows;
 Step 013 added `workload_id`, `origin_cloud` and `origin_region` (schema version
-5), NULL (unknown) for existing rows because they were never recorded.
+5), NULL (unknown) for existing rows because they were never recorded; Step 013
+also added `cache_policy` (set to `unknown` for existing rows) and
+`cached_input_tokens` (NULL) (schema version 6).
 Older rows are not given invented token, cost, or request data.
 
 To start over, delete the `data/` folder.
@@ -273,7 +301,9 @@ python3 -m llm_metrics.real_smoke
 
 It prints what it is about to do, then makes **exactly one** OpenAI Responses API
 call (`gpt-6-luna`, a fixed harmless one-sentence prompt, `max_output_tokens` 64,
-`reasoning.effort` `none`, streaming, no tools, `store: false`, no retries),
+`reasoning.effort` `none`, prompt caching disabled via
+`prompt_cache_options: {"mode": "explicit"}` with no breakpoints, streaming, no
+tools, `store: false`, no retries),
 saves the attempt as real data,
 and prints the outcome, tokens, latencies, throughput, cost, the rates used, and
 OpenAI's request id (`x-request-id`). That id is stored with the attempt next to

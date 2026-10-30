@@ -86,6 +86,7 @@ class SeedDatabaseTest(unittest.TestCase):
             "input_price_per_1m": 2.0, "output_price_per_1m": 8.0,
             "input_cost": 6e-06, "output_cost": 5.6e-05, "total_cost": 6.2e-05,
             "workload_id": "simulated.default.v1", "origin_cloud": "local", "origin_region": "unknown",
+            "cache_policy": "provider_default",
     "outcome": "success",
     "failed_after_ms": None,
         }

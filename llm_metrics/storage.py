@@ -26,6 +26,10 @@ from pathlib import Path
 # origin_cloud / origin_region say where the benchmark runner executed (e.g.
 # "local" / "unknown"), not where the provider served it. All three are
 # required for new attempts and NULL (unknown) for rows recorded before Step 013.
+# cache_policy is what the request asked of the provider's prompt cache (see
+# providers.CACHE_POLICIES); required for new attempts, "unknown" for older
+# rows. cached_input_tokens is the provider-reported cached part of
+# input_tokens: 0 = reported zero, NULL = not reported or unknown.
 #
 # observations: one row per metric value. recorded_at is UTC ISO 8601 with a
 # "Z" suffix, e.g. "2026-10-30T12:34:56.789012Z", so text order is time order.
@@ -57,6 +61,9 @@ CREATE TABLE IF NOT EXISTS requests (
     workload_id                 TEXT,
     origin_cloud                TEXT,
     origin_region               TEXT,
+    cache_policy                TEXT    CHECK (cache_policy IN (
+        'disabled', 'enabled', 'provider_default', 'unknown')),
+    cached_input_tokens         INTEGER CHECK (cached_input_tokens >= 0),
     CHECK (
         (outcome = 'success'
             AND input_tokens IS NOT NULL AND output_tokens IS NOT NULL
@@ -94,7 +101,8 @@ CREATE UNIQUE INDEX IF NOT EXISTS observations_unique
 #      columns nullable for failed attempts)
 #   4: Step 012a (requests.provider_request_id)
 #   5: Step 013 (requests.workload_id, origin_cloud, origin_region)
-SCHEMA_VERSION = 5
+#   6: Step 013 part 4 (requests.cache_policy, cached_input_tokens)
+SCHEMA_VERSION = 6
 
 # Constant SQL; values are always bound as parameters.
 _INSERT_OBSERVATION = (
@@ -106,10 +114,10 @@ _REQUEST_COLUMNS = (
     "input_tokens", "requested_max_output_tokens", "output_tokens",
     "input_price_per_1m", "output_price_per_1m",
     "input_cost", "output_cost", "total_cost", "failed_after_ms", "provider_request_id",
-    "workload_id", "origin_cloud", "origin_region",
+    "workload_id", "origin_cloud", "origin_region", "cache_policy", "cached_input_tokens",
 )
-# Request facts every new attempt must supply (NULL only in older rows).
-_REQUIRED_NEW_FACTS = ("workload_id", "origin_cloud", "origin_region")
+# Request facts every new attempt must supply (NULL or "unknown" only in older rows).
+_REQUIRED_NEW_FACTS = ("workload_id", "origin_cloud", "origin_region", "cache_policy")
 # Columns of a version-2 requests table, copied as-is by the version 3 upgrade.
 _V2_REQUEST_COLUMNS = (
     "id", "recorded_at", "environment", "provider", "model",
@@ -168,9 +176,24 @@ def _upgrade(conn: sqlite3.Connection) -> None:
             # the workload was not stable (the first real attempt was sent
             # without reasoning.effort), so they stay NULL rather than guessed.
             existing = _columns(conn, "requests")
-            for column in _REQUIRED_NEW_FACTS:
+            for column in ("workload_id", "origin_cloud", "origin_region"):
                 if column not in existing:
                     conn.execute(f"ALTER TABLE requests ADD COLUMN {column} TEXT")
+        if version < 6:
+            # The cache policy of existing attempts cannot be established:
+            # "unknown" (the vocabulary's value for exactly this), never guessed.
+            # Cached tokens were never recorded: NULL, never 0. (A table rebuilt
+            # by the version 3 step already has both columns, still NULL.)
+            if "cache_policy" not in _columns(conn, "requests"):
+                conn.execute(
+                    "ALTER TABLE requests ADD COLUMN cache_policy TEXT CHECK (cache_policy IN ("
+                    "'disabled', 'enabled', 'provider_default', 'unknown'))"
+                )
+                conn.execute(
+                    "ALTER TABLE requests ADD COLUMN cached_input_tokens INTEGER"
+                    " CHECK (cached_input_tokens >= 0)"
+                )
+            conn.execute("UPDATE requests SET cache_policy = 'unknown' WHERE cache_policy IS NULL")
         conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
         conn.commit()
     except BaseException:
@@ -220,8 +243,9 @@ def save_request(db_path: Path, request: dict, results: list[dict], environment:
 
     `request` must hold every _REQUEST_COLUMNS key except id, recorded_at and
     environment (unknown facts of a failed attempt as None); provider_request_id
-    is optional (None when absent). workload_id, origin_cloud and origin_region
-    must be non-empty strings. A failed attempt has
+    is optional (None when absent). workload_id, origin_cloud, origin_region and
+    cache_policy must be non-empty strings; cached_input_tokens is optional (None
+    = not reported). A failed attempt has
     no observations. The request row and all observations share one timestamp and
     are written in one transaction: either everything is saved or nothing.
     """
@@ -232,7 +256,7 @@ def save_request(db_path: Path, request: dict, results: list[dict], environment:
             raise ValueError(f"A new attempt must have a non-empty {fact}.")
     request_id = uuid.uuid4().hex
     recorded_at = format_timestamp(datetime.now(timezone.utc))
-    row = {"provider_request_id": None, **request, "id": request_id, "recorded_at": recorded_at, "environment": environment}
+    row = {"provider_request_id": None, "cached_input_tokens": None, **request, "id": request_id, "recorded_at": recorded_at, "environment": environment}
     values = tuple(row[column] for column in _REQUEST_COLUMNS)
     observations = [_observation_row(recorded_at, environment, r, request_id) for r in results]
     with closing(connect(db_path)) as conn, conn:  # inner `conn` commits
@@ -272,28 +296,27 @@ def load_observations(
     *,
     start: datetime,
     end: datetime,
+    cache_policy: str | None = None,
 ) -> list[tuple[str, float]]:
     """Return (recorded_at, value) for matching observations, oldest first.
 
     Only observations with start <= recorded_at <= end (both inclusive) are
     returned. recorded_at is fixed-width UTC text, so text comparison is time
-    comparison.
+    comparison. With `cache_policy`, only observations of attempts with that
+    policy are returned (observations without a request have no policy and are
+    excluded), so populations with different cache policies are not mixed.
     """
+    params = [environment, provider, model, metric, format_timestamp(start), format_timestamp(end)]
+    sql = (
+        "SELECT o.recorded_at, o.value FROM observations o"
+        " WHERE o.environment = ? AND o.provider = ? AND o.model = ? AND o.metric = ?"
+        " AND o.recorded_at >= ? AND o.recorded_at <= ?"
+    )
+    if cache_policy is not None:
+        sql += " AND o.request_id IN (SELECT id FROM requests WHERE cache_policy = ?)"
+        params.append(cache_policy)
     with closing(connect(db_path)) as conn:
-        return conn.execute(
-            "SELECT recorded_at, value FROM observations"
-            " WHERE environment = ? AND provider = ? AND model = ? AND metric = ?"
-            " AND recorded_at >= ? AND recorded_at <= ?"
-            " ORDER BY recorded_at, id",
-            (
-                environment,
-                provider,
-                model,
-                metric,
-                format_timestamp(start),
-                format_timestamp(end),
-            ),
-        ).fetchall()
+        return conn.execute(sql + " ORDER BY o.recorded_at, o.id", params).fetchall()
 
 
 def _request_dicts(conn: sqlite3.Connection, where: str, params: tuple) -> list[dict]:

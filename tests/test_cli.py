@@ -49,6 +49,9 @@ class CLITest(unittest.TestCase):
         self.assertRegex(proc.stdout, r"Output chunk throughput: \d+\.\d chunks/s")
         self.assertIn("Workload: simulated.default.v1", proc.stdout)
         self.assertIn("Origin: local / unknown", proc.stdout)
+        # The simulated provider sends no cache control and reports no cached tokens.
+        self.assertIn("Cache policy: provider_default", proc.stdout)
+        self.assertIn("Cached input tokens: not reported", proc.stdout)
 
     def test_workload_and_origin_are_saved(self):
         self.extra_env = {"LLM_METRICS_ORIGIN_CLOUD": "aws", "LLM_METRICS_ORIGIN_REGION": "us-east-1"}
@@ -56,8 +59,9 @@ class CLITest(unittest.TestCase):
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertIn("Origin: aws / us-east-1", proc.stdout)
         with closing(sqlite3.connect(self.db_path)) as conn:
-            rows = conn.execute("SELECT workload_id, origin_cloud, origin_region FROM requests").fetchall()
-        self.assertEqual(rows, [("simulated.default.v1", "aws", "us-east-1")])
+            rows = conn.execute("SELECT workload_id, origin_cloud, origin_region, cache_policy,"
+                                " cached_input_tokens FROM requests").fetchall()
+        self.assertEqual(rows, [("simulated.default.v1", "aws", "us-east-1", "provider_default", None)])
 
     def test_invalid_origin_is_refused_before_measuring(self):
         self.extra_env = {"LLM_METRICS_ORIGIN_REGION": "US East 1"}

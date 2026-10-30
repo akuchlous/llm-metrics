@@ -1,6 +1,6 @@
 # Step 13 — Senior manager
 
-**Step context:** Step 013 completed the Metrics v1 request data model. It added `output_tokens_per_s` (provider-reported output tokens over the first-to-last output chunk interval), a required `workload_id` naming the benchmark case, and `origin_cloud` / `origin_region` for where the runner executed (configured by environment variables, default `local` / `unknown`). Schema version 5 adds these as nullable request columns, NULL for historical rows.
+**Step context:** Step 013 completed the Metrics v1 request data model. It added `output_tokens_per_s` (provider-reported output tokens over the first-to-last output chunk interval), a required `workload_id` naming the benchmark case, and `origin_cloud` / `origin_region` for where the runner executed (configured by environment variables, default `local` / `unknown`). It also added cache facts: the requested `cache_policy` (the OpenAI smoke request sends explicit cache mode with no breakpoints and records `disabled`; the simulated provider records `provider_default`) and provider-reported `cached_input_tokens` (0 = reported zero, NULL = not reported). Schema versions 5 and 6 add these as request columns; historical rows stay NULL, with cache policy `unknown`.
 
 **Question:** How should a team running this across several clouds configure origin, and what operational risks does the design leave?
 

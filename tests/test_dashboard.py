@@ -315,6 +315,7 @@ REQUEST = {
     "workload_id": "simulated.default.v1",
     "origin_cloud": "local",
     "origin_region": "unknown",
+    "cache_policy": "provider_default",
     "input_tokens": 3,
     "requested_max_output_tokens": 64,
     "output_tokens": 7,
@@ -395,20 +396,39 @@ class RequestsViewTest(DashboardTestCase):
         request_id = save_request(self.db_path, REQUEST, metric_results(total_latency=1.0), "test")
         with closing(sqlite3.connect(self.db_path)) as conn, conn:  # as a pre-Step-013 row
             conn.execute("UPDATE requests SET workload_id = NULL, origin_cloud = NULL,"
-                         " origin_region = NULL WHERE id = ?", (request_id,))
+                         " origin_region = NULL, cache_policy = 'unknown' WHERE id = ?",
+                         (request_id,))
         page = render_requests_page(load_recent_requests(self.db_path, "test", 20))
         cells = re.findall(r"<td[^>]*>(.*?)</td>", page[page.index(request_id[:8]):])
-        self.assertEqual(cells[-2:], ["—", "—"])  # unknown, not invented
+        # workload, origin, cache policy, cached input tokens: unknown, not invented
+        self.assertEqual(cells[-4:], ["—", "—", "unknown", "—"])
+
+    def test_cache_facts_are_shown_and_zero_is_not_unknown(self):
+        cases = (("disabled", 0, ["disabled", "0"]), ("disabled", 1024, ["disabled", "1024"]),
+                 ("provider_default", None, ["provider_default", "—"]))
+        for policy, cached, expected in cases:
+            with self.subTest(policy=policy, cached=cached):
+                request_id = save_request(
+                    self.db_path, {**REQUEST, "cache_policy": policy, "cached_input_tokens": cached},
+                    metric_results(total_latency=1.0), "test")
+                page = render_requests_page(load_recent_requests(self.db_path, "test", 20))
+                row = page[page.index(request_id[:8]):]
+                cells = re.findall(r"<td[^>]*>(.*?)</td>", row[:row.index("</tr>")])
+                self.assertEqual(cells[-2:], expected)
+        text = visible_text(page)
+        self.assertIn("Cache policy", text)
+        self.assertIn("Cached input tokens", text)
+        self.assertIn("not reported, which is not zero", text)
 
     def test_real_view_shows_token_throughput_workload_and_origin(self):
         real = {**REQUEST, "provider": "openai", "model": "gpt-6-luna",
-                "workload_id": "smoke.short_text.v1", "origin_cloud": "aws", "origin_region": "us-east-1"}
+                "workload_id": "smoke.short_text.v2", "origin_cloud": "aws", "origin_region": "us-east-1"}
         save_request(self.db_path, real, [
             {"provider": "openai", "model": "gpt-6-luna", "metric": m, "value": v}
             for m, v in (("total_latency", 3880.7), ("ttft", 3630.3), ("output_tokens_per_s", 56.0),
                          ("output_chunks_per_s", 36.4))], "prod")
         text = visible_text(render_requests_page(load_recent_requests(self.db_path, "prod", 20), "real"))
-        for value in ("56.0", "36.4", "smoke.short_text.v1", "aws / us-east-1"):
+        for value in ("56.0", "36.4", "smoke.short_text.v2", "aws / us-east-1"):
             self.assertIn(value, text)
 
     def test_text_from_storage_is_escaped(self):

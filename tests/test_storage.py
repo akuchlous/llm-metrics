@@ -22,7 +22,8 @@ from llm_metrics.storage import (
 
 DUMMY = {"provider": "dummy", "model": "dummy-model-v1"}
 # Request facts every new attempt must supply (Step 013).
-NEW_FACTS = {"workload_id": "simulated.default.v1", "origin_cloud": "local", "origin_region": "unknown"}
+NEW_FACTS = {"workload_id": "simulated.default.v1", "origin_cloud": "local", "origin_region": "unknown",
+             "cache_policy": "provider_default"}
 REQUEST = {
     **DUMMY,
     **NEW_FACTS,
@@ -130,6 +131,30 @@ class StorageTest(unittest.TestCase):
         request_id = self.save(results=RESULTS[:2])
         self.assertNotIn("output_chunks_per_s", load_request(self.db_path, request_id)["metrics"])
 
+    def test_cache_policy_must_be_in_the_vocabulary(self):
+        with self.assertRaises(sqlite3.IntegrityError):
+            self.save({**REQUEST, "cache_policy": "cold"})
+        with self.assertRaises(sqlite3.IntegrityError):
+            self.save({**REQUEST, "cached_input_tokens": -1})
+
+    def test_metric_queries_can_filter_by_cache_policy(self):
+        # Different cache policies are different populations; the existing
+        # metric query separates them without any schema change.
+        self.save({**REQUEST, "cache_policy": "disabled"},
+                  [{**DUMMY, "metric": "ttft", "value": 300.0}])
+        time.sleep(0.002)
+        self.save({**REQUEST, "cache_policy": "enabled"},
+                  [{**DUMMY, "metric": "ttft", "value": 100.0}])
+        start = datetime.now(timezone.utc) - timedelta(minutes=1)
+        end = datetime.now(timezone.utc)
+        def values(**kwargs):
+            return [v for _, v in load_observations(self.db_path, "test", "dummy", "dummy-model-v1",
+                                                    "ttft", start=start, end=end, **kwargs)]
+        self.assertEqual(values(), [300.0, 100.0])  # unfiltered, as before
+        self.assertEqual(values(cache_policy="disabled"), [300.0])
+        self.assertEqual(values(cache_policy="enabled"), [100.0])
+        self.assertEqual(values(cache_policy="provider_default"), [])
+
     def test_metric_populations_stay_separate(self):
         self.save()
         start = datetime.now(timezone.utc) - timedelta(minutes=1)
@@ -212,7 +237,7 @@ class StorageTest(unittest.TestCase):
         self.assertEqual(read_rows(self.db_path, "requests"), [])
 
     def test_new_attempts_must_have_workload_and_origin(self):
-        for fact in ("workload_id", "origin_cloud", "origin_region"):
+        for fact in ("workload_id", "origin_cloud", "origin_region", "cache_policy"):
             for bad in (None, ""):
                 with self.subTest(fact=fact, value=bad):
                     with self.assertRaisesRegex(ValueError, fact):
@@ -416,7 +441,7 @@ class SchemaUpgradeTest(unittest.TestCase):
     def test_fresh_database_is_current_version(self):
         init(self.db_path)
         self.assertEqual(self.version(), SCHEMA_VERSION)
-        self.assertEqual(SCHEMA_VERSION, 5)
+        self.assertEqual(SCHEMA_VERSION, 6)
 
     def test_version_2_requests_become_historical_successes(self):
         # A database exactly as Step 010 created it: NOT NULL token/cost columns,
@@ -448,6 +473,7 @@ class SchemaUpgradeTest(unittest.TestCase):
             [3, 64, 7, 2.0, 8.0, 6.2e-05],
         )
         self.assertEqual(loaded["metrics"], {"total_latency": 181.1})
+        self.assertEqual((loaded["cache_policy"], loaded["cached_input_tokens"]), ("unknown", None))
         rows = read_rows(self.db_path)
         self.assertEqual([(r["metric"], r["request_id"]) for r in rows],
                          [("total_latency", "abc"), ("ttft", None)])  # unpaired row unchanged
@@ -522,6 +548,35 @@ class SchemaUpgradeTest(unittest.TestCase):
         self.assertEqual(load_request(self.db_path, new_id)["workload_id"], "simulated.default.v1")
         init(self.db_path)  # re-upgrading is a no-op
         self.assertEqual(len(read_rows(self.db_path, "requests")), 2)
+
+    def test_version_5_rows_get_unknown_cache_policy_and_null_cached_tokens(self):
+        # A Step 013 (parts 1-3) requests table: version 5, no cache columns.
+        v5 = STEP_011_REQUESTS.replace(
+            "failed_after_ms REAL CHECK (failed_after_ms >= 0),",
+            "failed_after_ms REAL CHECK (failed_after_ms >= 0), provider_request_id TEXT,"
+            " workload_id TEXT, origin_cloud TEXT, origin_region TEXT,")
+        with closing(sqlite3.connect(self.db_path)) as conn, conn:
+            conn.executescript(v5)
+            conn.execute(
+                "INSERT INTO requests VALUES ('sim', '2026-10-30T08:00:00.000000Z', 'test', 'dummy',"
+                " 'dummy-model-v1', 'success', 3, 64, 7, 2.0, 8.0, 6e-06, 5.6e-05, 6.2e-05, NULL,"
+                " NULL, 'simulated.default.v1', 'local', 'unknown')"
+            )
+        with closing(sqlite3.connect(self.db_path)) as conn:
+            conn.execute("PRAGMA user_version = 5")
+        init(self.db_path)
+        self.assertEqual(self.version(), SCHEMA_VERSION)
+        old = load_request(self.db_path, "sim")
+        self.assertEqual([old[k] for k in ("workload_id", "origin_cloud", "origin_region",
+                                           "input_tokens", "total_cost")],
+                         ["simulated.default.v1", "local", "unknown", 3, 6.2e-05])
+        # Policy cannot be established: "unknown"; cached tokens never recorded: NULL, not 0.
+        self.assertEqual((old["cache_policy"], old["cached_input_tokens"]), ("unknown", None))
+        new_id = save_request(self.db_path, {**REQUEST, "cached_input_tokens": 0}, RESULTS, "test")
+        new = load_request(self.db_path, new_id)
+        self.assertEqual((new["cache_policy"], new["cached_input_tokens"]), ("provider_default", 0))
+        init(self.db_path)  # re-upgrading is a no-op
+        self.assertEqual(load_request(self.db_path, "sim")["cache_policy"], "unknown")
 
     def test_newer_database_is_refused(self):
         with closing(sqlite3.connect(self.db_path)) as conn:

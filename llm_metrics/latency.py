@@ -32,7 +32,8 @@ def measure_request(
     ("success" or a failure category from outcomes.FAILURE_CATEGORIES),
     input_tokens, output_tokens, failed_after_ms, provider_request_id (the
     provider's own id for the request, from Usage or ProviderFailure; None if
-    unknown).
+    unknown), cached_input_tokens (from Usage; None when not reported or on
+    failure).
 
     On success: input_tokens/output_tokens come from the provider's final
     `Usage` (never from chunk counts), failed_after_ms is None, and `results`
@@ -105,6 +106,7 @@ def measure_request(
             "output_tokens": None,
             "failed_after_ms": (failed_at - request_started) * 1000,
             "provider_request_id": provider_request_id,
+            "cached_input_tokens": None,  # unknown, not zero
             # Sanitized local-debug details; not a storage column, never saved.
             "diagnostics": getattr(failure, "diagnostics", {}),
         }
@@ -119,6 +121,7 @@ def measure_request(
         "output_tokens": usage.output_tokens,
         "failed_after_ms": None,
         "provider_request_id": usage.provider_request_id,
+        "cached_input_tokens": usage.cached_input_tokens,
     }
 
     def result(metric: str, value: float) -> dict:

@@ -24,7 +24,7 @@ from llm_metrics.pricing import PRICE_PROVENANCE, Price, price_for, request_cost
 from llm_metrics.providers import ProviderFailure, Usage
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-SMOKE_CASE = {"workload_id": "smoke.short_text.v1", "origin": ("local", "unknown")}
+SMOKE_CASE = {"workload_id": "smoke.short_text.v2", "origin": ("local", "unknown")}
 FAKE_KEY = "fake-test-key-NEVER-SHOW-THIS-0123456789"
 
 
@@ -108,7 +108,11 @@ class StreamTranslationTest(unittest.TestCase):
         body = json.loads(request.data)
         self.assertEqual(body, {"model": "gpt-6-luna", "input": "the prompt",
                                 "max_output_tokens": 64, "stream": True, "store": False,
-                                "reasoning": {"effort": "none"}})
+                                "reasoning": {"effort": "none"},
+                                # Explicit cache mode without breakpoints: no prompt caching.
+                                "prompt_cache_options": {"mode": "explicit"}})
+        self.assertNotIn("prompt_cache_breakpoint", request.data.decode())
+        self.assertEqual(OpenAIProvider.cache_policy, "disabled")
         self.assertNotIn("tools", body)
         self.assertEqual(request.get_header("Authorization"), f"Bearer {FAKE_KEY}")
 
@@ -203,6 +207,80 @@ class UsageIsNeverFabricatedTest(unittest.TestCase):
                 self.assertIsNone(attempt["input_tokens"])
                 self.assertIsNone(attempt["output_tokens"])
                 self.assertEqual(results, [])
+
+
+def completed_with_details(details, input_tokens=12, output_tokens=3):
+    usage = {"input_tokens": input_tokens, "output_tokens": output_tokens}
+    if details is not None:
+        usage["input_tokens_details"] = details
+    return {"type": "response.completed", "response": {"usage": usage}}
+
+
+class CachedInputTokensTest(unittest.TestCase):
+    """cached_input_tokens comes only from usage.input_tokens_details.cached_tokens."""
+
+    def attempt(self, details, input_tokens=12):
+        provider, _ = provider_with(response=FakeResponse(sse(
+            delta("a"), delta("b"), completed_with_details(details, input_tokens))))
+        attempt, _ = measure_request(provider, "hi", 64)
+        return attempt
+
+    def test_reported_values_are_carried_and_zero_is_kept(self):
+        for details, expected in (({"cached_tokens": 0}, 0), ({"cached_tokens": 8}, 8),
+                                  ({"cached_tokens": 12}, 12)):
+            with self.subTest(details=details):
+                attempt = self.attempt(details)
+                self.assertEqual(attempt["outcome"], "success")
+                self.assertEqual(attempt["cached_input_tokens"], expected)
+
+    def test_not_reported_is_unknown_never_zero(self):
+        for details in (None, {}, {"cached_tokens": None}, "not a dict"):
+            with self.subTest(details=details):
+                attempt = self.attempt(details)
+                self.assertEqual(attempt["outcome"], "success")
+                self.assertIsNone(attempt["cached_input_tokens"])
+
+    def test_malformed_cached_tokens_are_invalid_response(self):
+        for cached in (-1, "3", True, 1.5, 13):  # 13 > input_tokens (12)
+            with self.subTest(cached=cached):
+                attempt = self.attempt({"cached_tokens": cached})
+                self.assertEqual(attempt["outcome"], "invalid_response")
+                self.assertIsNone(attempt["cached_input_tokens"])
+
+    def test_cached_tokens_are_stored_and_zero_differs_from_null(self):
+        from llm_metrics.storage import load_request
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "x.db"
+            stored = {}
+            for name, details in (("zero", {"cached_tokens": 0}), ("missing", None),
+                                  ("some", {"cached_tokens": 5})):
+                provider, _ = provider_with(response=FakeResponse(sse(
+                    delta("a"), delta("b"), completed_with_details(details))))
+                _, _, request_id = run_attempt(provider, "p", 64, "prod", db_path, **SMOKE_CASE)
+                stored[name] = load_request(db_path, request_id)
+        self.assertEqual(stored["zero"]["cached_input_tokens"], 0)
+        self.assertIsNone(stored["missing"]["cached_input_tokens"])
+        self.assertEqual(stored["some"]["cached_input_tokens"], 5)
+        for request in stored.values():
+            self.assertEqual(request["cache_policy"], "disabled")
+
+    def test_new_attempts_never_record_an_unknown_or_invented_policy(self):
+        from llm_metrics.providers import DummyProvider
+        for policy in ("unknown", "cold", ""):
+            with self.subTest(policy=policy):
+                provider = DummyProvider(first_token_delay_s=0, inter_token_delay_s=0)
+                provider.cache_policy = policy
+                with tempfile.TemporaryDirectory() as tmp:
+                    with self.assertRaises(ValueError):
+                        run_attempt(provider, "p", 64, "test", Path(tmp) / "x.db", **SMOKE_CASE)
+                    self.assertFalse((Path(tmp) / "x.db").exists())
+
+    def test_failed_attempt_has_unknown_cached_tokens(self):
+        provider, _ = provider_with(response=FakeResponse(sse(
+            {"type": "error", "error": {"code": "server_error"}})))
+        attempt, _ = measure_request(provider, "hi", 64)
+        self.assertEqual(attempt["outcome"], "provider_error")
+        self.assertIsNone(attempt["cached_input_tokens"])
 
 
 class FailureMappingTest(unittest.TestCase):
@@ -520,8 +598,12 @@ class RealSmokeCommandTest(unittest.TestCase):
         self.assertEqual((stored["provider"], stored["model"], stored["environment"]),
                          ("openai", "gpt-6-luna", "prod"))
         self.assertEqual((stored["workload_id"], stored["origin_cloud"], stored["origin_region"]),
-                         ("smoke.short_text.v1", "local", "unknown"))
-        self.assertIn("Workload: smoke.short_text.v1", out)
+                         ("smoke.short_text.v2", "local", "unknown"))
+        self.assertIn("Workload: smoke.short_text.v2", out)
+        self.assertIn("Cache policy: disabled", out)
+        self.assertIn("Cached input tokens: not reported", out)  # the fake usage has no details
+        self.assertEqual(stored["cache_policy"], "disabled")
+        self.assertIsNone(stored["cached_input_tokens"])
         # Real token throughput comes from OpenAI's usage (15 tokens), not the 2 chunks.
         self.assertIn("output_tokens_per_s", stored["metrics"])
         self.assertIn("Output token throughput:", out)

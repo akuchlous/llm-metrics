@@ -373,7 +373,11 @@ def render_requests_page(requests: list[dict], data: str = DEFAULT_DATA) -> str:
         " the time from the first to the last output chunk (TTFT excluded); chunk"
         " throughput counts stream chunks, not tokens. <i>Workload</i> is the benchmark"
         " case that was run; <i>Origin</i> is where the benchmark runner executed"
-        " (cloud / region), not where the provider served it. For failed attempts,"
+        " (cloud / region), not where the provider served it. <i>Cache policy</i> is what"
+        " the request asked of the provider's prompt cache (<i>disabled</i>: uncached /"
+        " cold-ish; <i>provider_default</i> or <i>unknown</i>: not established); <i>Cached"
+        " input</i> is the provider-reported cached input tokens (— = not reported, which"
+        " is not zero). For failed attempts,"
         " tokens, cost, and performance are unknown (—); <i>Failed after</i> is the time"
         " until the failure was detected.</p>\n"
     )
@@ -388,7 +392,7 @@ def render_requests_page(requests: list[dict], data: str = DEFAULT_DATA) -> str:
         "<th>Input tokens</th><th>Output tokens</th><th>Max output tokens</th>"
         "<th>Total cost ($)</th><th>Input cost ($)</th><th>Output cost ($)</th>"
         "<th>Failed after (ms)</th><th>Provider / model</th><th>Workload</th>"
-        "<th>Origin</th></tr>"
+        "<th>Origin</th><th>Cache policy</th><th>Cached input tokens</th></tr>"
     )
     rows = []
     for r in requests:
@@ -417,6 +421,8 @@ def render_requests_page(requests: list[dict], data: str = DEFAULT_DATA) -> str:
             f"<td>{escape(r['provider'])} / {escape(r['model'])}</td>"
             f"<td>{_text(r['workload_id'])}</td>"
             f"<td>{_origin(r['origin_cloud'], r['origin_region'])}</td>"
+            f"<td>{_text(r['cache_policy'])}</td>"
+            f"<td>{_number(r['cached_input_tokens'], 'd')}</td>"
             "</tr>"
         )
     table = f'<div class="table-wrap"><table>{header}{"".join(rows)}</table></div>'

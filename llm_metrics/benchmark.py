@@ -11,7 +11,7 @@ from pathlib import Path
 from llm_metrics.latency import METRICS, measure_request
 from llm_metrics.outcomes import FAILURE_CATEGORIES, SUCCESS
 from llm_metrics.pricing import price_for, request_cost
-from llm_metrics.providers import LLMProvider
+from llm_metrics.providers import CACHE_POLICIES, LLMProvider
 from llm_metrics.storage import save_request
 
 
@@ -23,9 +23,12 @@ def run_attempt(
 
     `workload_id` names the benchmark case (what was run); `origin` is
     (origin_cloud, origin_region) of this runner (see config.get_origin). Both
-    are stored with the attempt. The price is looked up before the call, so a
-    missing price never wastes a paid request.
+    are stored with the attempt, with the provider's requested cache_policy.
+    The price is looked up before the call, so a missing price never wastes a
+    paid request.
     """
+    if provider.cache_policy not in CACHE_POLICIES or provider.cache_policy == "unknown":
+        raise ValueError(f"Provider cache_policy must be one of {CACHE_POLICIES[:3]}.")
     price = price_for(provider.name, provider.model)
     attempt, results = measure_request(provider, prompt, max_output_tokens)
     if attempt["outcome"] == SUCCESS:
@@ -38,6 +41,7 @@ def run_attempt(
         "workload_id": workload_id,
         "origin_cloud": origin_cloud,
         "origin_region": origin_region,
+        "cache_policy": provider.cache_policy,
         "input_price_per_1m": price.input_per_1m,
         "output_price_per_1m": price.output_per_1m,
         **cost,
@@ -53,6 +57,7 @@ def print_summary(request: dict, results: list[dict], request_id: str, db_path: 
     print(f"Model: {request['model']}")
     print(f"Workload: {request['workload_id']}")
     print(f"Origin: {request['origin_cloud']} / {request['origin_region']}")
+    print(f"Cache policy: {request['cache_policy']}")
     if request["outcome"] == SUCCESS:
         print("Outcome: success")
         for result in results:
@@ -61,6 +66,8 @@ def print_summary(request: dict, results: list[dict], request_id: str, db_path: 
         if not any(r["metric"] == "output_chunks_per_s" for r in results):
             print("Output throughput: not recorded (fewer than 2 output chunks)")
         print(f"Input tokens: {request['input_tokens']}{note}")
+        cached = request["cached_input_tokens"]
+        print(f"Cached input tokens: {'not reported' if cached is None else cached}")
         print(
             f"Output tokens: {request['output_tokens']} of max "
             f"{request['requested_max_output_tokens']}{note}"
