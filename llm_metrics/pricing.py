@@ -14,9 +14,22 @@ class Price:
     output_per_1m: float  # USD per 1M output tokens
 
 
-# SIMULATED prices for the dummy provider. Not any real provider's pricing.
 PRICES = {
+    # SIMULATED prices for the dummy provider. Not any real provider's pricing.
     ("dummy", "dummy-model-v1"): Price(input_per_1m=2.00, output_per_1m=8.00),
+    # OpenAI gpt-6-luna, standard tier (synchronous API; not batch, priority, or
+    # cached-input rates). Source: https://openai.com/api/pricing/
+    # NOT YET VERIFIED against the official page: it was unreachable from the
+    # implementation environment on 2026-10-30. The rate matches the Step 012
+    # prompt and third-party price trackers (2026-10-30). Verify, then update
+    # this comment and PRICE_PROVENANCE with the verification date.
+    ("openai", "gpt-6-luna"): Price(input_per_1m=0.10, output_per_1m=0.50),
+}
+
+# Where each real price came from: (provider, model) -> (source, verified on).
+# `None` means not yet verified against the official source.
+PRICE_PROVENANCE = {
+    ("openai", "gpt-6-luna"): ("https://openai.com/api/pricing/ (standard tier)", None),
 }
 
 

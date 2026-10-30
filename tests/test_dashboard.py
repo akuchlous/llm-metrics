@@ -19,7 +19,9 @@ from llm_metrics.dashboard import (
     make_server,
     parse_query,
     render_page,
+    build_spend_page,
     render_requests_page,
+    render_spend_page,
     window_bounds,
 )
 from llm_metrics.storage import (
@@ -223,7 +225,7 @@ class MetricSelectionTest(DashboardTestCase):
                 self.assertEqual(chart_point_count(page), count)
                 self.assertIn('fill="#555">chunks/s</text>', page)  # y-axis unit label
                 self.assertNotRegex(text, r"\d ms\b")  # never labelled as milliseconds
-                self.assertNotIn("999", text)  # older than 30d
+                self.assertNotIn("999.0", text)  # older than 30d
                 self.assertIn(current(window, "output_chunks_per_s"), page)
         # The latency metrics' populations are untouched by throughput rows.
         ttft_text = visible_text(build_page(self.db_path, "24h", "ttft", NOW))
@@ -391,6 +393,73 @@ class RequestsViewTest(DashboardTestCase):
         self.assertIn("No benchmark attempts yet", page)
 
 
+def spend_row(provider="openai", model="gpt-6-luna", successful_calls=2, failed_attempts=0,
+              input_tokens=60, output_tokens=45, total_cost=0.0000285):
+    return {"provider": provider, "model": model, "attempts": successful_calls + failed_attempts,
+            "successful_calls": successful_calls, "failed_attempts": failed_attempts,
+            "input_tokens": input_tokens, "output_tokens": output_tokens, "total_cost": total_cost}
+
+
+class SpendPageTest(DashboardTestCase):
+    def render(self, rows, window="30d"):
+        start, end = window_bounds(window, NOW)
+        return render_spend_page(rows, window, start, end)
+
+    def cells_text(self, page):
+        table = page[page.index("<table"):page.index("</table>")]
+        return re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", table))
+
+    def test_explains_what_spend_is_and_is_not(self):
+        text = visible_text(self.render([]))
+        self.assertIn("REAL PROVIDER DATA", text)
+        self.assertNotIn("TEST / SIMULATED DATA", text)
+        self.assertIn("the API token cost incurred by llm-metrics to run its own benchmark requests", text)
+        for excluded in ("not the provider's revenue", "not what every user pays",
+                         "not hosting or infrastructure cost", "not a workload-independent price comparison"):
+            self.assertIn(excluded, text)
+        self.assertIn("No real benchmark attempts in the selected window (30d)", text)
+
+    def test_rows_per_provider_model_and_grand_total(self):
+        page = self.render([
+            spend_row(),
+            spend_row(model="other-model", successful_calls=1, failed_attempts=2,
+                      input_tokens=10, output_tokens=10, total_cost=0.000006),
+            spend_row(model="flaky-model", successful_calls=0, failed_attempts=1,
+                      input_tokens=None, output_tokens=None, total_cost=None),
+        ])
+        text = self.cells_text(page)
+        self.assertIn("openai gpt-6-luna 2 60 45 $0.000029 0", text)
+        self.assertIn("openai other-model 1 10 10 $0.000006 2", text)
+        self.assertIn("openai flaky-model 0 — — unknown 1", text)   # never $0
+        self.assertIn("All providers 3 70 55 $0.000034 3", text)     # known costs only
+        self.assertNotIn("$0.000000", text)
+
+    def test_only_real_data_from_the_database(self):
+        save_request(self.db_path, REQUEST, metric_results(total_latency=1.0), "test")  # simulated
+        text = visible_text(build_spend_page(self.db_path, "30d", datetime.now(timezone.utc)))
+        self.assertIn("No real benchmark attempts", text)
+        self.assertNotIn("dummy-model-v1", text.split("Benchmark API Spend", 2)[-1])
+
+
+class RequestsDataSelectorTest(DashboardTestCase):
+    def test_real_requests_are_labelled_real(self):
+        real = {**REQUEST, "provider": "openai", "model": "gpt-6-luna",
+                "input_price_per_1m": 0.1, "output_price_per_1m": 0.5}
+        save_request(self.db_path, real, metric_results(total_latency=900.0), "prod")
+        page = render_requests_page(load_recent_requests(self.db_path, "prod", 20), "real")
+        text = visible_text(page)
+        self.assertIn("REAL PROVIDER DATA", text)
+        self.assertNotIn("TEST / SIMULATED DATA", text)
+        self.assertIn("reported by the provider", text)
+        self.assertIn("openai / gpt-6-luna", text)
+        self.assertIn('href="/requests?data=real" aria-current="page"', page)
+
+    def test_simulated_requests_keep_the_simulated_label(self):
+        page = render_requests_page([], "simulated")
+        self.assertIn("TEST / SIMULATED DATA", page)
+        self.assertNotIn("REAL PROVIDER DATA", page)
+
+
 class ServerTest(DashboardTestCase):
     def start_server(self):
         server = make_server(self.db_path, port=0)
@@ -451,6 +520,23 @@ class ServerTest(DashboardTestCase):
         self.assertIn('href="/requests" aria-current="page"', page)
         status, _, page = self.get(base + "/")
         self.assertIn('href="/" aria-current="page"', page)  # aggregate view still default
+
+    def test_spend_and_data_routes(self):
+        _, base = self.start_server()
+        status, headers, page = self.get(base + "/spend")
+        self.assertEqual(status, 200)
+        self.assertIn("default-src 'none'", headers["Content-Security-Policy"])
+        self.assertIn('href="/spend?window=30d" aria-current="page"', page)  # default window
+        self.assertIn('href="/spend" aria-current="page"', page)
+        status, _, page = self.get(base + "/requests?data=real")
+        self.assertEqual(status, 200)
+        self.assertIn("REAL PROVIDER DATA", page)
+        for query in ("/spend?window=1y", "/spend?window=7d&window=30d", "/requests?data=prod",
+                      "/requests?data=", "/requests?data=real&data=simulated"):
+            with self.subTest(query=query):
+                with self.assertRaises(urllib.error.HTTPError) as ctx:
+                    urllib.request.urlopen(base + query, timeout=10)
+                self.assertEqual(ctx.exception.code, 400)
 
     def test_empty_database(self):
         _, base = self.start_server()

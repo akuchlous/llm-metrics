@@ -40,8 +40,9 @@ def get_provider(app_env: str) -> LLMProvider:
         return DummyProvider()
     if app_env == "prod":
         raise ConfigError(
-            "APP_ENV=prod has no real provider yet. "
-            "Refusing to run: the dummy provider is not a production provider."
+            "APP_ENV=prod: ./run.sh and this command never call a paid API, and the "
+            "dummy provider is not a production provider. Refusing to run. For one "
+            "real request, use: python -m llm_metrics.real_smoke"
         )
     raise _invalid_env(app_env)
 

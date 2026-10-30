@@ -1,0 +1,353 @@
+"""OpenAI adapter and real smoke command. No test here touches the network:
+every request goes through a fake opener, and socket use is blocked where a
+code path must stay offline."""
+
+import contextlib
+import io
+import json
+import os
+import socket
+import subprocess
+import sys
+import tempfile
+import unittest
+import urllib.error
+import urllib.request
+from pathlib import Path
+from unittest import mock
+
+from llm_metrics import real_smoke
+from llm_metrics.benchmark import print_summary, run_attempt
+from llm_metrics.latency import measure_request
+from llm_metrics.openai_provider import API_URL, TIMEOUT_S, OpenAIProvider, RequestRejected
+from llm_metrics.pricing import PRICE_PROVENANCE, Price, price_for, request_cost
+from llm_metrics.providers import ProviderFailure, Usage
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
+FAKE_KEY = "fake-test-key-NEVER-SHOW-THIS-0123456789"
+
+
+def sse(*events):
+    """Server-sent-event bytes for the given event dicts (or raw strings)."""
+    out = []
+    for event in events:
+        payload = event if isinstance(event, str) else json.dumps(event)
+        out.append(f"event: x\ndata: {payload}\n\n")
+    return "".join(out).encode("utf-8")
+
+
+def delta(text):
+    return {"type": "response.output_text.delta", "delta": text}
+
+
+def completed(input_tokens=12, output_tokens=3):
+    return {"type": "response.completed",
+            "response": {"usage": {"input_tokens": input_tokens, "output_tokens": output_tokens}}}
+
+
+class FakeResponse(io.BytesIO):
+    """Readable like an HTTP response; optionally fails on the nth readline."""
+
+    def __init__(self, body, fail_on_line=None, error=None):
+        super().__init__(body)
+        self.fail_on_line, self.error, self.lines = fail_on_line, error, 0
+
+    def readline(self, *args):
+        self.lines += 1
+        if self.fail_on_line is not None and self.lines >= self.fail_on_line:
+            raise self.error
+        return super().readline(*args)
+
+
+class FakeOpener:
+    def __init__(self, response=None, error=None):
+        self.response, self.error, self.calls = response, error, []
+
+    def __call__(self, request, timeout):
+        self.calls.append((request, timeout))
+        if self.error is not None:
+            raise self.error
+        return self.response
+
+
+def provider_with(**kwargs):
+    opener = FakeOpener(**kwargs)
+    return OpenAIProvider(FAKE_KEY, opener=opener), opener
+
+
+def http_error(status):
+    return urllib.error.HTTPError(API_URL, status, "error", {}, io.BytesIO(b"{}"))
+
+
+class StreamTranslationTest(unittest.TestCase):
+    def test_success_yields_text_chunks_then_authoritative_usage(self):
+        provider, _ = provider_with(response=FakeResponse(sse(
+            {"type": "response.created"}, delta("Hel"), delta("lo"),
+            {"type": "response.output_text.done"}, completed(12, 3),
+        )))
+        self.assertEqual(list(provider.stream("hi", 64)), ["Hel", "lo", Usage(12, 3)])
+
+    def test_measurement_uses_provider_usage_not_chunks(self):
+        provider, _ = provider_with(response=FakeResponse(sse(delta("Hel"), delta("lo"), completed(12, 5))))
+        attempt, results = measure_request(provider, "hi", 64)
+        self.assertEqual(attempt["outcome"], "success")
+        self.assertEqual((attempt["input_tokens"], attempt["output_tokens"]), (12, 5))  # 2 chunks
+        self.assertEqual({r["metric"] for r in results}, {"total_latency", "ttft", "output_chunks_per_s"})
+        self.assertEqual(attempt["provider"], "openai")
+        self.assertEqual(attempt["model"], "gpt-6-luna")
+
+    def test_request_is_one_small_capped_streaming_call(self):
+        provider, opener = provider_with(response=FakeResponse(sse(delta("a"), completed())))
+        list(provider.stream("the prompt", 64))
+        [(request, timeout)] = opener.calls  # exactly one HTTP request
+        self.assertEqual(request.full_url, API_URL)
+        self.assertEqual(request.get_method(), "POST")
+        self.assertEqual(timeout, TIMEOUT_S)
+        body = json.loads(request.data)
+        self.assertEqual(body, {"model": "gpt-6-luna", "input": "the prompt",
+                                "max_output_tokens": 64, "stream": True, "store": False})
+        self.assertNotIn("tools", body)
+        self.assertEqual(request.get_header("Authorization"), f"Bearer {FAKE_KEY}")
+
+    def test_cap_reached_is_still_a_completed_response_with_usage(self):
+        incomplete = {"type": "response.incomplete", "response": {
+            "incomplete_details": {"reason": "max_output_tokens"},
+            "usage": {"input_tokens": 12, "output_tokens": 64}}}
+        provider, _ = provider_with(response=FakeResponse(sse(delta("a"), delta("b"), incomplete)))
+        attempt, _ = measure_request(provider, "hi", 64)
+        self.assertEqual((attempt["outcome"], attempt["output_tokens"]), ("success", 64))
+
+
+class UsageIsNeverFabricatedTest(unittest.TestCase):
+    def outcome(self, body):
+        provider, _ = provider_with(response=FakeResponse(body))
+        attempt, results = measure_request(provider, "hi", 64)
+        return attempt, results
+
+    def test_missing_or_invalid_usage_is_invalid_response(self):
+        bodies = {
+            "no final event": sse(delta("a"), delta("b")),
+            "final event without usage": sse(delta("a"), {"type": "response.completed", "response": {}}),
+            "usage missing a count": sse(delta("a"), {"type": "response.completed",
+                                                      "response": {"usage": {"input_tokens": 3}}}),
+            "negative count": sse(delta("a"), completed(3, -1)),
+            "non-integer count": sse(delta("a"), completed("3", 1)),
+            "boolean count": sse(delta("a"), completed(True, 1)),
+            "not JSON": sse(delta("a"), "{not json"),
+            "delta not text": sse({"type": "response.output_text.delta", "delta": 5}),
+        }
+        for name, body in bodies.items():
+            with self.subTest(name):
+                attempt, results = self.outcome(body)
+                self.assertEqual(attempt["outcome"], "invalid_response")
+                self.assertIsNone(attempt["input_tokens"])
+                self.assertIsNone(attempt["output_tokens"])
+                self.assertEqual(results, [])
+
+
+class FailureMappingTest(unittest.TestCase):
+    def outcome(self, **kwargs):
+        provider, _ = provider_with(**kwargs)
+        attempt, results = measure_request(provider, "hi", 64)
+        self.assertEqual(results, [])
+        return attempt["outcome"]
+
+    def test_http_status_codes(self):
+        for status, category in [(429, "rate_limited"), (500, "provider_error"),
+                                 (502, "provider_error"), (503, "provider_error"),
+                                 (408, "timeout"), (504, "timeout")]:
+            with self.subTest(status=status):
+                self.assertEqual(self.outcome(error=http_error(status)), category)
+
+    def test_connection_and_timeout_errors(self):
+        cases = [
+            (urllib.error.URLError("dns failure"), "transport_error"),
+            (ConnectionRefusedError(), "transport_error"),
+            (TimeoutError(), "timeout"),
+            (socket.timeout(), "timeout"),
+        ]
+        for error, category in cases:
+            with self.subTest(error=type(error).__name__):
+                self.assertEqual(self.outcome(error=error), category)
+
+    def test_failures_while_streaming(self):
+        body = sse(delta("a"), delta("b"), completed())
+        for error, category in [(TimeoutError(), "timeout"), (ConnectionResetError(), "transport_error")]:
+            with self.subTest(error=type(error).__name__):
+                response = FakeResponse(body, fail_on_line=4, error=error)
+                self.assertEqual(self.outcome(response=response), category)
+
+    def test_error_events(self):
+        cases = [
+            ({"type": "response.failed", "response": {}}, "provider_error"),
+            ({"type": "error", "code": "rate_limit_exceeded"}, "rate_limited"),
+            ({"type": "error", "code": "server_error"}, "provider_error"),
+            ({"type": "response.incomplete",
+              "response": {"incomplete_details": {"reason": "content_filter"}}}, "provider_error"),
+        ]
+        for event, category in cases:
+            with self.subTest(event=event):
+                self.assertEqual(self.outcome(response=FakeResponse(sse(delta("a"), event))), category)
+
+    def test_our_own_request_errors_are_not_provider_failures(self):
+        for status in (400, 401, 403, 404):
+            with self.subTest(status=status):
+                provider, _ = provider_with(error=http_error(status))
+                with self.assertRaises(RequestRejected):
+                    measure_request(provider, "hi", 64)
+
+    def test_programming_errors_are_not_mislabelled(self):
+        provider, _ = provider_with(error=KeyError("bug"))
+        with self.assertRaises(KeyError):
+            measure_request(provider, "hi", 64)
+
+
+class SecretHandlingTest(unittest.TestCase):
+    def test_key_is_not_shown_or_stored(self):
+        provider, _ = provider_with(response=FakeResponse(sse(delta("Hello"), delta(" there"), completed())))
+        self.assertNotIn(FAKE_KEY, repr(provider))
+        self.assertNotIn(FAKE_KEY, str(RequestRejected(401)))
+        self.assertNotIn(FAKE_KEY, str(ProviderFailure("timeout")))
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "x.db"
+            request, results, request_id = run_attempt(provider, "secret prompt", 64, "prod", db_path)
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                print_summary(request, results, request_id, db_path, simulated=False)
+            stored = db_path.read_bytes()
+        printed = out.getvalue()
+        for secret in (FAKE_KEY, "secret prompt", "Hello there"):
+            self.assertNotIn(secret, printed)
+            self.assertNotIn(secret.encode(), stored)
+        self.assertIn("Outcome: success", printed)
+
+    def test_empty_key_is_refused(self):
+        with self.assertRaises(ValueError):
+            OpenAIProvider("")
+
+
+class PricingTest(unittest.TestCase):
+    def test_openai_price_and_cost(self):
+        price = price_for("openai", "gpt-6-luna")
+        self.assertEqual(price, Price(input_per_1m=0.10, output_per_1m=0.50))
+        cost = request_cost(20, 15, price)  # 20 * 0.10 / 1e6 + 15 * 0.50 / 1e6
+        self.assertAlmostEqual(cost["input_cost"], 0.000002, places=15)
+        self.assertAlmostEqual(cost["output_cost"], 0.0000075, places=15)
+        self.assertAlmostEqual(cost["total_cost"], 0.0000095, places=15)
+
+    def test_price_provenance_is_recorded_and_flagged_unverified(self):
+        source, verified_on = PRICE_PROVENANCE[("openai", "gpt-6-luna")]
+        self.assertIn("openai.com", source)
+        self.assertIsNone(verified_on)  # not yet verified against the official page
+
+
+def no_network(test):
+    """Decorator: any attempt to open a socket or URL fails the test."""
+    def blocked(*args, **kwargs):
+        raise AssertionError("network access attempted")
+    test = mock.patch("socket.socket.connect", blocked)(test)
+    test = mock.patch("urllib.request.urlopen", blocked)(test)
+    return test
+
+
+class RealSmokeCommandTest(unittest.TestCase):
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.db_path = Path(tmp.name) / "x.db"
+
+    def run_main(self, env, opener=None):
+        out, err = io.StringIO(), io.StringIO()
+        patches = [mock.patch.dict(os.environ, {"LLM_METRICS_DB_PATH": str(self.db_path), **env})]
+        if opener is not None:
+            real_init = OpenAIProvider.__init__
+
+            def init(provider, api_key, model="gpt-6-luna", opener_=None):
+                real_init(provider, api_key, model=model, opener=opener)
+            patches.append(mock.patch.object(OpenAIProvider, "__init__", init))
+        with contextlib.ExitStack() as stack:
+            for p in patches:
+                stack.enter_context(p)
+            stack.enter_context(contextlib.redirect_stdout(out))
+            stack.enter_context(contextlib.redirect_stderr(err))
+            code = real_smoke.main()
+        return code, out.getvalue(), err.getvalue()
+
+    @no_network
+    def test_refuses_without_credentials_and_makes_no_request(self):
+        with mock.patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("OPENAI_API_KEY", None)
+            code, out, err = self.run_main({})
+        self.assertEqual(code, 2)
+        self.assertIn("OPENAI_API_KEY is not set. No request was made.", err)
+        self.assertFalse(self.db_path.exists())
+
+    def test_refuses_without_credentials_as_a_process(self):
+        env = {k: v for k, v in os.environ.items() if k != "OPENAI_API_KEY"}
+        env["LLM_METRICS_DB_PATH"] = str(self.db_path)
+        proc = subprocess.run([sys.executable, "-m", "llm_metrics.real_smoke"], cwd=REPO_ROOT,
+                              env=env, capture_output=True, text=True, timeout=30)
+        self.assertEqual(proc.returncode, 2)
+        self.assertIn("No request was made", proc.stderr)
+        self.assertFalse(self.db_path.exists())
+
+    def test_one_call_recorded_as_real_data_with_summary(self):
+        opener = FakeOpener(response=FakeResponse(sse(delta("Hi"), delta(" there"), completed(20, 15))))
+        code, out, _ = self.run_main({"OPENAI_API_KEY": FAKE_KEY}, opener)
+        self.assertEqual(code, 0)
+        self.assertEqual(len(opener.calls), 1)
+        self.assertIn("exactly ONE paid API request: provider openai, model gpt-6-luna, "
+                      "max output tokens 64", out)
+        self.assertIn("not yet verified", out)
+        for line in ("Outcome: success", "Input tokens: 20", "Output tokens: 15 of max 64",
+                     "Cost: $0.000010 (input $0.000002 + output $0.000008)",
+                     "Rates: $0.10 input / $0.50 output per 1M tokens"):
+            self.assertIn(line, out)
+        self.assertNotIn("(simulated)", out)
+        self.assertNotIn(FAKE_KEY, out)
+        self.assertNotIn(real_smoke.PROMPT, out)
+        from llm_metrics.storage import load_recent_requests
+        [stored] = load_recent_requests(self.db_path, "prod", 20)
+        self.assertEqual((stored["provider"], stored["model"], stored["environment"]),
+                         ("openai", "gpt-6-luna", "prod"))
+        self.assertAlmostEqual(stored["total_cost"], 0.0000095, places=15)
+        self.assertEqual(load_recent_requests(self.db_path, "test", 20), [])
+
+    def test_rejected_request_is_not_recorded(self):
+        opener = FakeOpener(error=http_error(401))
+        code, _, err = self.run_main({"OPENAI_API_KEY": FAKE_KEY}, opener)
+        self.assertEqual(code, 2)
+        self.assertIn("HTTP 401", err)
+        self.assertIn("Nothing was recorded", err)
+        self.assertNotIn(FAKE_KEY, err)
+        from llm_metrics.storage import load_recent_requests
+        self.assertEqual(load_recent_requests(self.db_path, "prod", 20), [])
+
+
+class SimulatedPathsStayOfflineTest(unittest.TestCase):
+    @no_network
+    def test_simulated_cli_makes_no_network_calls(self):
+        from llm_metrics import __main__ as cli
+        with tempfile.TemporaryDirectory() as tmp, \
+                mock.patch.dict(os.environ, {"LLM_METRICS_DB_PATH": str(Path(tmp) / "x.db"),
+                                             "APP_ENV": "test"}), \
+                contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(cli.main(), 0)
+
+    def test_importing_modules_makes_no_network_calls(self):
+        # Fresh process with sockets disabled before any llm_metrics import.
+        code = (
+            "import socket\n"
+            "def blocked(*a, **k): raise AssertionError('network access attempted')\n"
+            "socket.socket.connect = blocked\n"
+            "socket.create_connection = blocked\n"
+            "import llm_metrics.openai_provider, llm_metrics.real_smoke\n"
+            "import llm_metrics.dashboard, llm_metrics.storage, llm_metrics.__main__\n"
+        )
+        proc = subprocess.run([sys.executable, "-c", code], cwd=REPO_ROOT,
+                              capture_output=True, text=True, timeout=30)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+
+
+if __name__ == "__main__":
+    unittest.main()

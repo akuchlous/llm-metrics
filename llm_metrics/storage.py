@@ -322,3 +322,34 @@ def count_outcomes(
             " GROUP BY outcome",
             (environment, provider, model, format_timestamp(start), format_timestamp(end)),
         ).fetchall())
+
+
+def spend_by_model(
+    db_path: Path, environment: str, *, start: datetime, end: datetime
+) -> list[dict]:
+    """Benchmark API spend per provider/model for attempts with
+    start <= recorded_at <= end (inclusive), most expensive first.
+
+    Each row: provider, model, attempts, successful_calls, failed_attempts,
+    input_tokens, output_tokens, total_cost. Tokens and cost are summed over
+    successful attempts only (their known, stored values); failed attempts have
+    unknown cost and are only counted, never added as $0. total_cost is None
+    when the group has no successful attempt. Computed at query time from the
+    request rows, which stay the source of truth.
+    """
+    with closing(connect(db_path)) as conn:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            "SELECT provider, model, COUNT(*) AS attempts,"
+            " SUM(outcome = 'success') AS successful_calls,"
+            " SUM(outcome <> 'success') AS failed_attempts,"
+            " SUM(CASE WHEN outcome = 'success' THEN input_tokens END) AS input_tokens,"
+            " SUM(CASE WHEN outcome = 'success' THEN output_tokens END) AS output_tokens,"
+            " SUM(CASE WHEN outcome = 'success' THEN total_cost END) AS total_cost"
+            " FROM requests"
+            " WHERE environment = ? AND recorded_at >= ? AND recorded_at <= ?"
+            " GROUP BY provider, model"
+            " ORDER BY total_cost IS NULL, total_cost DESC, provider, model",
+            (environment, format_timestamp(start), format_timestamp(end)),
+        ).fetchall()
+    return [dict(row) for row in rows]

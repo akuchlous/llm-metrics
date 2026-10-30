@@ -38,6 +38,7 @@ At the end of every step, save Claude's concise implementation report as `prompt
 
 - what changed;
 - tests/run result;
+- **choices made**: every decision taken during the step, both the questions asked before implementing (options offered and the answer) and the choices made during implementation (with the reason);
 - design decisions and tradeoffs;
 - known limitations or review questions.
 

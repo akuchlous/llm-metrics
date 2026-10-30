@@ -8,8 +8,13 @@ benchmark success rate of all attempts and one metric (default ttft) over
 successful attempts as percentiles and a line chart. Any other, empty, or
 repeated value is rejected with HTTP 400.
 
-GET /requests lists the most recent individual benchmark attempts with their
-outcome, token counts, latency, throughput, and cost.
+GET /requests?data=simulated|real lists the most recent individual benchmark
+attempts (default simulated) with their outcome, token counts, latency,
+throughput, and cost.
+
+GET /spend?window=24h|7d|30d shows Benchmark API Spend: the known API token
+cost of llm-metrics' own real benchmark requests, per provider and model
+(default window 30d).
 
 Uses only the standard library. Binds to 127.0.0.1 so it is not reachable from
 other machines. Shows only simulated test observations from the dummy provider.
@@ -28,7 +33,12 @@ from llm_metrics.latency import METRICS
 from llm_metrics.percentiles import percentile
 from llm_metrics.providers import DummyProvider
 from llm_metrics.outcomes import FAILURE_CATEGORIES, SUCCESS, success_rate
-from llm_metrics.storage import count_outcomes, load_observations, load_recent_requests
+from llm_metrics.storage import (
+    count_outcomes,
+    load_observations,
+    load_recent_requests,
+    spend_by_model,
+)
 
 HOST = "127.0.0.1"
 
@@ -52,6 +62,14 @@ WINDOWS = {
 DEFAULT_WINDOW = "7d"
 
 RECENT_REQUESTS = 20  # rows on the /requests page
+
+# Data populations: query value -> stored environment. Simulated (dummy) and
+# real provider data are never shown on the same page.
+DATA = {"simulated": "test", "real": "prod"}
+DEFAULT_DATA = "simulated"
+
+# Spend accumulates slowly, so its default window is the longest one.
+SPEND_DEFAULT_WINDOW = "30d"
 
 # Chart geometry in SVG units (the SVG scales to the page width).
 WIDTH, HEIGHT = 800, 300
@@ -82,31 +100,44 @@ PAGE = """<!doctype html>
   .primary {{ font-weight: 700; }}
   .failed {{ color: #b91c1c; font-weight: 700; }}
   .reliability {{ border: 1px solid #ddd; padding: .2rem 1rem .6rem; margin: 1rem 0; }}
+  .label.real {{ background: #1d4ed8; }}
+  tr.total td {{ font-weight: 700; border-top: 2px solid #999; }}
 </style>
 </head>
 <body>
 <h1>llm-metrics</h1>
 {views}
-<p class="label">TEST / SIMULATED DATA</p>
-<p>Provider: <b>{provider}</b> · Model: <b>{model}</b></p>
-<p class="muted">Simulated observations from the dummy provider. Not real LLM performance.</p>
+{data_header}
 {body}
 </body>
 </html>
 """
 
 
-VIEWS = {"/": "Aggregate", "/requests": "Recent requests"}
+VIEWS = {"/": "Aggregate", "/requests": "Recent requests", "/spend": "Benchmark API Spend"}
+
+SIMULATED_HEADER = (
+    '<p class="label">TEST / SIMULATED DATA</p>\n'
+    f"<p>Provider: <b>{escape(PROVIDER)}</b> · Model: <b>{escape(MODEL)}</b></p>\n"
+    '<p class="muted">Simulated observations from the dummy provider. Not real LLM performance.</p>'
+)
+REAL_HEADER = (
+    '<p class="label real">REAL PROVIDER DATA</p>\n'
+    '<p class="muted">Real API calls made by llm-metrics\' own benchmark runner. Never mixed'
+    " with simulated data.</p>"
+)
 
 
-def _page(body: str, view: str | None) -> str:
-    """Wrap a page body in the shared layout. `view` is the current path, if any."""
+def _page(body: str, view: str | None, real: bool = False) -> str:
+    """Wrap a page body in the shared layout. `view` is the current path, if any;
+    `real` selects the real-provider data label instead of the simulated one."""
     links = []
     for path, name in VIEWS.items():
         current = ' aria-current="page"' if path == view else ""
         links.append(f'<a href="{path}"{current}>{name}</a>')
     views = f'<nav class="views" aria-label="View">{"".join(links)}</nav>'
-    return PAGE.format(provider=escape(PROVIDER), model=escape(MODEL), views=views, body=body)
+    data_header = REAL_HEADER if real else SIMULATED_HEADER
+    return PAGE.format(views=views, data_header=data_header, body=body)
 
 
 def _parse_time(recorded_at: str) -> datetime:
@@ -264,14 +295,16 @@ def render_page(
 
 
 def render_invalid_query_page() -> str:
-    """Page for an invalid window or metric. The bad value is not echoed back."""
+    """Page for an invalid query value. The bad value is not echoed back."""
     body = (
         _nav(None, None)
-        + "\n<p><b>Invalid window or metric.</b> Windows: "
+        + "\n<p><b>Invalid window or metric</b> (or data) value. Windows: "
         + ", ".join(WINDOWS)
-        + f" (default {DEFAULT_WINDOW}). Metrics: "
+        + f" (default {DEFAULT_WINDOW}; {SPEND_DEFAULT_WINDOW} on Benchmark API Spend). Metrics: "
         + ", ".join(METRICS)
-        + f" (default {DEFAULT_METRIC}).</p>"
+        + f" (default {DEFAULT_METRIC}). Data on Recent requests: "
+        + ", ".join(DATA)
+        + f" (default {DEFAULT_DATA}).</p>"
     )
     return _page(body, None)
 
@@ -290,23 +323,47 @@ def _number(value: float | None, spec: str) -> str:
     return "—" if value is None else format(value, spec)
 
 
-def render_requests_page(requests: list[dict]) -> str:
-    """Table of individual requests (newest first), as from load_recent_requests."""
+def _data_nav(selected: str | None) -> str:
+    links = []
+    for name in DATA:
+        current = ' aria-current="page"' if name == selected else ""
+        links.append(f'<a href="/requests?data={name}"{current}>{name}</a>')
+    return f'<nav aria-label="Data">Data: {"".join(links)}</nav>\n'
+
+
+def parse_requests_query(query: str) -> str:
+    """Return the data population ("simulated" or "real") from a /requests query
+    string. Raises ValueError for an unknown, empty, or repeated value."""
+    return _parse_choice(parse_qs(query, keep_blank_values=True), "data", DATA, DEFAULT_DATA)
+
+
+def render_requests_page(requests: list[dict], data: str = DEFAULT_DATA) -> str:
+    """Table of individual requests (newest first) of one data population."""
+    real = data == "real"
+    if real:
+        accounting = (
+            " Token counts are reported by the provider; costs use the rates stored with"
+            " each request (USD)."
+        )
+        empty = ("No real benchmark attempts yet. Run <code>python -m llm_metrics.real_smoke</code>"
+                 " (one paid request).")
+    else:
+        accounting = (
+            " Token counts use a <b>simulated</b> tokenizer and costs use <b>simulated</b>"
+            " prices (USD); they do not match any real provider."
+        )
+        empty = ("No benchmark attempts yet. Run <code>./run.sh</code> to record one."
+                 " (Observations recorded before Step 010 have no request details.)")
     intro = (
-        f"<h2>Recent requests</h2>\n<p class=\"muted\">The {RECENT_REQUESTS} most recent benchmark"
-        " attempts, successful or failed. Token counts use a <b>simulated</b> tokenizer and"
-        " costs use <b>simulated</b> prices (USD); they do not match any real provider. Total"
+        f"<h2>Recent requests</h2>\n{_data_nav(data)}<p class=\"muted\">The {RECENT_REQUESTS}"
+        f" most recent benchmark attempts, successful or failed.{accounting} Total"
         " latency is a successful request's response time; TTFT is shown for streaming"
         " diagnostics. Throughput counts stream chunks, not tokens. For failed attempts,"
         " tokens, cost, and performance are unknown (—); <i>Failed after</i> is the time"
         " until the failure was detected.</p>\n"
     )
     if not requests:
-        return _page(
-            intro + "<p><b>No benchmark attempts yet.</b> Run <code>./run.sh</code> to record one."
-            " (Observations recorded before Step 010 have no request details.)</p>",
-            "/requests",
-        )
+        return _page(intro + f"<p><b>{empty}</b></p>", "/requests", real)
     # Most important first (time, latency, tokens, total cost); the table scrolls
     # sideways on narrow screens.
     header = (
@@ -343,15 +400,103 @@ def render_requests_page(requests: list[dict]) -> str:
             "</tr>"
         )
     table = f'<div class="table-wrap"><table>{header}{"".join(rows)}</table></div>'
-    return _page(intro + table, "/requests")
+    return _page(intro + table, "/requests", real)
+
+
+def parse_spend_query(query: str) -> str:
+    """Return the window for /spend (default SPEND_DEFAULT_WINDOW). Raises
+    ValueError for an unknown, empty, or repeated value."""
+    return _parse_choice(parse_qs(query, keep_blank_values=True), "window", WINDOWS,
+                         SPEND_DEFAULT_WINDOW)
+
+
+def _money(value: float | None) -> str:
+    return "unknown" if value is None else f"${value:.6f}"
+
+
+def render_spend_page(rows: list[dict], window: str, start: datetime, end: datetime) -> str:
+    """Benchmark API Spend for one window, from spend_by_model rows (real data only)."""
+    links = []
+    for name in WINDOWS:
+        current = ' aria-current="page"' if name == window else ""
+        links.append(f'<a href="/spend?window={name}"{current}>{name}</a>')
+    intro = (
+        "<h2>Benchmark API Spend</h2>\n"
+        f'<nav aria-label="Time window">Window: {"".join(links)}</nav>\n'
+        f'<p class="muted">Window {window}: {start:%Y-%m-%d %H:%M} UTC to'
+        f" {end:%Y-%m-%d %H:%M} UTC (now), inclusive.</p>\n"
+        "<p>This is <b>the API token cost incurred by llm-metrics to run its own benchmark"
+        " requests</b>, from the token counts each provider reported and the rates stored"
+        " with each request (USD). It is <b>not</b> the provider's revenue, not what every"
+        " user pays, not hosting or infrastructure cost, and not a workload-independent"
+        " price comparison. Only real provider requests are included; simulated data never"
+        " is.</p>\n"
+        '<p class="muted">Spend counts successful calls only. A failed attempt\'s cost is'
+        " unknown (a provider may still have billed part of it), so it is counted under"
+        " <i>Failed attempts</i>, never added as $0.</p>\n"
+    )
+    if not rows:
+        return _page(
+            intro + f"<p><b>No real benchmark attempts in the selected window ({window}).</b></p>",
+            "/spend", real=True,
+        )
+    header = (
+        "<tr><th>Provider</th><th>Model</th><th>Successful paid calls</th>"
+        "<th>Input tokens</th><th>Output tokens</th><th>Total cost</th>"
+        "<th>Failed attempts (cost unknown)</th></tr>"
+    )
+    body = []
+    for r in rows:
+        body.append(
+            "<tr>"
+            f"<td>{escape(r['provider'])}</td><td>{escape(r['model'])}</td>"
+            f"<td>{r['successful_calls']}</td>"
+            f"<td>{_number(r['input_tokens'], 'd')}</td>"
+            f"<td>{_number(r['output_tokens'], 'd')}</td>"
+            f"<td class=\"primary\">{_money(r['total_cost'])}</td>"
+            f"<td>{r['failed_attempts']}</td>"
+            "</tr>"
+        )
+    known = [r["total_cost"] for r in rows if r["total_cost"] is not None]
+    total = (
+        '<tr class="total"><td>All providers</td><td></td>'
+        f"<td>{sum(r['successful_calls'] for r in rows)}</td>"
+        f"<td>{sum(r['input_tokens'] or 0 for r in rows)}</td>"
+        f"<td>{sum(r['output_tokens'] or 0 for r in rows)}</td>"
+        f"<td>{_money(sum(known) if known else None)}</td>"
+        f"<td>{sum(r['failed_attempts'] for r in rows)}</td>"
+        "</tr>"
+    )
+    table = f'<div class="table-wrap"><table>{header}{"".join(body)}{total}</table></div>'
+    return _page(intro + table, "/spend", real=True)
+
+
+def build_spend_page(db_path: Path, window: str, now: datetime) -> str:
+    start, end = window_bounds(window, now)
+    rows = spend_by_model(db_path, DATA["real"], start=start, end=end)
+    return render_spend_page(rows, window, start, end)
 
 
 class _Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         url = urlsplit(self.path)
         if url.path == "/requests":
-            requests = load_recent_requests(self.server.db_path, ENVIRONMENT, RECENT_REQUESTS)
-            self._send_html(200, render_requests_page(requests))
+            try:
+                data = parse_requests_query(url.query)
+            except ValueError:
+                self._send_html(400, render_invalid_query_page())
+                return
+            requests = load_recent_requests(self.server.db_path, DATA[data], RECENT_REQUESTS)
+            self._send_html(200, render_requests_page(requests, data))
+            return
+        if url.path == "/spend":
+            try:
+                window = parse_spend_query(url.query)
+            except ValueError:
+                self._send_html(400, render_invalid_query_page())
+                return
+            now = datetime.now(timezone.utc)
+            self._send_html(200, build_spend_page(self.server.db_path, window, now))
             return
         if url.path != "/":
             self.send_error(404)

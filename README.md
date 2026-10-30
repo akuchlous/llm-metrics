@@ -3,11 +3,14 @@
 An open-source project to independently measure LLM provider performance
 (time to first token, throughput, latency, reliability, price).
 
-It is being built in small, tested steps. **Current step: 011.**
+It is being built in small, tested steps. **Current step: 012.**
 
-> **Simulated data only.** The current implementation uses a dummy provider that
-> sleeps for a fixed time and then emits fake tokens. Its numbers do **not**
-> represent real LLM performance. No real LLM provider is called.
+> **Simulated by default.** `./run.sh` and everything it starts use a dummy
+> provider that sleeps for a fixed time and emits fake tokens; its numbers do
+> **not** represent real LLM performance and it never calls a real API. One
+> real provider (OpenAI `gpt-6-luna`) can be called **only** by explicitly running
+> `python -m llm_metrics.real_smoke` with an API key: see
+> [Real provider (one paid request)](#real-provider-one-paid-request).
 
 ## What it measures (so far)
 
@@ -97,8 +100,9 @@ If any test fails, the test output is shown and nothing else runs.
 
 ## Dashboard
 
-Open the printed URL in a browser. There are two views, both labelled
-**TEST / SIMULATED DATA**:
+Open the printed URL in a browser. Every page is labelled with its data:
+**TEST / SIMULATED DATA** (orange) or **REAL PROVIDER DATA** (blue). The two
+are never mixed on one page.
 
 - **Aggregate** (`/`): links to choose a metric (**Total latency**, **TTFT**, or
   **Output throughput**; default TTFT) and a time window (**24h**, **7d**,
@@ -108,12 +112,20 @@ Open the printed URL in a browser. There are two views, both labelled
   provider's overall uptime. Below it, for the selected metric and **successful
   attempts only**: the observation count, the latest value, p50/p95/p99, and a
   line chart over time, all in that metric's unit (ms or chunks/s).
-- **Recent requests** (`/requests`): the 20 most recent attempts, newest first,
+- **Recent requests** (`/requests?data=simulated|real`, default simulated): the
+  20 most recent attempts of that data, newest first,
   with time, attempt id, outcome (success or FAILED with its category), total
   latency, TTFT, chunk throughput, input/output/max tokens, total/input/output
   cost, and, for failures, the time until the failure. Unknown values show as
   "—". Measurements recorded before Step 010 have no attempt details and are
   not listed.
+- **Benchmark API Spend** (`/spend`, real data only): for a time window (default
+  **30d**), per provider and model: successful paid calls, input and output
+  tokens, and total cost; failed attempts are counted with their cost
+  **unknown** (never $0); plus a grand total. This is the API token cost
+  incurred by llm-metrics to run its own benchmark requests, **not** the
+  provider's revenue, what every user pays, hosting or infrastructure cost, or a
+  workload-independent price comparison.
 
 Windows end at the current UTC time: `/?window=24h&metric=total_latency` shows
 total-latency observations with `now − 24h <= recorded_at <= now` (both ends
@@ -208,7 +220,39 @@ Tests never touch this file; they use temporary databases. Setting
 | `APP_ENV`       | Behavior                                                  |
 |-----------------|-----------------------------------------------------------|
 | `test` (default)| Uses the dummy provider. Never calls a real LLM.          |
-| `prod`          | Not supported yet. Exits with an error and measures nothing. |
+| `prod`          | `./run.sh` / `python -m llm_metrics` refuse and measure nothing (no implicit spend). |
 | anything else   | Exits with an error.                                      |
+
+Stored data uses `environment = 'test'` for simulated attempts and
+`environment = 'prod'` for real-provider attempts (written only by
+`real_smoke`).
+
+## Real provider (one paid request)
+
+The only code that calls a paid API, and only when you run it:
+
+```bash
+export OPENAI_API_KEY=...    # your key; never commit it or put it in a file in this repo
+python3 -m llm_metrics.real_smoke
+```
+
+It prints what it is about to do, then makes **exactly one** OpenAI Responses API
+call (`gpt-6-luna`, a fixed harmless one-sentence prompt, `max_output_tokens` 64,
+streaming, no tools, `store: false`, no retries), saves the attempt as real data,
+and prints the outcome, tokens, latencies, throughput, cost, and the rates used.
+It never prints the key, the prompt, or the response. Without `OPENAI_API_KEY`
+it refuses and makes no request.
+
+Token counts come from OpenAI's reported usage. Cost uses the standard-tier
+price in `llm_metrics/pricing.py`: **$0.10 per 1M input tokens and $0.50 per
+1M output tokens** (source: https://openai.com/api/pricing/). **This price is not
+yet verified against the official page** (it could not be reached when it was
+added on 2026-10-30); check it before trusting cost figures. A typical smoke
+call costs a few millionths of a dollar.
+
+Errors are recorded as failed attempts with a category (timeout, rate limited,
+provider/server error, network/transport error, invalid response). Request or
+configuration errors (bad key, no access to the model, bad parameters) are
+reported and **not** recorded.
 
 Never commit secrets. `.env` is git-ignored.

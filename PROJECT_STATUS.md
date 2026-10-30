@@ -1,22 +1,25 @@
 # Project status
 
-_Last updated: Step 011 — 2026-10-30_
+_Last updated: Step 012 — 2026-10-30_
 
 ## Current state
 
-**Step 011 complete:** every benchmark attempt is persisted with an outcome (`success` or a stable failure category); failed attempts keep unknown facts as NULL and add no metric values; the aggregate view shows the observed benchmark success rate with failures by category, and `/requests` shows outcomes. Schema version 3.
+**Step 012 complete:** first real provider (OpenAI `gpt-6-luna`, Responses API, standard library only) behind the existing boundary, callable only via `python -m llm_metrics.real_smoke` (one paid call, key from `OPENAI_API_KEY`, stored as `prod`); Benchmark API Spend page; real and simulated data labelled and separated. **The real smoke call has not been run yet** (no key and OpenAI hosts blocked in the implementation environment), and the gpt-6-luna price ($0.10 / $0.50 per 1M) is **not yet verified** against the official page.
 
 Working:
 - `./run.sh` creates/reuses `.venv`, runs tests, seeds simulated TTFT history (test only, idempotent), makes one benchmark attempt (outcome, tokens, total latency, TTFT, throughput, cost), then serves the dashboard at `http://127.0.0.1:8000/` until Ctrl+C.
-- `APP_ENV=test` is the safe default; `prod` refuses to run.
+- `APP_ENV=test` is the safe default; `APP_ENV=prod ./run.sh` refuses to run (no implicit spend).
+- `python -m llm_metrics.real_smoke`: exactly one real OpenAI `gpt-6-luna` request (requires `OPENAI_API_KEY`; refuses without it), stored with `environment = 'prod'`.
 - Each run saves one `requests` row (attempt) with its `outcome`. Success: tokens, max output tokens, prices, costs, and up to three linked observations (`total_latency`, `ttft`, `output_chunks_per_s`), in one transaction. Failure: category, `failed_after_ms`, prices and cap; tokens/costs NULL (unknown); no observations.
 - `python3 -m llm_metrics.seed_history` adds 168 hourly simulated TTFT rows (2026-10-23 00:00 to 2026-10-29 23:00 UTC); re-running adds nothing.
 - Dashboard (`python -m llm_metrics.dashboard`, `/?window=24h|7d|30d&metric=total_latency|ttft|output_chunks_per_s`): `TEST / SIMULATED DATA` label, metric and window links, observed benchmark success rate over all attempts in the window (count, rate, failures by category; no attempts → no rate), then for successful attempts only: latest value, nearest-rank p50/p95/p99 with `n` (in the metric's unit), and an SVG chart spanning the window, all from the same `test`/dummy/<metric> rows with `now − window <= recorded_at <= now`. Invalid or repeated `window`/`metric` → HTTP 400. Standard library only; no JavaScript.
 - Recent requests view (`/requests`): the 20 most recent `test` attempts with outcome (FAILED + category), tokens, total latency (primary), TTFT, chunk throughput, costs, and failed-after time; unknown values shown as "—"; labelled simulated.
-- 116 standard-library `unittest` tests (pass on Python 3.11 and 3.13).
-- No network calls, secrets, or third-party dependencies.
+- Benchmark API Spend (`/spend?window=`, default 30d, real data only): per provider/model successful paid calls, tokens, known total cost, failed attempts (cost unknown), and a grand total.
+- Pages are labelled TEST / SIMULATED DATA or REAL PROVIDER DATA; `/requests?data=simulated|real` switches population.
+- 147 standard-library `unittest` tests (pass on Python 3.11 and 3.13); none touch the network.
+- No third-party dependencies. Network and secrets are used only by `real_smoke`.
 
-Current data is **simulated** and does not represent real LLM performance.
+Data from `./run.sh` is **simulated** and does not represent real LLM performance. Real data exists only after `real_smoke` is run.
 
 ## Run
 
@@ -41,11 +44,14 @@ run.sh             venv -> tests -> seed (test) -> measurement -> dashboard
 llm_metrics/
   outcomes.py      outcome/failure categories + success_rate
   providers.py     provider interface (text chunks + final Usage, ProviderFailure); DummyProvider with simulated tokenizer, output cap, deterministic failures
+  openai_provider.py  OpenAI Responses API adapter (urllib, SSE → chunks + Usage, error mapping)
+  benchmark.py     run_attempt (price, measure, save) + print_summary, shared by CLI and real_smoke
+  real_smoke.py    explicit one-paid-request command
   latency.py       METRICS catalogue (label, unit); measure_request: outcome + token facts + metrics in one pass
-  pricing.py       all prices (USD per 1M tokens) + request_cost
-  storage.py       SQLite init + transactional versioned upgrade; save_request; time-window reads; request reads; count_outcomes
+  pricing.py       all prices (USD per 1M tokens) + PRICE_PROVENANCE + request_cost
+  storage.py       SQLite init + transactional versioned upgrade; save_request; time-window reads; request reads; count_outcomes; spend_by_model
   seed_history.py  deterministic simulated TTFT history + seed command
-  dashboard.py     aggregate view (/) + recent requests (/requests); http.server on 127.0.0.1
+  dashboard.py     aggregate (/), recent requests (/requests), Benchmark API Spend (/spend); http.server on 127.0.0.1
   percentiles.py   nearest-rank percentile (no HTML)
   config.py        environment, DB path, dashboard port
   __main__.py      CLI
@@ -66,6 +72,8 @@ A unique index on observations (`recorded_at`, `environment`, `provider`, `model
 
 ## Known limitations
 
+- Real provider: one model only; price unverified against the official page; smoke call not yet run; `real_smoke` uses a fixed prompt and cap 64. If `gpt-6-luna` spends output tokens on reasoning, 64 may be reached before visible text (recorded honestly, possibly as `invalid_response` if no text arrives).
+- Spend covers successful calls' known costs; providers may bill some failed calls, which stay unknown. Cached-input or reasoning-token price differences are not modelled (all input at the standard rate; reasoning tokens are included in OpenAI's output count).
 - Simulated provider only; one request per run, with a fixed prompt and `MAX_OUTPUT_TOKENS = 64`.
 - Token counts come from a simulated tokenizer (1 token per 4 characters) and prices are simulated; neither matches a real provider.
 - No token throughput (`output_tokens_per_s`): the provider gives no per-token timing.

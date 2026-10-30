@@ -17,6 +17,7 @@ from llm_metrics.storage import (
     load_recent_requests,
     load_request,
     save_request,
+    spend_by_model,
 )
 
 DUMMY = {"provider": "dummy", "model": "dummy-model-v1"}
@@ -239,6 +240,67 @@ class StorageTest(unittest.TestCase):
                                [{**RESULTS[0], "provider": hostile}])
         self.assertEqual(load_request(self.db_path, request_id)["provider"], hostile)
         self.assertEqual(read_rows(self.db_path)[0]["provider"], hostile)
+
+
+def real_request(model="gpt-6-luna", provider="openai", input_tokens=20, output_tokens=15, **overrides):
+    price = {"input_price_per_1m": 0.10, "output_price_per_1m": 0.50}
+    cost = request_cost(input_tokens, output_tokens, pricing.Price(0.10, 0.50))
+    return {**DUMMY, "provider": provider, "model": model, "outcome": "success",
+            "input_tokens": input_tokens, "requested_max_output_tokens": 64,
+            "output_tokens": output_tokens, **price, **cost, "failed_after_ms": None, **overrides}
+
+
+def real_failure(model="gpt-6-luna", provider="openai", category="timeout"):
+    return real_request(model, provider, outcome=category, input_cost=None, output_cost=None,
+                        total_cost=None, failed_after_ms=9.0) | {"input_tokens": None, "output_tokens": None}
+
+
+class SpendTest(unittest.TestCase):
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.db_path = Path(tmp.name) / "x.db"
+
+    def save(self, request, environment="prod"):
+        save_request(self.db_path, request, [], environment)
+
+    def spend(self, environment="prod", minutes=1):
+        now = datetime.now(timezone.utc)
+        return spend_by_model(self.db_path, environment,
+                              start=now - timedelta(minutes=minutes), end=now)
+
+    def test_grouped_by_provider_and_model_from_stored_costs(self):
+        self.save(real_request(input_tokens=20, output_tokens=15))   # 9.5e-6
+        self.save(real_request(input_tokens=40, output_tokens=30))   # 1.9e-5
+        self.save(real_request(model="other-model", input_tokens=10, output_tokens=10))  # 6e-6
+        self.save(real_failure())
+        rows = {(r["provider"], r["model"]): r for r in self.spend()}
+        luna = rows[("openai", "gpt-6-luna")]
+        self.assertEqual((luna["attempts"], luna["successful_calls"], luna["failed_attempts"]), (3, 2, 1))
+        self.assertEqual((luna["input_tokens"], luna["output_tokens"]), (60, 45))
+        self.assertAlmostEqual(luna["total_cost"], 0.0000285, places=15)
+        self.assertAlmostEqual(rows[("openai", "other-model")]["total_cost"], 0.000006, places=15)
+        self.assertEqual([r["model"] for r in self.spend()], ["gpt-6-luna", "other-model"])  # costliest first
+
+    def test_failure_only_group_has_unknown_cost_not_zero(self):
+        self.save(real_failure(model="flaky-model"))
+        [row] = self.spend()
+        self.assertEqual((row["successful_calls"], row["failed_attempts"]), (0, 1))
+        self.assertIsNone(row["total_cost"])
+        self.assertIsNone(row["input_tokens"])
+
+    def test_simulated_costs_are_excluded(self):
+        self.save(REQUEST, environment="test")  # dummy, simulated cost 6.2e-5
+        self.assertEqual(self.spend(), [])
+        self.save(real_request())
+        [row] = self.spend()
+        self.assertEqual(row["provider"], "openai")
+
+    def test_window_filters_attempts(self):
+        self.save(real_request())
+        now = datetime.now(timezone.utc)
+        self.assertEqual(spend_by_model(self.db_path, "prod", start=now + timedelta(minutes=1),
+                                        end=now + timedelta(minutes=2)), [])
 
 
 OLD_OBSERVATIONS_V0 = (
