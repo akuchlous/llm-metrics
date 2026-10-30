@@ -16,6 +16,16 @@ Build useful measurement data first, then quality, routing, and exchange mechani
 
 Future real benchmarking needs deliberate dimensions: provider/model, workload category, input size, requested output size, actual output size, and measurement origin (cloud/region/zone). Performance claims are meaningful only for a defined population and methodology.
 
+**Publishing/visibility is part of the product direction.** Engineering milestones and later benchmark findings should become useful public material for llmxchange.com and channels such as LinkedIn. Prefer publishing reproducible measurements, methodology, charts, and costs over generic product promotion. The site should eventually make the cost of running the benchmark itself transparent.
+
+### Benchmark economics
+
+Starting with the first real provider, track and publish the API token cost incurred by llm-metrics to run benchmark requests. Preserve per-request costs and their pricing basis, and expose selected-window spend grouped by provider/model plus a grand total. Keep simulated dummy costs separate from real benchmark spend. Initially aggregate at query time; hourly/daily/monthly materialization can come later when scale justifies it.
+
+Benchmark operating cost must be semantically clear: Step 012 covers provider API request/token spend only, not hosting, storage, networking, domain, or other infrastructure expenses. Cost should remain attributable by provider/model and eventually by other benchmark dimensions as they are introduced.
+
+Keep real benchmark spend deliberately small during development: tests make no paid calls, normal simulated paths remain offline, real calls require explicit opt-in, and the first smoke benchmark uses one inexpensive model with a small fixed prompt and strict <=64 output-token cap.
+
 ### Longer-term analytics / exchange metrics
 
 Keep the implementation small now, but preserve an architecture that can grow toward multidimensional provider analytics. Useful dimensions/facts include provider, model, variant/quantization, timestamp/time-of-day, measurement cloud/region/zone, workload/category, input tokens/context length, requested maximum output tokens, actual output tokens, cached input tokens, reasoning tokens, finish reason, and later reproducibly defined workload complexity/classifiers.
@@ -47,8 +57,9 @@ OpenRouter is a useful product reference: its provider/analytics surfaces emphas
 - Step 008 — TTFT + total response latency from one streamed request, atomic persistence, dashboard metric selector: complete and reviewed.
 - Step 009 — output chunk throughput plus metric units and schema versioning: complete and reviewed.
 - Step 010 — token accounting, requested-vs-actual output size, per-request cost, request identity, and individual-call view: complete and reviewed; 99 tests reported passing.
-- Step 011 — errors, normalized failure categories, persisted failed attempts, and observed benchmark success/failure rate: prompt created.
-- Planned after Step 011: first real provider/model.
+- Step 011 — errors, normalized failure categories, persisted failed attempts, and observed benchmark success/failure rate: complete and reviewed; commit `71353d7`, 116 tests reported passing on Python 3.11/3.13.
+- Step 012 — prompt created: first real provider/model, explicit low-cost real-call path, official-price verification, and publishable benchmark API spend grouped by provider/model.
+- Planned after Step 012: review real measurements before adding another provider/model or scheduler.
 
 The aggregate dashboard should answer: **How is this provider/model performing, and is performance changing?** The individual-call view should answer: **What exactly happened on this benchmark request, how much work did it do, how long did it take, what did it cost, and did it succeed?** Simulated data must always be clearly labeled.
 
@@ -70,7 +81,9 @@ For user-facing API performance, total completion latency is usually the intuiti
 
 Reliability has a separate population rule: all attempted benchmark calls belong in observed success/failure rate, while successful latency/throughput distributions must not be polluted with fabricated zero values for failures. "Observed benchmark success rate" is more precise than claiming universal provider uptime because measurements represent the runner's own conditions.
 
-## Step 007–010 review
+Sample size must accompany reliability and percentile claims. Different sample sizes can still be compared statistically, but small populations carry greater uncertainty; raw percentages alone should not be used to claim one provider is more reliable. Confidence intervals/minimum-sample presentation can be added before public rankings require it.
+
+## Step 007–011 review
 
 Step 007 correctly pushed time filtering into parameterized SQLite queries rather than loading all observations into the dashboard. Windows use explicit inclusive UTC bounds relative to current time; invalid/repeated choices are rejected.
 
@@ -84,8 +97,14 @@ Step 010 review result: **pass; no corrective step required.** The implementatio
 
 Step-010 known limitations are acceptable for this stage: simulated tokenizer/pricing only, no token/sec metric without defensible token timing, float USD costs, and historical pre-010 observations without request details.
 
-## Step 011 direction
+Step 011 review result: **pass; no corrective step required.** Every benchmark attempt now has `success` or a stable normalized failure category; provider/protocol failures are distinguished from unexpected llm-metrics bugs. Failed attempts retain known cap/pricing facts, leave unknown tokens/costs NULL, record separate `failed_after_ms`, and contribute to observed success/failure rate without contaminating successful latency/throughput distributions. Schema v3 migration preserves Step-010 requests as historical successes and leaves older unpaired observations untouched.
 
-Reliability is first-class for the eventual router/exchange. Step 011 should persist failed benchmark attempts rather than silently losing them, normalize failures into a small cross-provider category set (timeout, rate limit, provider/server, transport, invalid response), and derive observed benchmark success/failure rate from all attempts. Unknown token/cost/performance facts on failures must remain unknown rather than becoming zero. Existing successful latency/throughput percentiles continue to use successful measurements only.
+Step-011 known limitations are acceptable before the first real provider: partial pre-failure measurements are discarded, provider adapters must enforce their own timeout, small-sample success percentages have no confidence interval yet, recorded provider failures exit CLI 0, and foreign keys are not yet enforced.
 
-Do not add retries yet. One benchmark attempt remains one provider call. Retry/fallback semantics should be designed later when there is a concrete router/provider integration need.
+## Step 012 direction
+
+Cross the simulated-to-real boundary with exactly one inexpensive provider/model first. Use the real provider's authoritative usage accounting, preserve existing latency/outcome semantics, verify current pricing from official documentation, and keep API credentials out of source/logs/storage. Tests remain offline and free; a real benchmark requires explicit opt-in and defaults to one tiny <=64-output-token call.
+
+Step 012 also makes benchmark economics a visible product metric: publishable API spend grouped by provider/model plus selected-window total. Keep simulated dummy costs out of real spend and do not yet materialize time aggregates. The first goal is trustworthy raw real measurements and transparent cost, not broad provider coverage.
+
+Do not add retries, scheduling, cloud deployment, workload matrices, a second provider/model, or routing in Step 012.
