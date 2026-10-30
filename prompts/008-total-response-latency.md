@@ -1,6 +1,6 @@
 # Step 008 — Total response latency
 
-Read `PROJECT_STATUS.md`, `DECISIONS.md`, and `prompts/README.md` first. Preserve all existing behavior and follow the established engineering rules.
+Read `PROJECT_STATUS.md`, `DECISIONS.md`, `prompts/README.md`, and `prompts/DESIGN_QUESTIONS.md` first. Preserve all existing behavior and follow the established engineering rules.
 
 ## Goal
 
@@ -30,25 +30,7 @@ Measure **total response latency** in addition to TTFT, persist it as a separate
 - `./run.sh` remains the one-command local contract and all tests pass.
 - Update `PROJECT_STATUS.md`, `README.md`, and only durable decisions in `DECISIONS.md`.
 - Write `prompts/008-output.md` with the implementation summary, tests/run result, design decisions/tradeoffs, limitations, and concise Design Q&A.
-
-### Required design questions by engineering level
-
-Create `design-questions/08/` with all four files below, following the existing Step 007 format and grounding every answer in the actual Step 008 implementation:
-
-- `lead-engineer.md`
-- `principal-engineer.md`
-- `senior-manager.md`
-- `director.md`
-
-Each file must contain:
-1. one-line Step 008 context;
-2. at least one role-appropriate design question;
-3. a concrete answer tied to the implemented code/design;
-4. critique: what is good, what is weak/missing, and how the answer could be stronger.
-
-The questions should not merely repeat each other at different titles. Good themes include measurement semantics and single-pass streaming, metric/data-model extensibility, operational/product interpretation of TTFT vs total latency, and how this metric set affects the roadmap toward provider comparison/routing. Keep them concise and useful for technical interview practice.
-
-Update the design-question index if the repository has one.
+- Follow `prompts/DESIGN_QUESTIONS.md` and create the required role-specific Step 08 design-question files. Update the design-question index if present.
 
 ## Out of scope
 
@@ -62,4 +44,4 @@ Update the design-question index if the repository has one.
 
 ## Stop
 
-Commit Step 008 implementation, tests, docs, `prompts/008-output.md`, and `design-questions/08/*`, then stop. Do not begin Step 009.
+Commit Step 008 implementation, tests, docs, `prompts/008-output.md`, and the design-question artifacts required by `prompts/DESIGN_QUESTIONS.md`, then stop. Do not begin Step 009.
