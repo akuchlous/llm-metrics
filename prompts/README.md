@@ -22,3 +22,14 @@ Use only what the step needs:
 Do not repeat rules already in `DECISIONS.md` or current state already in `PROJECT_STATUS.md`; reference those files instead. Avoid long checklists, duplicated requirements, speculative future design, and verbose final-report instructions.
 
 Each step must preserve existing behavior, update `PROJECT_STATUS.md`, record only durable new decisions in `DECISIONS.md`, and stop for independent review.
+
+## Step report
+
+At the end of every step, save Claude's concise implementation report as `prompts/NNN-output.md` and include it in the step commit. The report should capture:
+
+- what changed;
+- tests/run result;
+- design decisions and tradeoffs;
+- known limitations or review questions.
+
+Keep it concise. It is a historical record, not a duplicate of `PROJECT_STATUS.md`.
