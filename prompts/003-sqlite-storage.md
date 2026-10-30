@@ -13,6 +13,22 @@ Steps 001 and 002 are complete. The project currently measures TTFT using a dumm
 
 This task adds only the smallest persistence layer needed for future historical metrics and dashboards.
 
+## Engineering priorities
+
+Treat this repository as if it will become public.
+
+For implementation decisions, use this priority order:
+
+**correctness → security → readability/maintainability → simplicity → minimal code**
+
+Minimal line count is not the goal. Prefer clear, readable code over clever compression. A somewhat longer implementation is better when it is materially easier to understand, test, modify, or operate safely.
+
+At the same time, avoid code bloat and premature architecture. Do not introduce abstractions, dependencies, configuration, helpers, classes, interfaces, or extensibility merely because they might be useful later. Implement what the current step needs. Good abstractions are appropriate when the current code already justifies them.
+
+A useful rule for this project is:
+
+> Write the smallest implementation that is easy to understand, test, modify, and operate safely.
+
 ## Objective
 
 Persist each successful TTFT measurement to a local SQLite database.
@@ -134,6 +150,8 @@ Add focused automated tests covering at least:
 
 Tests must use temporary databases/directories. They must not write test data into the developer's normal local database.
 
+Tests should verify meaningful externally observable behavior rather than implementation details. Do not create a large test framework for this small persistence layer.
+
 ### 8. Preserve one-command local development
 
 This is a hard requirement:
@@ -148,7 +166,18 @@ Do not require Docker.
 Do not require an external database.
 Do not require manual setup beyond what `run.sh` already performs.
 
-### 9. Documentation
+### 9. Public-repository security
+
+Before committing, inspect the repository as if it were already public.
+
+- Do not commit credentials, API keys, tokens, `.env` files, runtime SQLite databases, virtual environments, caches, or machine-specific/private artifacts.
+- Ensure the runtime database path is ignored by Git.
+- Use parameterized SQL for dynamic values; do not construct SQL by concatenating measurement values.
+- Test databases must be isolated from the developer's normal database.
+- Avoid logging or persisting information that is not required for the metric observation.
+- Do not weaken the existing safe `prod` behavior.
+
+### 10. Documentation
 
 Update:
 
@@ -199,14 +228,24 @@ Never leave the repository in a state where `./run.sh` does not work.
 
 Every step must preserve all previously working behavior unless the prompt explicitly changes it.
 
+Do not write code today solely for a feature scheduled for a later step.
+
 ## Before finishing
 
 1. Run the full test suite.
 2. Run `./run.sh` from a clean-enough local state and verify database initialization and persistence.
-3. Inspect the repository for unnecessary complexity and remove anything not needed for Step 003.
-4. Update `PROJECT_STATUS.md`.
-5. Update `DECISIONS.md` for any durable storage/schema decisions.
-6. Do not modify historical prompt files under `prompts/`.
+3. Perform a public-repository/security review.
+4. Perform a code-quality/bloat review:
+   - Can any new file or abstraction be eliminated without hurting readability or maintainability?
+   - Is any code present only because it might be useful later?
+   - Are tests focused on meaningful behavior rather than implementation details?
+   - Did we add any dependency that the Python standard library can reasonably replace?
+   - Is there duplicate logic?
+   - Is the resulting code easy for another engineer to read and modify?
+5. Remove unnecessary complexity, but do not sacrifice readability or maintainability merely to reduce line count.
+6. Update `PROJECT_STATUS.md`.
+7. Update `DECISIONS.md` for durable storage/schema decisions.
+8. Do not modify historical prompt files under `prompts/` other than this prompt update made before implementation begins.
 
 ## Final response
 
@@ -217,7 +256,9 @@ Report:
 3. Test command and result.
 4. Example `./run.sh` execution/output.
 5. How you verified that the observation was actually persisted.
-6. Any design decision that should be reviewed.
-7. Exact proposed Step 004, but DO NOT implement it.
+6. Security/public-repository checks performed.
+7. Readability/maintainability and code-bloat review performed.
+8. Any design decision or concern that should be reviewed.
+9. Exact proposed Step 004, but DO NOT implement it.
 
 Stop after Step 003.
