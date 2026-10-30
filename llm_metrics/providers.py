@@ -24,13 +24,17 @@ class ProviderFailure(Exception):
     """Raised by a provider when an attempt fails, with a stable internal category
     (a key of outcomes.FAILURE_CATEGORIES). Adapters map their native errors
     (HTTP status codes, SDK exceptions) to a category here; the message is for
-    humans and is never stored."""
+    humans and is never stored. `diagnostics` holds sanitized identifiers (e.g.
+    HTTP status, provider error code, request id) that may be printed for local
+    debugging; it is never stored."""
 
-    def __init__(self, category: str, message: str = ""):
+    def __init__(self, category: str, message: str = "", diagnostics: dict | None = None):
         if category not in FAILURE_CATEGORIES:
             raise ValueError(f"Unknown failure category {category!r}.")
         super().__init__(message or category)
         self.category = category
+        # Sanitized, non-secret identifiers for local debugging only (never stored).
+        self.diagnostics = diagnostics or {}
 
 
 class LLMProvider:

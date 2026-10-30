@@ -1,6 +1,6 @@
 # Step 12 — Senior manager
 
-**Step context:** Step 012 added the first real provider: an OpenAI `gpt-6-luna` adapter on the Responses API using only the standard library, run solely by the explicit `python -m llm_metrics.real_smoke` (one paid call, key from `OPENAI_API_KEY`, stored as `prod`), plus a real-data-only Benchmark API Spend page and clear real-versus-simulated labelling. The price ($0.10 / $0.50 per 1M) is recorded but not yet verified, and the smoke call was not run in the implementation environment.
+**Step context:** Step 012 added the first real provider: an OpenAI `gpt-6-luna` adapter on the Responses API using only the standard library, run solely by the explicit `python -m llm_metrics.real_smoke` (one paid call, key from `OPENAI_API_KEY`, stored as `prod`), plus a real-data-only Benchmark API Spend page and clear real-versus-simulated labelling. Follow-up: the owner verified the price ($0.10 / $0.50 per 1M); the first live call failed as `provider_error`, so sanitized `--debug` diagnostics and `reasoning.effort: none` were added.
 
 **Question:** This step introduced real money and real credentials. How do you keep spend and secret risk under control on a team where anyone can run the code?
 

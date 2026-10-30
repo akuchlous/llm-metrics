@@ -105,7 +105,8 @@ class StreamTranslationTest(unittest.TestCase):
         self.assertEqual(timeout, TIMEOUT_S)
         body = json.loads(request.data)
         self.assertEqual(body, {"model": "gpt-6-luna", "input": "the prompt",
-                                "max_output_tokens": 64, "stream": True, "store": False})
+                                "max_output_tokens": 64, "stream": True, "store": False,
+                                "reasoning": {"effort": "none"}})
         self.assertNotIn("tools", body)
         self.assertEqual(request.get_header("Authorization"), f"Bearer {FAKE_KEY}")
 
@@ -202,6 +203,90 @@ class FailureMappingTest(unittest.TestCase):
             measure_request(provider, "hi", 64)
 
 
+SECRETISH = f"Bearer {FAKE_KEY} prompt text: the prompt; response text: Hello there"
+
+
+class DiagnosticsTest(unittest.TestCase):
+    """Every provider_error path says which path failed, with sanitized ids only."""
+
+    def failed(self, **kwargs):
+        provider, _ = provider_with(**kwargs)
+        attempt, _ = measure_request(provider, "the prompt", 64)
+        return attempt
+
+    def assert_no_free_text(self, diagnostics):
+        flat = json.dumps(diagnostics)
+        for secret in (FAKE_KEY, "Bearer", "the prompt", "Hello there", "message"):
+            self.assertNotIn(secret, flat)
+
+    def test_http_5xx_reports_status_request_id_and_error_code(self):
+        body = json.dumps({"error": {"code": "server_error", "type": "server_error",
+                                     "param": None, "message": SECRETISH}}).encode()
+        error = urllib.error.HTTPError(API_URL, 503, "x", {"x-request-id": "req_abc123"}, io.BytesIO(body))
+        attempt = self.failed(error=error)
+        self.assertEqual(attempt["outcome"], "provider_error")
+        self.assertEqual(attempt["diagnostics"], {
+            "where": "http_status", "http_status": "503", "request_id": "req_abc123",
+            "error_code": "server_error", "error_type": "server_error", "error_param": "<none>"})
+        self.assert_no_free_text(attempt["diagnostics"])
+
+    def test_response_failed_event(self):
+        event = {"type": "response.failed", "response": {
+            "status": "failed", "error": {"code": "server_error", "message": SECRETISH}}}
+        response = FakeResponse(sse(delta("Hello there"), event))
+        response.headers = {"x-request-id": "req_42"}
+        response.status = 200
+        attempt = self.failed(response=response)
+        self.assertEqual(attempt["outcome"], "provider_error")
+        self.assertEqual(attempt["diagnostics"], {
+            "where": "event:response.failed", "http_status": "200", "request_id": "req_42",
+            "response_status": "failed", "error_code": "server_error"})
+        self.assert_no_free_text(attempt["diagnostics"])
+
+    def test_error_event_reports_code_type_param(self):
+        event = {"type": "error", "code": "invalid_value", "type_": "x",
+                 "param": "reasoning.effort", "message": SECRETISH}
+        attempt = self.failed(response=FakeResponse(sse(event)))
+        self.assertEqual(attempt["outcome"], "provider_error")
+        self.assertEqual(attempt["diagnostics"]["where"], "event:error")
+        self.assertEqual(attempt["diagnostics"]["error_code"], "invalid_value")
+        self.assertEqual(attempt["diagnostics"]["error_param"], "reasoning.effort")
+        self.assert_no_free_text(attempt["diagnostics"])
+
+    def test_incomplete_reason_is_reported(self):
+        event = {"type": "response.incomplete", "response": {"incomplete_details": {"reason": "content_filter"}}}
+        attempt = self.failed(response=FakeResponse(sse(delta("a"), event)))
+        self.assertEqual(attempt["outcome"], "provider_error")
+        self.assertEqual(attempt["diagnostics"]["where"], "event:response.incomplete")
+        self.assertEqual(attempt["diagnostics"]["incomplete_reason"], "content_filter")
+
+    def test_free_text_values_are_redacted(self):
+        event = {"type": "error", "code": SECRETISH, "param": "has spaces in it"}
+        attempt = self.failed(response=FakeResponse(sse(event)))
+        self.assertEqual(attempt["diagnostics"]["error_code"], "<redacted>")
+        self.assertEqual(attempt["diagnostics"]["error_param"], "<redacted>")
+        self.assert_no_free_text(attempt["diagnostics"])
+
+    def test_rejected_request_reports_param(self):
+        body = json.dumps({"error": {"code": "unsupported_parameter", "type": "invalid_request_error",
+                                     "param": "reasoning.effort", "message": SECRETISH}}).encode()
+        provider, _ = provider_with(error=urllib.error.HTTPError(API_URL, 400, "x", {}, io.BytesIO(body)))
+        with self.assertRaises(RequestRejected) as ctx:
+            measure_request(provider, "the prompt", 64)
+        self.assertEqual(ctx.exception.diagnostics["error_param"], "reasoning.effort")
+        self.assertEqual(ctx.exception.diagnostics["error_code"], "unsupported_parameter")
+        self.assert_no_free_text(ctx.exception.diagnostics)
+
+    def test_diagnostics_are_never_stored(self):
+        event = {"type": "error", "code": "server_error_marker_xyz"}
+        provider, _ = provider_with(response=FakeResponse(sse(event)))
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "x.db"
+            request, _, _ = run_attempt(provider, "p", 64, "prod", db_path)
+            self.assertEqual(request["diagnostics"]["error_code"], "server_error_marker_xyz")
+            self.assertNotIn(b"server_error_marker_xyz", db_path.read_bytes())
+
+
 class SecretHandlingTest(unittest.TestCase):
     def test_key_is_not_shown_or_stored(self):
         provider, _ = provider_with(response=FakeResponse(sse(delta("Hello"), delta(" there"), completed())))
@@ -235,10 +320,10 @@ class PricingTest(unittest.TestCase):
         self.assertAlmostEqual(cost["output_cost"], 0.0000075, places=15)
         self.assertAlmostEqual(cost["total_cost"], 0.0000095, places=15)
 
-    def test_price_provenance_is_recorded_and_flagged_unverified(self):
+    def test_price_provenance_is_recorded_and_verified(self):
         source, verified_on = PRICE_PROVENANCE[("openai", "gpt-6-luna")]
         self.assertIn("openai.com", source)
-        self.assertIsNone(verified_on)  # not yet verified against the official page
+        self.assertEqual(verified_on, "2026-10-30")
 
 
 def no_network(test):
@@ -251,6 +336,8 @@ def no_network(test):
 
 
 class RealSmokeCommandTest(unittest.TestCase):
+    argv = []
+
     def setUp(self):
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
@@ -270,7 +357,7 @@ class RealSmokeCommandTest(unittest.TestCase):
                 stack.enter_context(p)
             stack.enter_context(contextlib.redirect_stdout(out))
             stack.enter_context(contextlib.redirect_stderr(err))
-            code = real_smoke.main()
+            code = real_smoke.main(self.argv)
         return code, out.getvalue(), err.getvalue()
 
     @no_network
@@ -298,7 +385,7 @@ class RealSmokeCommandTest(unittest.TestCase):
         self.assertEqual(len(opener.calls), 1)
         self.assertIn("exactly ONE paid API request: provider openai, model gpt-6-luna, "
                       "max output tokens 64", out)
-        self.assertIn("not yet verified", out)
+        self.assertNotIn("not yet verified", out)
         for line in ("Outcome: success", "Input tokens: 20", "Output tokens: 15 of max 64",
                      "Cost: $0.000010 (input $0.000002 + output $0.000008)",
                      "Rates: $0.10 input / $0.50 output per 1M tokens"):
@@ -312,6 +399,28 @@ class RealSmokeCommandTest(unittest.TestCase):
                          ("openai", "gpt-6-luna", "prod"))
         self.assertAlmostEqual(stored["total_cost"], 0.0000095, places=15)
         self.assertEqual(load_recent_requests(self.db_path, "test", 20), [])
+
+    def test_debug_flag_prints_sanitized_diagnostics_only_when_asked(self):
+        event = {"type": "response.failed", "response": {"error": {"code": "server_error", "message": SECRETISH}}}
+        for argv, shown in (([], False), (["--debug"], True)):
+            with self.subTest(argv=argv):
+                self.argv = argv
+                opener = FakeOpener(response=FakeResponse(sse(delta("Hello there"), event)))
+                code, out, err = self.run_main({"OPENAI_API_KEY": FAKE_KEY}, opener)
+                self.assertEqual(code, 0)
+                self.assertIn("Outcome: FAILED — Provider/server error (provider_error)", out)
+                self.assertEqual("where=event:response.failed" in err, shown)
+                self.assertEqual("error_code=server_error" in err, shown)
+                for secret in (FAKE_KEY, "Bearer", real_smoke.PROMPT, "Hello there", "message"):
+                    self.assertNotIn(secret, out + err)
+
+    def test_unknown_arguments_are_refused_before_any_request(self):
+        self.argv = ["--loop"]
+        opener = FakeOpener(response=FakeResponse(sse(delta("a"), completed())))
+        code, _, err = self.run_main({"OPENAI_API_KEY": FAKE_KEY}, opener)
+        self.assertEqual(code, 2)
+        self.assertIn("Usage", err)
+        self.assertEqual(opener.calls, [])
 
     def test_rejected_request_is_not_recorded(self):
         opener = FakeOpener(error=http_error(401))

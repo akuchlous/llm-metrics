@@ -44,7 +44,8 @@ def measure_request(
     On failure: token counts are None (unknown, not zero), `results` is empty
     (partial timings are discarded, so success-only distributions stay clean),
     and failed_after_ms is the time from request start until the failure was
-    detected. Failures are a ProviderFailure raised by the provider (its
+    detected; `diagnostics` holds the provider's sanitized debug details (never
+    stored). Failures are a ProviderFailure raised by the provider (its
     category), or a contract violation detected here ("invalid_response"): no
     text, usage missing or repeated, text after usage, or more output tokens
     than requested. Any other exception is a bug and propagates.
@@ -89,6 +90,8 @@ def measure_request(
             "input_tokens": None,
             "output_tokens": None,
             "failed_after_ms": (failed_at - request_started) * 1000,
+            # Sanitized local-debug details; not a storage column, never saved.
+            "diagnostics": getattr(failure, "diagnostics", {}),
         }
         return attempt, []
 

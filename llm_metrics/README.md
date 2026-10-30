@@ -14,7 +14,7 @@ Its responsibility is to measure LLM-provider behavior, persist raw observations
 - `pricing.py` — the only place prices are defined (USD per 1M tokens), with their source and verification date (`PRICE_PROVENANCE`), and the per-request cost formula.
 - `openai_provider.py` — the first real provider: OpenAI Responses API over `urllib` (no SDK), translating the event stream into text chunks + `Usage` and mapping errors to failure categories.
 - `benchmark.py` — one attempt end to end (price lookup, measurement, save) and its printed summary; shared by the CLI and `real_smoke`.
-- `real_smoke.py` — the only code path that spends money: one explicit real request, key from `OPENAI_API_KEY`.
+- `real_smoke.py` — the only code path that spends money: one explicit real request, key from `OPENAI_API_KEY`; `--debug` prints sanitized failure diagnostics (never stored).
 - `storage.py` — SQLite schema and transactional in-place upgrades; `save_request` (attempt row + linked observations in one transaction); time-window observation reads, request reads, and outcome counts.
 - `seed_history.py` — deterministic simulated history used only in the test environment.
 - `percentiles.py` — pure nearest-rank percentile calculation.

@@ -1,6 +1,11 @@
 """Make exactly ONE real, paid benchmark request to OpenAI and save it.
 
-Usage: OPENAI_API_KEY=... python -m llm_metrics.real_smoke
+Usage: OPENAI_API_KEY=... python -m llm_metrics.real_smoke [--debug]
+
+--debug prints sanitized failure diagnostics to stderr (which code path failed,
+HTTP status, OpenAI request id, error code/type/param, incomplete reason). They
+are never stored, and never include the key, prompt, response text, headers, or
+provider error messages or bodies.
 
 This is the only code path that calls a paid API, and it runs only when invoked
 explicitly. It makes one attempt (no retries, no loop), stores it with
@@ -24,7 +29,17 @@ MAX_OUTPUT_TOKENS = 64
 ENVIRONMENT = "prod"
 
 
-def main() -> int:
+def _print_diagnostics(diagnostics: dict) -> None:
+    details = ", ".join(f"{k}={v}" for k, v in diagnostics.items()) or "(none)"
+    print(f"Debug (sanitized, not stored): {details}", file=sys.stderr)
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = sys.argv[1:] if argv is None else argv
+    if args not in ([], ["--debug"]):
+        print("Usage: python -m llm_metrics.real_smoke [--debug]", file=sys.stderr)
+        return 2
+    debug = args == ["--debug"]
     api_key = os.environ.get(API_KEY_VARIABLE, "")
     if not api_key:
         print(
@@ -48,10 +63,14 @@ def main() -> int:
             provider, PROMPT, MAX_OUTPUT_TOKENS, ENVIRONMENT, db_path
         )
     except RequestRejected as e:
-        print(f"Error: {e} Check the API key, account access, and model name. "
-              "Nothing was recorded.", file=sys.stderr)
+        print(f"Error: {e} Check the API key, account access, model name, and request "
+              "parameters. Nothing was recorded.", file=sys.stderr)
+        if debug:
+            _print_diagnostics(e.diagnostics)
         return 2
     print_summary(request, results, request_id, db_path, simulated=False)
+    if debug and request["outcome"] != "success":
+        _print_diagnostics(request.get("diagnostics", {}))
     return 0
 
 

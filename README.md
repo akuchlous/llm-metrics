@@ -238,17 +238,27 @@ python3 -m llm_metrics.real_smoke
 
 It prints what it is about to do, then makes **exactly one** OpenAI Responses API
 call (`gpt-6-luna`, a fixed harmless one-sentence prompt, `max_output_tokens` 64,
-streaming, no tools, `store: false`, no retries), saves the attempt as real data,
+`reasoning.effort` `none`, streaming, no tools, `store: false`, no retries),
+saves the attempt as real data,
 and prints the outcome, tokens, latencies, throughput, cost, and the rates used.
 It never prints the key, the prompt, or the response. Without `OPENAI_API_KEY`
 it refuses and makes no request.
 
+Add `--debug` to print sanitized diagnostics to the terminal when the attempt
+fails or is rejected: which code path failed, the HTTP status, OpenAI's
+`x-request-id`, and OpenAI's error code/type/param or incomplete reason. These
+are never stored and never include the key, prompt, response text, headers, or
+provider error messages:
+
+```bash
+python3 -m llm_metrics.real_smoke --debug
+```
+
 Token counts come from OpenAI's reported usage. Cost uses the standard-tier
 price in `llm_metrics/pricing.py`: **$0.10 per 1M input tokens and $0.50 per
-1M output tokens** (source: https://openai.com/api/pricing/). **This price is not
-yet verified against the official page** (it could not be reached when it was
-added on 2026-10-30); check it before trusting cost figures. A typical smoke
-call costs a few millionths of a dollar.
+1M output tokens** (source: https://openai.com/api/pricing/, verified by the
+project owner on 2026-10-30). A typical smoke call costs a few millionths of a
+dollar.
 
 Errors are recorded as failed attempts with a category (timeout, rate limited,
 provider/server error, network/transport error, invalid response). Request or

@@ -139,3 +139,46 @@ No messages, bodies, prompts, keys or stack traces are stored.
 **Why are auth and bad-request errors not recorded as failed attempts?** The success rate measures the provider's reliability under our workload. A 401 or 404 measures *our* configuration. Recording them would let a typo in the key make OpenAI look 0% available. Server-side and transport errors are recorded, because those reflect the provider and the path to it.
 
 **Why is spend computed only from successful attempts, and why show "unknown" instead of $0?** Request cost is defined from authoritative usage, which only successful attempts have. A failed attempt may or may not have been billed; writing $0 would understate spend and violate the Step-011 unknown-versus-zero rule. Counting failures next to the spend keeps the uncertainty visible.
+
+## Follow-up: first live call failed (2026-10-30)
+
+The owner's first manual run printed `Outcome: FAILED — Provider/server error (provider_error)`, `Failed after: 5425.6 ms`, attempt `6a39b71e…`. No further real call was made from the implementation environment, which can't reach OpenAI anyway.
+
+**Diagnosis.** Only four adapter paths can produce `provider_error`, and the original code discarded everything that would distinguish them:
+
+1. HTTP status ≥ 500 (not 504) when opening the request;
+2. a `response.failed` stream event;
+3. an `error` stream event whose code isn't a rate limit;
+4. `response.incomplete` with a reason other than `max_output_tokens`.
+
+Measurement itself never produces `provider_error`; 4xx errors raise `RequestRejected` and aren't recorded; hitting the cap is a success (or `invalid_response` if there's no text). The 5.4 s suggests the stream started and then failed (paths 2–4), but a slow 5xx (path 1) is possible. Also relevant: without a `reasoning` setting, gpt-6-luna reportedly defaults to **medium** reasoning effort, so hidden reasoning tokens were competing with the 64-token cap.
+
+**Change (minimal):**
+
+- `ProviderFailure` and `RequestRejected` now carry sanitized `diagnostics`: the failing path, HTTP status, `x-request-id`, OpenAI error `code`/`type`/`param` (from stream events, or from an HTTP error body read with a 64 KB limit and then discarded), the incomplete reason, and the exception class. Each value must match `[A-Za-z0-9_.:-]{1,100}`, otherwise it shows as `<redacted>`.
+- `measure_request` passes them through the in-memory attempt as `diagnostics`. That isn't a storage column, and a test checks they never reach the database file.
+- `python -m llm_metrics.real_smoke --debug` prints them to stderr after a failed or rejected attempt. Without `--debug`, nothing new is printed. Unknown arguments are refused before any request.
+- The request body adds `"reasoning": {"effort": "none"}`.
+- `PRICE_PROVENANCE` for `gpt-6-luna` is now verified on 2026-10-30 (by the owner); the "not yet verified" warning no longer prints.
+- The stored outcome remains `provider_error`. Still one attempt, no retry, no SDK.
+
+**Tests:** 156, OK on Python 3.13 and 3.11. New: each `provider_error` path reports which path it was, with the expected sanitized fields; free-text code/param values are redacted; the key, `Bearer`, the prompt, response text and error messages never appear in diagnostics or output; a 400 rejection reports `error_param` (e.g. `reasoning.effort`); diagnostics aren't stored; `--debug` controls printing; unknown arguments are refused with no request; the request body includes the reasoning setting.
+
+**Choices made:**
+
+- **Asked by you (in the follow-up request):** keep the outcome `provider_error`; add sanitized status, error code and request id; set the verified price; set `reasoning.effort="none"` if officially supported; make no further real calls.
+- **Made by me:**
+  - **Opt-in `--debug` flag** rather than always printing diagnostics, to keep normal output unchanged.
+  - **A token allowlist** (`[A-Za-z0-9_.:-]`, max 100) instead of a denylist: anything resembling free text is redacted, so a message can't leak through a code field.
+  - **Reading the HTTP error body** (≤ 64 KB) only to extract `code`/`type`/`param`. You said not to print arbitrary bodies; those three fields are identifiers, not body text.
+  - **Including `error_param`,** which names the parameter OpenAI objected to. That's the fastest way to see whether `reasoning.effort` is rejected.
+  - **Setting `reasoning.effort="none"` despite only third-party confirmation:** the official docs are blocked here, and the third-party sources cite OpenAI's documentation. If it's unsupported, the API returns 400 (not recorded, likely not billed), and `--debug` names the param.
+  - **Owner verification of the price** recorded as `"2026-10-30"` in `PRICE_PROVENANCE`.
+
+**Next manual step (yours):** run exactly once:
+
+```bash
+python3 -m llm_metrics.real_smoke --debug
+```
+
+Then share the printed `Debug (sanitized, not stored): …` line.

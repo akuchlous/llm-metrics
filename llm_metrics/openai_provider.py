@@ -16,11 +16,19 @@ or the API key in the message). Errors that mean our own request or
 configuration is wrong (authentication, permission, bad request, unknown model)
 are not provider failures: they raise RequestRejected and are not recorded.
 
+Every failure carries `diagnostics`: sanitized identifiers only (which code
+path failed, HTTP status, the `x-request-id` header, and OpenAI's error
+code/type/param and incomplete reason), each restricted to a short
+[A-Za-z0-9_.:-] token or replaced by "<redacted>". Never messages, bodies,
+headers, prompts, response text, or the API key. They are for local debugging
+(`real_smoke --debug`) and are never stored.
+
 There is no retry: one stream() call is exactly one HTTP request.
 """
 
 import http.client
 import json
+import re
 import socket
 import urllib.error
 import urllib.request
@@ -30,25 +38,68 @@ from llm_metrics.providers import LLMProvider, ProviderFailure, Usage
 
 API_URL = "https://api.openai.com/v1/responses"
 TIMEOUT_S = 60  # connect and per-read socket timeout
+# Reasoning tokens are billed as output and count against max_output_tokens;
+# "none" keeps the 64-token benchmark answer visible and its cost controlled.
+# Supported for gpt-6-luna per third-party docs citing OpenAI (official page
+# unreachable from the implementation environment). If the API rejects it,
+# the request fails with HTTP 400 (RequestRejected, not recorded) and
+# `--debug` shows error_param.
+REASONING_EFFORT = "none"
+_ERROR_BODY_LIMIT = 64 * 1024  # bytes read from an HTTP error body to find its code
+_SAFE_TOKEN = re.compile(r"[A-Za-z0-9_.:-]{1,100}")
+
+
+def _safe(value) -> str:
+    """A short identifier-like token, or "<redacted>". Never free text."""
+    if isinstance(value, bool) or value is None:
+        return "<redacted>" if value is not None else "<none>"
+    text = str(value)
+    return text if _SAFE_TOKEN.fullmatch(text) else "<redacted>"
+
+
+def _error_fields(error) -> dict:
+    """Sanitized code/type/param of an OpenAI error object (dict); nothing else."""
+    if not isinstance(error, dict):
+        return {}
+    return {f"error_{k}": _safe(error[k]) for k in ("code", "type", "param") if k in error}
 
 
 class RequestRejected(Exception):
     """OpenAI rejected the request itself (HTTP 400/401/403/404/...): our API key,
     permissions, model name, or parameters are wrong. Not a benchmark outcome."""
 
-    def __init__(self, status: int):
+    def __init__(self, status: int, diagnostics: dict | None = None):
         super().__init__(f"OpenAI rejected the request (HTTP {status}).")
         self.status = status
+        self.diagnostics = diagnostics or {}
 
 
-def _failure_for_status(status: int) -> ProviderFailure | RequestRejected:
+def _http_error_diagnostics(error: urllib.error.HTTPError) -> dict:
+    """Sanitized status, request id, and error code/type/param of an HTTP error.
+    The body is read (bounded) only to extract those fields and is discarded."""
+    diagnostics = {"where": "http_status", "http_status": _safe(error.code)}
+    request_id = error.headers.get("x-request-id") if error.headers else None
+    if request_id is not None:
+        diagnostics["request_id"] = _safe(request_id)
+    try:
+        body = json.loads(error.read(_ERROR_BODY_LIMIT) or b"{}")
+    except (ValueError, OSError):
+        body = None
+    if isinstance(body, dict):
+        diagnostics.update(_error_fields(body.get("error")))
+    return diagnostics
+
+
+def _failure_for_status(error: urllib.error.HTTPError) -> ProviderFailure | RequestRejected:
+    status = error.code
+    diagnostics = _http_error_diagnostics(error)
     if status == 429:
-        return ProviderFailure("rate_limited", "HTTP 429")
+        return ProviderFailure("rate_limited", "HTTP 429", diagnostics)
     if status in (408, 504):
-        return ProviderFailure("timeout", f"HTTP {status}")
+        return ProviderFailure("timeout", f"HTTP {status}", diagnostics)
     if status >= 500:
-        return ProviderFailure("provider_error", f"HTTP {status}")
-    return RequestRejected(status)
+        return ProviderFailure("provider_error", f"HTTP {status}", diagnostics)
+    return RequestRejected(status, diagnostics)
 
 
 def _usage(response: dict) -> Usage:
@@ -112,6 +163,7 @@ class OpenAIProvider(LLMProvider):
             "max_output_tokens": max_output_tokens,
             "stream": True,
             "store": False,  # do not keep the response on OpenAI's side
+            "reasoning": {"effort": REASONING_EFFORT},
         }
         return urllib.request.Request(
             API_URL,
@@ -130,11 +182,21 @@ class OpenAIProvider(LLMProvider):
         try:
             response = self._open(self._request(prompt, max_output_tokens), timeout=TIMEOUT_S)
         except urllib.error.HTTPError as e:
-            raise _failure_for_status(e.code) from None
+            raise _failure_for_status(e) from None
         except (TimeoutError, socket.timeout):
-            raise ProviderFailure("timeout", "connection timed out") from None
-        except (urllib.error.URLError, http.client.HTTPException, ConnectionError, OSError):
-            raise ProviderFailure("transport_error", "could not connect") from None
+            raise ProviderFailure("timeout", "connection timed out", {"where": "open"}) from None
+        except (urllib.error.URLError, http.client.HTTPException, ConnectionError, OSError) as e:
+            raise ProviderFailure("transport_error", "could not connect",
+                                  {"where": "open", "exception": type(e).__name__}) from None
+
+        headers = getattr(response, "headers", None)
+        request_id = headers.get("x-request-id") if headers else None
+        stream_info = {"http_status": _safe(getattr(response, "status", None))}
+        if request_id is not None:
+            stream_info["request_id"] = _safe(request_id)
+
+        def failure(category: str, where: str, **extra) -> ProviderFailure:
+            return ProviderFailure(category, where, {"where": where, **stream_info, **extra})
 
         with response:
             try:
@@ -152,20 +214,28 @@ class OpenAIProvider(LLMProvider):
                         final = event.get("response") or {}
                         reason = (final.get("incomplete_details") or {}).get("reason")
                         if reason != "max_output_tokens":
-                            raise ProviderFailure("provider_error", "response incomplete")
+                            raise failure("provider_error", "event:response.incomplete",
+                                          incomplete_reason=_safe(reason))
                         yield _usage(final)
                         return
                     elif kind == "response.failed":
-                        raise ProviderFailure("provider_error", "response failed")
+                        final = event.get("response") or {}
+                        raise failure("provider_error", "event:response.failed",
+                                      response_status=_safe(final.get("status")),
+                                      **_error_fields(final.get("error")))
                     elif kind == "error":
                         code = str(event.get("code") or "")
                         category = "rate_limited" if "rate_limit" in code else "provider_error"
-                        raise ProviderFailure(category, "error event")
+                        raise failure(category, "event:error", **_error_fields(event))
+            except ProviderFailure as e:
+                if not e.diagnostics:  # e.g. invalid_response from _events/_usage
+                    e.diagnostics = {"where": "stream", **stream_info}
+                raise
             except (TimeoutError, socket.timeout):
-                raise ProviderFailure("timeout", "stream read timed out") from None
-            except (http.client.HTTPException, ConnectionError, OSError):
-                raise ProviderFailure("transport_error", "stream interrupted") from None
+                raise failure("timeout", "stream_read") from None
+            except (http.client.HTTPException, ConnectionError, OSError) as e:
+                raise failure("transport_error", "stream_read", exception=type(e).__name__) from None
             except UnicodeDecodeError:
-                raise ProviderFailure("invalid_response", "stream is not UTF-8") from None
+                raise failure("invalid_response", "stream_decode") from None
         # Stream ended without a final event: measurement reports missing usage
         # as invalid_response.
