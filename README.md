@@ -3,7 +3,7 @@
 An open-source project to independently measure LLM provider performance
 (time to first token, throughput, latency, reliability, price).
 
-It is being built in small, tested steps. **Current step: 010.**
+It is being built in small, tested steps. **Current step: 011.**
 
 > **Simulated data only.** The current implementation uses a dummy provider that
 > sleeps for a fixed time and then emits fake tokens. Its numbers do **not**
@@ -11,11 +11,18 @@ It is being built in small, tested steps. **Current step: 010.**
 
 ## What it measures (so far)
 
-Each benchmark run makes one streamed request (one provider call, stream fully
-consumed) and records it as a **request** with three metrics, token counts, and
-cost.
+Each benchmark run makes one **attempt**: one streamed request (one provider
+call, no retries). Every attempt is recorded with its **outcome**, whether it
+succeeds or fails. A successful attempt also records three metrics, token
+counts, and cost.
 
-Metrics (saved as separate observations linked to the request):
+Outcomes: `success`, or one of the internal failure categories `timeout`,
+`rate_limited`, `provider_error`, `transport_error`, `invalid_response` (e.g.
+the stream reported no usage). For a failed attempt, tokens, cost, and
+performance are **unknown** (stored empty, never as zero), and `failed_after_ms`
+records how long the attempt ran before the failure was detected.
+
+Metrics of a successful attempt (saved as separate observations linked to it):
 
 | Metric | Name | Unit | Meaning |
 |---|---|---|---|
@@ -74,13 +81,14 @@ Database: data/llm_metrics.db
 
 Provider: dummy
 Model: dummy-model-v1
-Total latency: 181.1 ms
-TTFT: 100.2 ms
-Output throughput: 49.5 chunks/s
+Outcome: success
+Total latency: 181.4 ms
+TTFT: 100.3 ms
+Output throughput: 49.4 chunks/s
 Input tokens: 3 (simulated)
 Output tokens: 7 of max 64 (simulated)
 Cost: $0.000062 (input $0.000006 + output $0.000056) (simulated)
-Saved request 611fc41fb1fb411391b0e71881682ef3 with 3 observations to data/llm_metrics.db
+Saved attempt 11e65da384ab475aa66a25ec43b3e721 with 3 observations to data/llm_metrics.db
 
 Dashboard: http://127.0.0.1:8000/  (Ctrl+C to stop)
 ```
@@ -94,13 +102,18 @@ Open the printed URL in a browser. There are two views, both labelled
 
 - **Aggregate** (`/`): links to choose a metric (**Total latency**, **TTFT**, or
   **Output throughput**; default TTFT) and a time window (**24h**, **7d**,
-  **30d**; default **7d**), and for the selected metric and window: the
-  observation count, the latest value, p50/p95/p99, and a line chart over time,
-  all in that metric's unit (ms or chunks/s).
-- **Recent requests** (`/requests`): the 20 most recent individual requests,
-  newest first, with time, request id, total latency, TTFT, chunk throughput,
-  input/output/max tokens, and total/input/output cost. Requests recorded
-  before Step 010 have no request details and are not listed.
+  **30d**; default **7d**). For the window it shows the **observed benchmark
+  success rate**: successes ÷ all attempts, with the attempt count and failures
+  by category (no attempts → no rate). This is what our runner observed, not a
+  provider's overall uptime. Below it, for the selected metric and **successful
+  attempts only**: the observation count, the latest value, p50/p95/p99, and a
+  line chart over time, all in that metric's unit (ms or chunks/s).
+- **Recent requests** (`/requests`): the 20 most recent attempts, newest first,
+  with time, attempt id, outcome (success or FAILED with its category), total
+  latency, TTFT, chunk throughput, input/output/max tokens, total/input/output
+  cost, and, for failures, the time until the failure. Unknown values show as
+  "—". Measurements recorded before Step 010 have no attempt details and are
+  not listed.
 
 Windows end at the current UTC time: `/?window=24h&metric=total_latency` shows
 total-latency observations with `now − 24h <= recorded_at <= now` (both ends
@@ -140,10 +153,12 @@ Every successful measurement is appended to a local SQLite database at
 `data/llm_metrics.db` (inside the repository folder, git-ignored). The database
 and its tables are created automatically on first use; there is nothing to set up.
 
-- **`requests`**: one row per measured request: `id` (llm-metrics' own UUID),
-  `recorded_at`, `environment`, `provider`, `model`, `input_tokens`,
+- **`requests`**: one row per benchmark attempt: `id` (llm-metrics' own UUID),
+  `recorded_at`, `environment`, `provider`, `model`, `outcome`, `input_tokens`,
   `requested_max_output_tokens`, `output_tokens`, `input_price_per_1m`,
-  `output_price_per_1m`, `input_cost`, `output_cost`, `total_cost` (USD).
+  `output_price_per_1m`, `input_cost`, `output_cost`, `total_cost` (USD), and
+  `failed_after_ms`. For failed attempts the token and cost columns are empty
+  (NULL = unknown).
 - **`observations`**: one row per metric value: `id`, `recorded_at` (UTC, e.g.
   `2026-10-30T00:43:46.279219Z`), `environment` (`test` or `prod`), `provider`,
   `model`, `metric`, `value` (in the metric's unit), and `request_id` (the
@@ -176,7 +191,9 @@ Running it again adds nothing. It refuses to run with `APP_ENV=prod`, and
 Older databases are upgraded automatically in place, in one transaction, and
 existing rows are kept: Step 009 renamed the `value_ms` column to `value`
 (schema version 1); Step 010 added the `requests` table and
-`observations.request_id` (schema version 2). Older rows are not given invented
+`observations.request_id` (schema version 2); Step 011 added `outcome` and
+`failed_after_ms` and made token/cost columns nullable (schema version 3), with
+Step-010 requests recorded as successes. Older rows are not given invented
 token, cost, or request data.
 
 To start over, delete the `data/` folder.

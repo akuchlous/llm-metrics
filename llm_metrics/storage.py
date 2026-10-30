@@ -8,12 +8,17 @@ from contextlib import closing
 from datetime import datetime, timezone
 from pathlib import Path
 
-# requests: one row per measured benchmark request (Step 010+). `id` is
-# llm-metrics' own identity for the request (a random UUID, hex), never a
-# provider API request ID. Token counts are as reported by the provider (see
-# providers.Usage). Prices are the effective USD rates per 1M tokens used for
-# this request, stored with the derived costs so the cost stays explainable
-# after prices change (see pricing.py).
+# requests: one row per benchmark attempt (Step 010+), successful or not. `id`
+# is llm-metrics' own identity for the attempt (a random UUID, hex), never a
+# provider API request ID. `outcome` is "success" or a failure category (see
+# outcomes.py). Prices are the effective USD rates per 1M tokens that apply to
+# the attempt.
+#   success: input_tokens/output_tokens (from the provider's Usage) and the
+#            costs are known; failed_after_ms is NULL.
+#   failure: token counts and costs are NULL, meaning UNKNOWN (never 0);
+#            failed_after_ms is the time from request start until the failure
+#            was detected (it is not total_latency).
+# The table CHECK enforces exactly this.
 #
 # observations: one row per metric value. recorded_at is UTC ISO 8601 with a
 # "Z" suffix, e.g. "2026-10-30T12:34:56.789012Z", so text order is time order.
@@ -22,22 +27,40 @@ from pathlib import Path
 # simulated-history rows, which have no request facts.
 #
 # Indexes that depend on columns added by upgrades are created in _upgrade().
-SCHEMA = """
+_REQUESTS_TABLE = """
 CREATE TABLE IF NOT EXISTS requests (
     id                          TEXT    PRIMARY KEY,
     recorded_at                 TEXT    NOT NULL,
     environment                 TEXT    NOT NULL CHECK (environment IN ('test', 'prod')),
     provider                    TEXT    NOT NULL,
     model                       TEXT    NOT NULL,
-    input_tokens                INTEGER NOT NULL CHECK (input_tokens >= 0),
+    outcome                     TEXT    NOT NULL CHECK (outcome IN (
+        'success', 'timeout', 'rate_limited', 'provider_error',
+        'transport_error', 'invalid_response')),
+    input_tokens                INTEGER CHECK (input_tokens >= 0),
     requested_max_output_tokens INTEGER NOT NULL CHECK (requested_max_output_tokens >= 1),
-    output_tokens               INTEGER NOT NULL CHECK (output_tokens >= 0),
+    output_tokens               INTEGER CHECK (output_tokens >= 0),
     input_price_per_1m          REAL    NOT NULL CHECK (input_price_per_1m >= 0),
     output_price_per_1m         REAL    NOT NULL CHECK (output_price_per_1m >= 0),
-    input_cost                  REAL    NOT NULL,
-    output_cost                 REAL    NOT NULL,
-    total_cost                  REAL    NOT NULL
+    input_cost                  REAL,
+    output_cost                 REAL,
+    total_cost                  REAL,
+    failed_after_ms             REAL    CHECK (failed_after_ms >= 0),
+    CHECK (
+        (outcome = 'success'
+            AND input_tokens IS NOT NULL AND output_tokens IS NOT NULL
+            AND input_cost IS NOT NULL AND output_cost IS NOT NULL
+            AND total_cost IS NOT NULL AND failed_after_ms IS NULL)
+        OR
+        (outcome <> 'success'
+            AND input_tokens IS NULL AND output_tokens IS NULL
+            AND input_cost IS NULL AND output_cost IS NULL
+            AND total_cost IS NULL AND failed_after_ms IS NOT NULL)
+    )
 );
+"""
+
+SCHEMA = _REQUESTS_TABLE + """
 CREATE TABLE IF NOT EXISTS observations (
     id          INTEGER PRIMARY KEY,
     recorded_at TEXT    NOT NULL,
@@ -56,7 +79,9 @@ CREATE UNIQUE INDEX IF NOT EXISTS observations_unique
 #   0: Steps 003-008 (value column named `value_ms`)
 #   1: Step 009 (`value_ms` renamed to `value`; units depend on the metric)
 #   2: Step 010 (`requests` table; observations.request_id)
-SCHEMA_VERSION = 2
+#   3: Step 011 (requests.outcome, requests.failed_after_ms; token and cost
+#      columns nullable for failed attempts)
+SCHEMA_VERSION = 3
 
 # Constant SQL; values are always bound as parameters.
 _INSERT_OBSERVATION = (
@@ -64,11 +89,13 @@ _INSERT_OBSERVATION = (
     " VALUES (?, ?, ?, ?, ?, ?, ?)"
 )
 _REQUEST_COLUMNS = (
-    "id", "recorded_at", "environment", "provider", "model",
+    "id", "recorded_at", "environment", "provider", "model", "outcome",
     "input_tokens", "requested_max_output_tokens", "output_tokens",
     "input_price_per_1m", "output_price_per_1m",
-    "input_cost", "output_cost", "total_cost",
+    "input_cost", "output_cost", "total_cost", "failed_after_ms",
 )
+# Columns of a version-2 requests table, copied as-is by the version 3 upgrade.
+_V2_REQUEST_COLUMNS = tuple(c for c in _REQUEST_COLUMNS if c not in ("outcome", "failed_after_ms"))
 
 
 def _columns(conn: sqlite3.Connection, table: str) -> set[str]:
@@ -101,6 +128,18 @@ def _upgrade(conn: sqlite3.Connection) -> None:
             conn.execute(
                 "CREATE INDEX IF NOT EXISTS observations_request ON observations (request_id)"
             )
+        if version < 3 and "outcome" not in _columns(conn, "requests"):
+            # SQLite cannot drop NOT NULL, so rebuild the table from the current
+            # definition. Every Step 010 request row was a completed, successful
+            # request: copy it with outcome 'success' and failed_after_ms NULL.
+            conn.execute(_REQUESTS_TABLE.replace("IF NOT EXISTS requests", "requests_v3"))
+            columns = ", ".join(_V2_REQUEST_COLUMNS)
+            conn.execute(
+                f"INSERT INTO requests_v3 ({columns}, outcome, failed_after_ms)"
+                f" SELECT {columns}, 'success', NULL FROM requests"
+            )
+            conn.execute("DROP TABLE requests")
+            conn.execute("ALTER TABLE requests_v3 RENAME TO requests")
         conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
         conn.commit()
     except BaseException:
@@ -146,12 +185,15 @@ def _observation_row(
 
 
 def save_request(db_path: Path, request: dict, results: list[dict], environment: str) -> str:
-    """Save one measured request and its metric observations; return its new id.
+    """Save one benchmark attempt and its metric observations; return its new id.
 
     `request` must hold every _REQUEST_COLUMNS key except id, recorded_at and
-    environment. The request row and all observations share one timestamp and
+    environment (unknown facts of a failed attempt as None). A failed attempt has
+    no observations. The request row and all observations share one timestamp and
     are written in one transaction: either everything is saved or nothing.
     """
+    if request["outcome"] != "success" and results:
+        raise ValueError("A failed attempt must not have metric observations.")
     request_id = uuid.uuid4().hex
     recorded_at = format_timestamp(datetime.now(timezone.utc))
     row = {**request, "id": request_id, "recorded_at": recorded_at, "environment": environment}
@@ -255,3 +297,28 @@ def load_recent_requests(db_path: Path, environment: str, limit: int) -> list[di
             " ORDER BY recorded_at DESC, id LIMIT ?)",
             (environment, limit),
         )
+
+
+def count_outcomes(
+    db_path: Path,
+    environment: str,
+    provider: str,
+    model: str,
+    *,
+    start: datetime,
+    end: datetime,
+) -> dict[str, int]:
+    """{outcome: attempts} for attempts with start <= recorded_at <= end (inclusive).
+
+    The population is the `requests` table only: every persisted benchmark
+    attempt. Observations without a request (before Step 010, simulated history)
+    are not attempts and are not counted.
+    """
+    with closing(connect(db_path)) as conn:
+        return dict(conn.execute(
+            "SELECT outcome, COUNT(*) FROM requests"
+            " WHERE environment = ? AND provider = ? AND model = ?"
+            " AND recorded_at >= ? AND recorded_at <= ?"
+            " GROUP BY outcome",
+            (environment, provider, model, format_timestamp(start), format_timestamp(end)),
+        ).fetchall())

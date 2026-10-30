@@ -5,6 +5,8 @@ import time
 from collections.abc import Iterator
 from dataclasses import dataclass
 
+from llm_metrics.outcomes import FAILURE_CATEGORIES
+
 
 @dataclass(frozen=True)
 class Usage:
@@ -18,12 +20,26 @@ class Usage:
     output_tokens: int
 
 
+class ProviderFailure(Exception):
+    """Raised by a provider when an attempt fails, with a stable internal category
+    (a key of outcomes.FAILURE_CATEGORIES). Adapters map their native errors
+    (HTTP status codes, SDK exceptions) to a category here; the message is for
+    humans and is never stored."""
+
+    def __init__(self, category: str, message: str = ""):
+        if category not in FAILURE_CATEGORIES:
+            raise ValueError(f"Unknown failure category {category!r}.")
+        super().__init__(message or category)
+        self.category = category
+
+
 class LLMProvider:
     """Base class for anything that streams a response to a prompt.
 
     `stream()` yields text chunks (str) followed by exactly one `Usage`. Chunks
     are not tokens: a chunk may hold zero, one, or several provider tokens.
     The provider must not generate more than `max_output_tokens` output tokens.
+    On failure it raises ProviderFailure (possibly after some chunks).
     """
 
     name: str
@@ -48,6 +64,10 @@ class DummyProvider(LLMProvider):
     first. Stops before a chunk that would take the output past
     `max_output_tokens`. Finally yields `Usage` counted with
     `simulated_token_count` (input: the prompt; output: all text yielded).
+
+    Deterministic simulated failures, for tests (no randomness, no extra sleep):
+    `fail_with=<category>` raises ProviderFailure(category) after
+    `fail_after_chunks` chunks; `omit_usage=True` ends the stream without Usage.
     """
 
     name = "dummy"
@@ -58,10 +78,18 @@ class DummyProvider(LLMProvider):
         first_token_delay_s: float = 0.1,
         tokens: tuple[str, ...] = ("This", " is", " a", " dummy", " response."),
         inter_token_delay_s: float = 0.02,
+        fail_with: str | None = None,
+        fail_after_chunks: int = 0,
+        omit_usage: bool = False,
     ):
+        if fail_with is not None and fail_with not in FAILURE_CATEGORIES:
+            raise ValueError(f"Unknown failure category {fail_with!r}.")
         self.first_token_delay_s = first_token_delay_s
         self.tokens = tokens
         self.inter_token_delay_s = inter_token_delay_s
+        self.fail_with = fail_with
+        self.fail_after_chunks = fail_after_chunks
+        self.omit_usage = omit_usage
 
     def stream(self, prompt: str, max_output_tokens: int) -> Iterator[str | Usage]:
         if max_output_tokens < 1:
@@ -69,12 +97,18 @@ class DummyProvider(LLMProvider):
         time.sleep(self.first_token_delay_s)
         output = ""
         for i, chunk in enumerate(self.tokens):
+            if self.fail_with is not None and i == self.fail_after_chunks:
+                raise ProviderFailure(self.fail_with, "simulated failure")
             if simulated_token_count(output + chunk) > max_output_tokens:
                 break
             if i > 0:
                 time.sleep(self.inter_token_delay_s)
             output += chunk
             yield chunk
+        if self.fail_with is not None:  # fail_after_chunks >= chunks streamed
+            raise ProviderFailure(self.fail_with, "simulated failure")
+        if self.omit_usage:
+            return
         yield Usage(
             input_tokens=simulated_token_count(prompt),
             output_tokens=simulated_token_count(output),

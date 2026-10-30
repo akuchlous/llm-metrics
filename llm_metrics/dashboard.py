@@ -2,13 +2,14 @@
 
 Usage: python -m llm_metrics.dashboard   (serves http://127.0.0.1:8000/)
 
-GET /?window=24h|7d|30d&metric=total_latency|ttft|output_chunks_per_s shows one
-metric over a time window ending at the current UTC time (default 7d, metric
-ttft) as percentiles and a line chart. Any other, empty, or repeated value is
-rejected with HTTP 400.
+GET /?window=24h|7d|30d&metric=total_latency|ttft|output_chunks_per_s shows,
+for a time window ending at the current UTC time (default 7d), the observed
+benchmark success rate of all attempts and one metric (default ttft) over
+successful attempts as percentiles and a line chart. Any other, empty, or
+repeated value is rejected with HTTP 400.
 
-GET /requests lists the most recent individual measured requests with their
-token counts, latency, throughput, and cost.
+GET /requests lists the most recent individual benchmark attempts with their
+outcome, token counts, latency, throughput, and cost.
 
 Uses only the standard library. Binds to 127.0.0.1 so it is not reachable from
 other machines. Shows only simulated test observations from the dummy provider.
@@ -26,7 +27,8 @@ from llm_metrics.config import ConfigError, get_db_path, get_port
 from llm_metrics.latency import METRICS
 from llm_metrics.percentiles import percentile
 from llm_metrics.providers import DummyProvider
-from llm_metrics.storage import load_observations, load_recent_requests
+from llm_metrics.outcomes import FAILURE_CATEGORIES, SUCCESS, success_rate
+from llm_metrics.storage import count_outcomes, load_observations, load_recent_requests
 
 HOST = "127.0.0.1"
 
@@ -75,8 +77,11 @@ PAGE = """<!doctype html>
   table {{ border-collapse: collapse; font-size: .85rem; }}
   th, td {{ padding: .3rem .45rem; border-bottom: 1px solid #ddd; text-align: right; white-space: nowrap; }}
   th {{ white-space: normal; vertical-align: bottom; }}
-  th:first-child, td:first-child, th:nth-child(2), td:nth-child(2), th:last-child, td:last-child {{ text-align: left; }}
+  th:first-child, td:first-child, th:nth-child(2), td:nth-child(2), th:nth-child(3), td:nth-child(3),
+  th:last-child, td:last-child {{ text-align: left; }}
   .primary {{ font-weight: 700; }}
+  .failed {{ color: #b91c1c; font-weight: 700; }}
+  .reliability {{ border: 1px solid #ddd; padding: .2rem 1rem .6rem; margin: 1rem 0; }}
 </style>
 </head>
 <body>
@@ -188,22 +193,52 @@ def window_bounds(window: str, now: datetime) -> tuple[datetime, datetime]:
     return now - WINDOWS[window], now
 
 
+def _reliability_section(outcome_counts: dict[str, int], window: str) -> str:
+    """Observed benchmark success rate for all attempts in the window."""
+    title = f"<h2>Observed benchmark success rate ({window})</h2>\n"
+    scope = (
+        '<p class="muted">All benchmark attempts made by this runner in the window,'
+        " successful or not. This is what our runner observed, not the provider's"
+        " overall uptime.</p>\n"
+    )
+    rate = success_rate(outcome_counts)
+    if rate is None:
+        body = f"<p><b>No benchmark attempts in the selected window ({window})</b>, so no success rate.</p>"
+    else:
+        failures = "".join(
+            f"<tr><td>{label}</td><td>{rate['failures_by_category'][category]}</td></tr>"
+            for category, label in FAILURE_CATEGORIES.items()
+        )
+        body = (
+            f'<p class="latest">{rate["success_rate"] * 100:.1f}%</p>\n'
+            f"<p>{rate['successes']} of {rate['attempts']} attempts succeeded"
+            f" ({rate['failures']} failed, {rate['failure_rate'] * 100:.1f}%).</p>\n"
+            f"<table><tr><th>Failure category</th><th>Attempts</th></tr>{failures}</table>"
+        )
+    return f'<section class="reliability">{title}{scope}{body}</section>\n'
+
+
 def render_page(
     observations: list[tuple[str, float]],
     window: str,
     metric: str,
     start: datetime,
     end: datetime,
+    outcome_counts: dict[str, int],
 ) -> str:
-    """Full HTML page for one metric and window's (recorded_at, value) rows, oldest first.
+    """Full HTML page for one window: success rate over all attempts
+    (`outcome_counts`), then one metric's (recorded_at, value) rows, oldest first.
 
-    Every derived value (count, latest, percentiles, chart) uses `observations`.
+    Every derived metric value (count, latest, percentiles, chart) uses
+    `observations`, which contain successful measurements only.
     """
     label, unit = METRICS[metric]
     header = (
         _nav(window, metric)
         + f'\n<p class="muted">Window {window}: {start:%Y-%m-%d %H:%M} UTC'
         f" to {end:%Y-%m-%d %H:%M} UTC (now), inclusive.</p>\n"
+        + _reliability_section(outcome_counts, window)
+        + f"<h2>{label} (successful attempts only)</h2>\n"
     )
     if not observations:
         body = (
@@ -247,7 +282,8 @@ def build_page(db_path: Path, window: str, metric: str, now: datetime) -> str:
     observations = load_observations(
         db_path, ENVIRONMENT, PROVIDER, MODEL, metric, start=start, end=end
     )
-    return render_page(observations, window, metric, start, end)
+    counts = count_outcomes(db_path, ENVIRONMENT, PROVIDER, MODEL, start=start, end=end)
+    return render_page(observations, window, metric, start, end, counts)
 
 
 def _number(value: float | None, spec: str) -> str:
@@ -257,43 +293,52 @@ def _number(value: float | None, spec: str) -> str:
 def render_requests_page(requests: list[dict]) -> str:
     """Table of individual requests (newest first), as from load_recent_requests."""
     intro = (
-        f"<h2>Recent requests</h2>\n<p class=\"muted\">The {RECENT_REQUESTS} most recent measured"
-        " requests. Token counts use a <b>simulated</b> tokenizer and costs use"
-        " <b>simulated</b> prices (USD); they do not match any real provider. Total"
-        " latency is the request's response time; TTFT is shown for streaming"
-        " diagnostics. Throughput counts stream chunks, not tokens.</p>\n"
+        f"<h2>Recent requests</h2>\n<p class=\"muted\">The {RECENT_REQUESTS} most recent benchmark"
+        " attempts, successful or failed. Token counts use a <b>simulated</b> tokenizer and"
+        " costs use <b>simulated</b> prices (USD); they do not match any real provider. Total"
+        " latency is a successful request's response time; TTFT is shown for streaming"
+        " diagnostics. Throughput counts stream chunks, not tokens. For failed attempts,"
+        " tokens, cost, and performance are unknown (—); <i>Failed after</i> is the time"
+        " until the failure was detected.</p>\n"
     )
     if not requests:
         return _page(
-            intro + "<p><b>No measured requests yet.</b> Run <code>./run.sh</code> to record one."
+            intro + "<p><b>No benchmark attempts yet.</b> Run <code>./run.sh</code> to record one."
             " (Observations recorded before Step 010 have no request details.)</p>",
             "/requests",
         )
     # Most important first (time, latency, tokens, total cost); the table scrolls
     # sideways on narrow screens.
     header = (
-        "<tr><th>Time (UTC)</th><th>Request</th>"
+        "<tr><th>Time (UTC)</th><th>Request</th><th>Outcome</th>"
         "<th>Total latency (ms)</th><th>TTFT (ms)</th><th>Throughput (chunks/s)</th>"
         "<th>Input tokens</th><th>Output tokens</th><th>Max output tokens</th>"
         "<th>Total cost ($)</th><th>Input cost ($)</th><th>Output cost ($)</th>"
-        "<th>Provider / model</th></tr>"
+        "<th>Failed after (ms)</th><th>Provider / model</th></tr>"
     )
     rows = []
     for r in requests:
         metrics = r["metrics"]
+        if r["outcome"] == SUCCESS:
+            outcome = "success"
+        else:
+            failure_label = escape(FAILURE_CATEGORIES.get(r["outcome"], r["outcome"]))
+            outcome = f'<span class="failed">FAILED</span>: {failure_label}'
         rows.append(
             "<tr>"
             f"<td>{_display_time(r['recorded_at'])}</td>"
             f"<td><code title=\"{escape(r['id'])}\">{escape(r['id'][:8])}</code></td>"
+            f"<td>{outcome}</td>"
             f"<td class=\"primary\">{_number(metrics.get('total_latency'), '.1f')}</td>"
             f"<td>{_number(metrics.get('ttft'), '.1f')}</td>"
             f"<td>{_number(metrics.get('output_chunks_per_s'), '.1f')}</td>"
-            f"<td>{r['input_tokens']:d}</td>"
-            f"<td>{r['output_tokens']:d}</td>"
+            f"<td>{_number(r['input_tokens'], 'd')}</td>"
+            f"<td>{_number(r['output_tokens'], 'd')}</td>"
             f"<td>{r['requested_max_output_tokens']:d}</td>"
-            f"<td class=\"primary\">{r['total_cost']:.6f}</td>"
-            f"<td>{r['input_cost']:.6f}</td>"
-            f"<td>{r['output_cost']:.6f}</td>"
+            f"<td class=\"primary\">{_number(r['total_cost'], '.6f')}</td>"
+            f"<td>{_number(r['input_cost'], '.6f')}</td>"
+            f"<td>{_number(r['output_cost'], '.6f')}</td>"
+            f"<td>{_number(r['failed_after_ms'], '.1f')}</td>"
             f"<td>{escape(r['provider'])} / {escape(r['model'])}</td>"
             "</tr>"
         )

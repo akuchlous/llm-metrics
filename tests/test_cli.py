@@ -1,3 +1,5 @@
+import contextlib
+import io
 import os
 import sqlite3
 import subprocess
@@ -6,6 +8,7 @@ import tempfile
 import unittest
 from contextlib import closing
 from pathlib import Path
+from unittest import mock
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
@@ -43,7 +46,8 @@ class CLITest(unittest.TestCase):
     def test_test_env_saves_one_request_with_all_metrics(self):
         proc = self.run_cli("test")
         self.assertEqual(proc.returncode, 0, proc.stderr)
-        self.assertRegex(proc.stdout, r"Saved request [0-9a-f]{32} with 3 observations to")
+        self.assertIn("Outcome: success", proc.stdout)
+        self.assertRegex(proc.stdout, r"Saved attempt [0-9a-f]{32} with 3 observations to")
         self.assertIn("Input tokens: 3 (simulated)", proc.stdout)
         self.assertIn("Output tokens: 7 of max 64 (simulated)", proc.stdout)
         self.assertIn("Cost: $0.000062 (input $0.000006 + output $0.000056) (simulated)", proc.stdout)
@@ -51,6 +55,7 @@ class CLITest(unittest.TestCase):
             [request] = conn.execute(
                 "SELECT id, recorded_at, environment, input_tokens, requested_max_output_tokens,"
                 " output_tokens, input_price_per_1m, output_price_per_1m, total_cost FROM requests"
+                " WHERE outcome = 'success' AND failed_after_ms IS NULL"
             ).fetchall()
             rows = conn.execute(
                 "SELECT recorded_at, environment, provider, model, metric, value, request_id"
@@ -66,6 +71,33 @@ class CLITest(unittest.TestCase):
             self.assertEqual((row_recorded_at, row_request), (recorded_at, request_id))
             self.assertGreater(value, 0)
         self.assertGreaterEqual(rows[0][5], rows[1][5])  # total >= TTFT
+
+    def test_failed_attempt_is_recorded_in_process(self):
+        # The normal CLI path never fails; inject a failing dummy provider.
+        from llm_metrics import __main__ as cli
+        from llm_metrics.providers import DummyProvider
+
+        provider = DummyProvider(first_token_delay_s=0, inter_token_delay_s=0,
+                                 fail_with="provider_error", fail_after_chunks=2)
+        out = io.StringIO()
+        with mock.patch.dict(os.environ, {"LLM_METRICS_DB_PATH": str(self.db_path), "APP_ENV": "test"}), \
+                mock.patch.object(cli, "get_provider", return_value=provider), \
+                contextlib.redirect_stdout(out):
+            self.assertEqual(cli.main(), 0)  # a failed attempt is a recorded result
+        text = out.getvalue()
+        self.assertIn("Outcome: FAILED — Provider/server error (provider_error)", text)
+        self.assertIn("unknown (not recorded)", text)
+        self.assertNotIn("simulated failure", text)  # provider message never shown or stored
+        with closing(sqlite3.connect(self.db_path)) as conn:
+            [row] = conn.execute(
+                "SELECT outcome, input_tokens, output_tokens, total_cost, failed_after_ms,"
+                " requested_max_output_tokens FROM requests"
+            ).fetchall()
+            observations = conn.execute("SELECT COUNT(*) FROM observations").fetchone()[0]
+        self.assertEqual(row[:4], ("provider_error", None, None, None))
+        self.assertGreaterEqual(row[4], 0)
+        self.assertEqual(row[5], 64)
+        self.assertEqual(observations, 0)
 
     def test_prod_env_fails_without_measuring(self):
         proc = self.run_cli("prod")

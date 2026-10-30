@@ -12,6 +12,7 @@ from llm_metrics.pricing import price_for, request_cost
 from llm_metrics.storage import (
     SCHEMA_VERSION,
     connect,
+    count_outcomes,
     load_observations,
     load_recent_requests,
     load_request,
@@ -29,6 +30,21 @@ REQUEST = {
     "input_cost": 6e-06,
     "output_cost": 5.6e-05,
     "total_cost": 6.2e-05,
+    "outcome": "success",
+    "failed_after_ms": None,
+}
+FAILED = {
+    **DUMMY,
+    "outcome": "rate_limited",
+    "input_tokens": None,
+    "requested_max_output_tokens": 64,
+    "output_tokens": None,
+    "input_price_per_1m": 2.0,
+    "output_price_per_1m": 8.0,
+    "input_cost": None,
+    "output_cost": None,
+    "total_cost": None,
+    "failed_after_ms": 12.5,
 }
 RESULTS = [
     {**DUMMY, "metric": "total_latency", "value": 180.0},
@@ -165,6 +181,58 @@ class StorageTest(unittest.TestCase):
         )
         self.assertEqual(recomputed["total_cost"], loaded["total_cost"])
 
+    def test_failed_attempt_is_persisted_with_unknown_facts(self):
+        request_id = self.save(FAILED, results=[])
+        loaded = load_request(self.db_path, request_id)
+        self.assertEqual(loaded["outcome"], "rate_limited")
+        self.assertEqual(loaded["failed_after_ms"], 12.5)
+        for unknown in ("input_tokens", "output_tokens", "input_cost", "output_cost", "total_cost"):
+            self.assertIsNone(loaded[unknown], unknown)  # NULL, not 0
+        self.assertEqual(loaded["requested_max_output_tokens"], 64)
+        self.assertEqual(loaded["metrics"], {})
+        self.assertEqual(read_rows(self.db_path), [])  # no observations at all
+
+    def test_outcome_and_facts_must_be_consistent(self):
+        fabricated = {**FAILED, "input_tokens": 0, "output_tokens": 0,
+                      "input_cost": 0.0, "output_cost": 0.0, "total_cost": 0.0}
+        missing_cost = {**REQUEST, "total_cost": None}
+        success_with_failure_time = {**REQUEST, "failed_after_ms": 5.0}
+        failure_without_time = {**FAILED, "failed_after_ms": None}
+        unknown_outcome = {**FAILED, "outcome": "http_503"}
+        for bad in (fabricated, missing_cost, success_with_failure_time,
+                    failure_without_time, unknown_outcome):
+            with self.subTest(bad=bad):
+                with self.assertRaises(sqlite3.IntegrityError):
+                    self.save(bad, results=[])
+        self.assertEqual(read_rows(self.db_path, "requests"), [])
+
+    def test_failed_attempt_with_metrics_is_refused_before_writing(self):
+        with self.assertRaises(ValueError):
+            self.save(FAILED, results=RESULTS)
+        self.assertFalse(self.db_path.exists())  # refused before opening the database
+
+    def test_count_outcomes_over_all_attempts_in_window(self):
+        for request in (REQUEST, REQUEST, FAILED, {**FAILED, "outcome": "timeout"}, FAILED):
+            self.save(request, results=RESULTS if request["outcome"] == "success" else [])
+        self.save(FAILED, results=[], environment="prod")  # other environment
+        now = datetime.now(timezone.utc)
+        counts = count_outcomes(self.db_path, "test", "dummy", "dummy-model-v1",
+                                start=now - timedelta(minutes=1), end=now)
+        self.assertEqual(counts, {"success": 2, "rate_limited": 2, "timeout": 1})
+        later = count_outcomes(self.db_path, "test", "dummy", "dummy-model-v1",
+                               start=now + timedelta(minutes=1), end=now + timedelta(minutes=2))
+        self.assertEqual(later, {})
+
+    def test_failures_do_not_enter_metric_populations(self):
+        self.save()
+        self.save(FAILED, results=[])
+        start = datetime.now(timezone.utc) - timedelta(minutes=1)
+        end = datetime.now(timezone.utc)
+        for metric in ("total_latency", "ttft", "output_chunks_per_s"):
+            loaded = load_observations(self.db_path, "test", "dummy", "dummy-model-v1", metric,
+                                       start=start, end=end)
+            self.assertEqual(len(loaded), 1, metric)  # only the successful attempt
+
     def test_values_are_stored_literally_not_as_sql(self):
         hostile = "x'); DROP TABLE observations; --"
         request_id = self.save({**REQUEST, "provider": hostile},
@@ -183,6 +251,30 @@ OLD_ROW = (
     "INSERT INTO observations VALUES"
     " (1, '2026-10-30T00:43:46.279219Z', 'test', 'dummy', 'dummy-model-v1', 'ttft', 100.3)"
 )
+
+
+STEP_010_SCHEMA = """
+CREATE TABLE requests (
+    id TEXT PRIMARY KEY, recorded_at TEXT NOT NULL,
+    environment TEXT NOT NULL CHECK (environment IN ('test', 'prod')),
+    provider TEXT NOT NULL, model TEXT NOT NULL,
+    input_tokens INTEGER NOT NULL CHECK (input_tokens >= 0),
+    requested_max_output_tokens INTEGER NOT NULL CHECK (requested_max_output_tokens >= 1),
+    output_tokens INTEGER NOT NULL CHECK (output_tokens >= 0),
+    input_price_per_1m REAL NOT NULL CHECK (input_price_per_1m >= 0),
+    output_price_per_1m REAL NOT NULL CHECK (output_price_per_1m >= 0),
+    input_cost REAL NOT NULL, output_cost REAL NOT NULL, total_cost REAL NOT NULL
+);
+CREATE TABLE observations (
+    id INTEGER PRIMARY KEY, recorded_at TEXT NOT NULL,
+    environment TEXT NOT NULL CHECK (environment IN ('test', 'prod')),
+    provider TEXT NOT NULL, model TEXT NOT NULL, metric TEXT NOT NULL,
+    value REAL NOT NULL, request_id TEXT REFERENCES requests (id)
+);
+CREATE UNIQUE INDEX observations_unique
+    ON observations (recorded_at, environment, provider, model, metric);
+CREATE INDEX observations_request ON observations (request_id);
+"""
 
 
 class SchemaUpgradeTest(unittest.TestCase):
@@ -218,7 +310,46 @@ class SchemaUpgradeTest(unittest.TestCase):
     def test_fresh_database_is_current_version(self):
         init(self.db_path)
         self.assertEqual(self.version(), SCHEMA_VERSION)
-        self.assertEqual(SCHEMA_VERSION, 2)
+        self.assertEqual(SCHEMA_VERSION, 3)
+
+    def test_version_2_requests_become_historical_successes(self):
+        # A database exactly as Step 010 created it: NOT NULL token/cost columns,
+        # no outcome; one request with linked observations, one unpaired row.
+        with closing(sqlite3.connect(self.db_path)) as conn, conn:
+            conn.executescript(STEP_010_SCHEMA)
+            conn.execute(
+                "INSERT INTO requests VALUES ('abc', '2026-10-30T05:59:00.000000Z', 'test',"
+                " 'dummy', 'dummy-model-v1', 3, 64, 7, 2.0, 8.0, 6e-06, 5.6e-05, 6.2e-05)"
+            )
+            conn.execute(
+                "INSERT INTO observations VALUES (1, '2026-10-30T05:59:00.000000Z', 'test',"
+                " 'dummy', 'dummy-model-v1', 'total_latency', 181.1, 'abc')"
+            )
+            conn.execute(
+                "INSERT INTO observations VALUES (2, '2026-10-23T00:00:00.000000Z', 'test',"
+                " 'dummy', 'dummy-model-v1', 'ttft', 101.7, NULL)"
+            )
+        with closing(sqlite3.connect(self.db_path)) as conn:
+            conn.execute("PRAGMA user_version = 2")
+        init(self.db_path)
+        self.assertEqual(self.version(), SCHEMA_VERSION)
+        loaded = load_request(self.db_path, "abc")
+        self.assertEqual(loaded["outcome"], "success")
+        self.assertIsNone(loaded["failed_after_ms"])
+        self.assertEqual(
+            [loaded[k] for k in ("input_tokens", "requested_max_output_tokens", "output_tokens",
+                                 "input_price_per_1m", "output_price_per_1m", "total_cost")],
+            [3, 64, 7, 2.0, 8.0, 6.2e-05],
+        )
+        self.assertEqual(loaded["metrics"], {"total_latency": 181.1})
+        rows = read_rows(self.db_path)
+        self.assertEqual([(r["metric"], r["request_id"]) for r in rows],
+                         [("total_latency", "abc"), ("ttft", None)])  # unpaired row unchanged
+        self.assertEqual(len(read_rows(self.db_path, "requests")), 1)  # no attempts invented
+        # The upgraded table accepts failures (nullable facts) and is not upgraded twice.
+        save_request(self.db_path, FAILED, [], "test")
+        init(self.db_path)
+        self.assertEqual(len(read_rows(self.db_path, "requests")), 2)
 
     def test_version_0_database_is_upgraded(self):
         self.make_old(OLD_OBSERVATIONS_V0, 0)

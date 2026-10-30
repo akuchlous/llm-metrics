@@ -50,3 +50,4 @@ Each file has:
 | [08](08/) | Total response latency | `prompts/008-total-response-latency.md` |
 | [09](09/) | Output throughput | `prompts/009-throughput.md` |
 | [10](10/) | Token accounting and cost | `prompts/010-token-accounting-and-cost.md` |
+| [11](11/) | Errors and availability | `prompts/011-errors-and-availability.md` |

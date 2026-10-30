@@ -238,6 +238,49 @@ class MetricSelectionTest(DashboardTestCase):
         self.assertIn("TEST / SIMULATED DATA", text)
 
 
+class ReliabilityTest(DashboardTestCase):
+    def render(self, counts):
+        """Text of the reliability section only, with cells separated by spaces."""
+        start, end = window_bounds("7d", NOW)
+        page = render_page([], "7d", "ttft", start, end, counts)
+        section = page[page.index('<section class="reliability">'):page.index("</section>")]
+        return re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", section))
+
+    def test_success_rate_and_failures_by_category(self):
+        text = self.render({"success": 7, "rate_limited": 2, "timeout": 1})
+        self.assertIn("Observed benchmark success rate (7d)", text)
+        self.assertIn("70.0%", text)
+        self.assertIn("7 of 10 attempts succeeded (3 failed, 30.0%)", text)
+        self.assertIn("Rate limited 2", text)
+        self.assertIn("Timeout 1", text)
+        self.assertIn("Provider/server error 0", text)
+        self.assertIn("Network/transport error 0", text)
+        self.assertIn("Invalid response 0", text)
+        self.assertIn("not the provider's overall uptime", text)
+
+    def test_no_attempts_shows_no_rate(self):
+        text = self.render({})
+        self.assertIn("No benchmark attempts in the selected window (7d)", text)
+        self.assertNotIn("%", text)
+
+    def test_all_failed_is_zero_percent_not_no_rate(self):
+        self.assertIn("0.0%", self.render({"provider_error": 3}))
+
+    def test_failures_count_for_rate_but_not_for_percentiles(self):
+        now = datetime.now(timezone.utc)  # save_request stamps the real time
+        save_request(self.db_path, REQUEST, metric_results(total_latency=180.0, ttft=100.0), "test")
+        for category in ("timeout", "invalid_response"):
+            save_request(self.db_path, {**REQUEST, "outcome": category, "input_tokens": None,
+                                        "output_tokens": None, "input_cost": None, "output_cost": None,
+                                        "total_cost": None, "failed_after_ms": 5.0}, [], "test")
+        text = visible_text(build_page(self.db_path, "24h", "total_latency", now + timedelta(seconds=5)))
+        self.assertIn("1 of 3 attempts succeeded (2 failed, 66.7%)", text)
+        self.assertIn("33.3%", text)
+        self.assertIn("Total latency (successful attempts only)", text)
+        self.assertIn("n = 1", text)  # failed attempts add no latency values
+        self.assertIn("p50 180.0 ms", text)
+
+
 class EmptyAndRenderTest(DashboardTestCase):
     def test_empty_valid_window_renders_cleanly(self):
         self.save(NOW - timedelta(days=3), 120.0)  # outside 24h
@@ -255,7 +298,7 @@ class EmptyAndRenderTest(DashboardTestCase):
 
     def test_single_observation(self):
         start, end = window_bounds("24h", NOW)
-        page = render_page([("2026-11-30T11:00:00.000000Z", 101.0)], "24h", "ttft", start, end)
+        page = render_page([("2026-11-30T11:00:00.000000Z", 101.0)], "24h", "ttft", start, end, {})
         text = visible_text(page)
         for p in ("p50", "p95", "p99"):
             self.assertIn(f"{p} 101.0 ms", text)
@@ -273,6 +316,8 @@ REQUEST = {
     "input_cost": 6e-06,
     "output_cost": 5.6e-05,
     "total_cost": 6.2e-05,
+    "outcome": "success",
+    "failed_after_ms": None,
 }
 
 
@@ -285,7 +330,7 @@ class RequestsViewTest(DashboardTestCase):
         page = render_requests_page(load_recent_requests(self.db_path, "test", 20))
         text = visible_text(page)
         self.assertIn("TEST / SIMULATED DATA", text)
-        self.assertIn("No measured requests yet", text)
+        self.assertIn("No benchmark attempts yet", text)
         self.assertNotIn("<table", page)
 
     def test_shows_request_facts_metrics_and_cost(self):
@@ -309,13 +354,29 @@ class RequestsViewTest(DashboardTestCase):
         newest_row = page[page.index(second[:8]):page.index(first[:8])]  # from its id cell on
         cells = re.findall(r"<td[^>]*>(.*?)</td>", newest_row)
         # total latency, TTFT, throughput, input/output/max tokens, total/input/output cost
-        self.assertEqual(cells[:9], ["181.4", "100.3", "49.4", "3", "7", "64",
-                                     "0.000062", "0.000006", "0.000056"])
+        # outcome, total latency, TTFT, throughput, input/output/max tokens,
+        # total/input/output cost, failed after
+        self.assertEqual(cells[:11], ["success", "181.4", "100.3", "49.4", "3", "7", "64",
+                                      "0.000062", "0.000006", "0.000056", "—"])
         # The older request had no throughput: shown as missing, not invented.
         older_row = page[page.index(first[:8]):]
         self.assertIn("<td>—</td>", older_row)
         # Total latency precedes TTFT: it is the primary latency.
         self.assertLess(text.index("Total latency (ms)"), text.index("TTFT (ms)"))
+
+    def test_failed_attempt_row_shows_category_and_unknowns(self):
+        failed = {**REQUEST, "outcome": "transport_error", "input_tokens": None,
+                  "output_tokens": None, "input_cost": None, "output_cost": None,
+                  "total_cost": None, "failed_after_ms": 42.0}
+        request_id = save_request(self.db_path, failed, [], "test")
+        page = render_requests_page(load_recent_requests(self.db_path, "test", 20))
+        row = page[page.index(request_id[:8]):]
+        cells = re.findall(r"<td[^>]*>(.*?)</td>", row)
+        self.assertEqual(visible_text(cells[0]), "FAILED: Network/transport error")
+        # latency, TTFT, throughput, input/output tokens unknown; max is known
+        self.assertEqual(cells[1:7], ["—", "—", "—", "—", "—", "64"])
+        self.assertEqual(cells[7:11], ["—", "—", "—", "42.0"])  # costs unknown; failed after
+        self.assertNotIn(">0<", row)  # nothing shown as zero
 
     def test_text_from_storage_is_escaped(self):
         save_request(self.db_path, {**REQUEST, "model": "<script>x</script>"},
@@ -327,7 +388,7 @@ class RequestsViewTest(DashboardTestCase):
     def test_only_test_environment_requests_are_listed(self):
         save_request(self.db_path, REQUEST, metric_results(total_latency=1.0), "prod")
         page = render_requests_page(load_recent_requests(self.db_path, "test", 20))
-        self.assertIn("No measured requests yet", page)
+        self.assertIn("No benchmark attempts yet", page)
 
 
 class ServerTest(DashboardTestCase):

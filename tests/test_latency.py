@@ -3,7 +3,8 @@ from unittest import mock
 
 from llm_metrics import latency
 from llm_metrics.latency import METRICS, measure_request
-from llm_metrics.providers import DummyProvider, LLMProvider, Usage
+from llm_metrics.outcomes import FAILURE_CATEGORIES
+from llm_metrics.providers import DummyProvider, LLMProvider, ProviderFailure, Usage
 
 DEFAULT_USAGE = Usage(input_tokens=2, output_tokens=5)
 
@@ -52,9 +53,11 @@ class MeasureRequestTest(unittest.TestCase):
         )
         self.assertEqual(request, {
             "provider": "dummy", "model": "dummy-model-v1",
+            "outcome": "success",
             "input_tokens": 3,                    # deterministic: "Say hello." = 10 chars
             "requested_max_output_tokens": 64,    # the cap we asked for
             "output_tokens": 7,                   # what was generated: 25 chars
+            "failed_after_ms": None,
         })
         # 5 chunks were streamed, yet 7 tokens are reported.
         self.assertNotEqual(request["output_tokens"], 5)
@@ -106,22 +109,75 @@ class MeasureRequestTest(unittest.TestCase):
         self.assertGreaterEqual(values["total_latency"], 110)  # 50 + 2 x 30 ms
         self.assertGreaterEqual(values["total_latency"], values["ttft"])
 
-    def test_no_text_raises(self):
-        with self.assertRaisesRegex(RuntimeError, "no tokens"):
-            measure_request(ScriptedProvider([DEFAULT_USAGE]), "hi", 64)
+    def assert_failed(self, provider, category, max_output_tokens=64):
+        attempt, results = measure_request(provider, "hi", max_output_tokens)
+        self.assertEqual(attempt["outcome"], category)
+        # Unknown facts are None, never 0; no partial metrics are kept.
+        self.assertIsNone(attempt["input_tokens"])
+        self.assertIsNone(attempt["output_tokens"])
+        self.assertEqual(results, [])
+        self.assertEqual(attempt["requested_max_output_tokens"], max_output_tokens)
+        self.assertGreaterEqual(attempt["failed_after_ms"], 0)
+        return attempt
 
-    def test_missing_usage_raises(self):
-        with self.assertRaisesRegex(RuntimeError, "did not report token usage"):
-            measure_request(ScriptedProvider(["a", "b"]), "hi", 64)
+    def test_simulated_provider_failures_map_to_their_category(self):
+        for category in ("timeout", "rate_limited", "provider_error", "transport_error"):
+            for after in (0, 2):  # before any text, and after some text
+                with self.subTest(category=category, fail_after_chunks=after):
+                    self.assert_failed(
+                        DummyProvider(first_token_delay_s=0, inter_token_delay_s=0,
+                                      fail_with=category, fail_after_chunks=after),
+                        category,
+                    )
 
-    def test_duplicate_usage_raises(self):
-        with self.assertRaisesRegex(RuntimeError, "more than once"):
-            measure_request(ScriptedProvider(["a", DEFAULT_USAGE, DEFAULT_USAGE]), "hi", 64)
+    def test_every_category_is_raisable_and_unknown_ones_are_rejected(self):
+        for category in FAILURE_CATEGORIES:
+            self.assertEqual(ProviderFailure(category).category, category)
+        with self.assertRaises(ValueError):
+            ProviderFailure("http_503")  # provider-specific codes must be mapped first
 
-    def test_output_tokens_above_requested_max_raises(self):
-        with self.assertRaisesRegex(RuntimeError, "more than the requested maximum"):
-            measure_request(ScriptedProvider(["a", Usage(1, 10)]), "hi", 5)
+    def test_missing_usage_is_invalid_response(self):
+        self.assert_failed(DummyProvider(first_token_delay_s=0, inter_token_delay_s=0, omit_usage=True),
+                           "invalid_response")
+        self.assert_failed(ScriptedProvider(["a", "b"]), "invalid_response")
 
+    def test_no_text_is_invalid_response(self):
+        self.assert_failed(ScriptedProvider([DEFAULT_USAGE]), "invalid_response")
+
+    def test_duplicate_usage_is_invalid_response(self):
+        self.assert_failed(ScriptedProvider(["a", DEFAULT_USAGE, DEFAULT_USAGE]), "invalid_response")
+
+    def test_text_after_usage_is_invalid_response(self):
+        self.assert_failed(ScriptedProvider(["a", DEFAULT_USAGE, "b"]), "invalid_response")
+
+    def test_output_tokens_above_requested_max_is_invalid_response(self):
+        self.assert_failed(ScriptedProvider(["a", Usage(1, 10)]), "invalid_response", max_output_tokens=5)
+
+    def test_failed_after_is_time_until_failure_detected(self):
+        # start=0; chunk at 0.100; failure raised; caught at 0.250 (seconds)
+        class FailsAfterOneChunk(LLMProvider):
+            name, model = "f", "f-model"
+
+            def stream(self, prompt, max_output_tokens):
+                yield "a"
+                raise ProviderFailure("timeout")
+
+        with mock.patch.object(latency.time, "perf_counter", side_effect=[0.0, 0.100, 0.250]):
+            attempt, results = measure_request(FailsAfterOneChunk(), "hi", 64)
+        self.assertEqual(attempt["outcome"], "timeout")
+        self.assertAlmostEqual(attempt["failed_after_ms"], 250.0)
+        self.assertEqual(results, [])  # the TTFT seen at 0.100 is not kept
+
+    def test_unexpected_exceptions_are_not_recorded_as_provider_failures(self):
+        class Buggy(LLMProvider):
+            name, model = "b", "b-model"
+
+            def stream(self, prompt, max_output_tokens):
+                raise KeyError("bug in llm-metrics, not a provider failure")
+                yield  # pragma: no cover
+
+        with self.assertRaises(KeyError):
+            measure_request(Buggy(), "hi", 64)
 
 if __name__ == "__main__":
     unittest.main()
