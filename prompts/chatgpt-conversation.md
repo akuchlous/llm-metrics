@@ -64,7 +64,7 @@ OpenRouter is a useful product reference: its provider/analytics surfaces emphas
 - Step 012 — first real provider/model (OpenAI `gpt-6-luna`), explicit low-cost real-call path, official-price verification, and publishable benchmark API spend grouped by provider/model: complete; live path validated in Step 012a.
 - Step 012a — live validation cleanup: sanitized diagnostics kept, OpenAI `x-request-id` stored per attempt (schema v4), pricing verified against official docs, `reasoning.effort: none` confirmed by the official model page: complete and reviewed; 169 tests reported passing.
 - Step 013 — Metrics v1 data completeness: authoritative output tokens/sec, stable workload identity, measurement origin, and cache-aware request facts are implemented through schema v6. Review result: pass with known limitations; 192 tests reported passing and no paid call. OpenAI's current official prompt-caching documentation confirms explicit mode with no explicit breakpoints disables prompt caching for GPT-5.6+; live validation of this new request shape is still pending and should be done deliberately later.
-- Step 014 — production-web refactor, intentionally split into 014a/014b/... rather than a large rewrite. 014a introduces the Flask application/routing boundary while preserving behavior; 014b will move HTML into Jinja templates; later 014 substeps will separate view/controller preparation from analytics/storage and finish production-web structure before deployment. 014a implemented (Flask app factory, `web.py` → `dashboard.py` → `storage`, hash-pinned `requirements.txt`), pending review.
+- Step 014 — production-web refactor, intentionally split into 014a/014b/... rather than a large rewrite. 014a is complete and reviewed: Flask application factory and HTTP routing live in `web.py`, with dependency direction `web -> dashboard -> storage`, 217 tests reported passing. 014b is now defined: move full-page HTML/CSS presentation out of Python into Jinja templates while preserving routes, metrics semantics, security, and product behavior. 014c will then separate view preparation from analytics/query orchestration.
 
 The aggregate dashboard should answer: **How is this provider/model performing, under what workload/origin/cache conditions, and is performance changing?** The individual-call view should answer: **What exactly happened on this benchmark request, how much work did it do, how long did it take, what did it cost, was cached input reused, and did it succeed?** Simulated data must always be clearly labeled.
 
@@ -90,7 +90,9 @@ The dependency-free stdlib dashboard was appropriate for the measurement prototy
 
 Target dependency direction:
 
-`Flask routes/controllers -> application/analytics -> storage`, while benchmark/provider/measurement code remains independent of Flask. HTML moves to Jinja in a separate substep. SQLite remains until the deployment/database step earns PostgreSQL. Do not introduce Django/React/SQLAlchemy merely for architectural appearance.
+`Flask routes/controllers -> application/analytics -> storage`, while benchmark/provider/measurement code remains independent of Flask. HTML moves to Jinja in 014b. SQLite remains until the deployment/database step earns PostgreSQL. Do not introduce Django/React/SQLAlchemy merely for architectural appearance.
+
+014b presentation rule: Python prepares facts/view data; Jinja renders markup. Templates must remain deliberately dumb—no storage access, percentile/cost/reliability calculations, provider logic, or cache inference. Preserve Jinja autoescaping and the existing CSP; avoid `|safe`/Markup unless narrowly justified and tested. This step is separation, not visual redesign. The SVG chart may retain a small dedicated Python renderer if that is clearer than embedding geometry logic in Jinja, but full-page HTML and CSS must leave Python.
 
 ## Step 012 live validation
 
@@ -113,8 +115,8 @@ Known Step 013 limitations are acceptable: output tokens/sec is client-observed 
 ## Step 014 direction
 
 Step 014 is a sequence, not one rewrite:
-- **014a:** introduce Flask app factory and move HTTP routing/status/query access to Flask while preserving existing rendering and product behavior.
-- **014b:** move HTML/CSS generation out of Python into Jinja templates/static assets with no analytics behavior change.
+- **014a:** complete and reviewed — Flask app factory and HTTP boundary in `web.py`, preserving behavior and keeping benchmark/data modules framework-independent.
+- **014b:** pending implementation — extract full-page HTML/CSS from Python into Jinja templates, keep templates dumb and autoescaped, preserve routes/security/behavior, and leave analytics/view-model separation for 014c.
 - **014c:** separate route/controller view preparation from analytics/query orchestration so web code does not become the new monolith.
 - **014d+:** finish a production-web boundary (API/view organization, production serving/config/test hardening as justified) before cloud deployment. Keep each substep small and reviewable.
 
