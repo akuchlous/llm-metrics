@@ -1,6 +1,8 @@
-"""Environment selection (APP_ENV), provider wiring, database path, dashboard port."""
+"""Environment selection (APP_ENV), provider wiring, database path, dashboard
+port, and measurement origin."""
 
 import os
+import re
 from collections.abc import Mapping
 from pathlib import Path
 
@@ -12,6 +14,16 @@ DEFAULT_ENV = "test"
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_DB_PATH = REPO_ROOT / "data" / "llm_metrics.db"
 DEFAULT_PORT = 8000
+# Where the benchmark runner executes (not the provider's serving region). Set
+# explicitly by deployment; never inferred from IP, geolocation, or metadata
+# services. Unset means local development.
+ORIGIN_CLOUD_VARIABLE = "LLM_METRICS_ORIGIN_CLOUD"
+ORIGIN_REGION_VARIABLE = "LLM_METRICS_ORIGIN_REGION"
+DEFAULT_ORIGIN_CLOUD = "local"
+DEFAULT_ORIGIN_REGION = "unknown"
+# Lowercase letters, digits and inner hyphens, at most 63 characters: covers
+# names like aws / us-east-1, gcp / us-central1, azure / eastus.
+_ORIGIN_VALUE = re.compile(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?")
 
 
 class ConfigError(Exception):
@@ -63,3 +75,22 @@ def get_port(environ: Mapping[str, str] | None = None) -> int:
     if not value.isdigit() or int(value) > 65535:
         raise ConfigError(f"Invalid LLM_METRICS_PORT={value!r}. Expected 0-65535.")
     return int(value)
+
+
+def get_origin(environ: Mapping[str, str] | None = None) -> tuple[str, str]:
+    """(origin_cloud, origin_region) of this benchmark runner, from
+    LLM_METRICS_ORIGIN_CLOUD / LLM_METRICS_ORIGIN_REGION (unset or empty:
+    "local" / "unknown"). Invalid values are a ConfigError and are not echoed."""
+    if environ is None:
+        environ = os.environ
+    origin = []
+    for variable, default in ((ORIGIN_CLOUD_VARIABLE, DEFAULT_ORIGIN_CLOUD),
+                              (ORIGIN_REGION_VARIABLE, DEFAULT_ORIGIN_REGION)):
+        value = environ.get(variable) or default
+        if not _ORIGIN_VALUE.fullmatch(value):
+            raise ConfigError(
+                f"Invalid {variable}. Expected lowercase letters, digits and hyphens "
+                "(e.g. aws / us-east-1), at most 63 characters."
+            )
+        origin.append(value)
+    return origin[0], origin[1]

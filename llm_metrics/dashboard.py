@@ -2,8 +2,8 @@
 
 Usage: python -m llm_metrics.dashboard   (serves http://127.0.0.1:8000/)
 
-GET /?window=24h|7d|30d&metric=total_latency|ttft|output_chunks_per_s shows,
-for a time window ending at the current UTC time (default 7d), the observed
+GET /?window=24h|7d|30d&metric=total_latency|ttft|output_tokens_per_s|output_chunks_per_s
+shows, for a time window ending at the current UTC time (default 7d), the observed
 benchmark success rate of all attempts and one metric (default ttft) over
 successful attempts as percentiles and a line chart. Any other, empty, or
 repeated value is rejected with HTTP 400.
@@ -337,6 +337,17 @@ def parse_requests_query(query: str) -> str:
     return _parse_choice(parse_qs(query, keep_blank_values=True), "data", DATA, DEFAULT_DATA)
 
 
+def _text(value: str | None) -> str:
+    """Escaped stored text, or "—" when unknown (NULL)."""
+    return "—" if value is None else escape(value)
+
+
+def _origin(cloud: str | None, region: str | None) -> str:
+    if cloud is None and region is None:
+        return "—"
+    return f"{_text(cloud)} / {_text(region)}"
+
+
 def render_requests_page(requests: list[dict], data: str = DEFAULT_DATA) -> str:
     """Table of individual requests (newest first) of one data population."""
     real = data == "real"
@@ -358,7 +369,11 @@ def render_requests_page(requests: list[dict], data: str = DEFAULT_DATA) -> str:
         f"<h2>Recent requests</h2>\n{_data_nav(data)}<p class=\"muted\">The {RECENT_REQUESTS}"
         f" most recent benchmark attempts, successful or failed.{accounting} Total"
         " latency is a successful request's response time; TTFT is shown for streaming"
-        " diagnostics. Throughput counts stream chunks, not tokens. For failed attempts,"
+        " diagnostics. Token throughput is the provider's output token count divided by"
+        " the time from the first to the last output chunk (TTFT excluded); chunk"
+        " throughput counts stream chunks, not tokens. <i>Workload</i> is the benchmark"
+        " case that was run; <i>Origin</i> is where the benchmark runner executed"
+        " (cloud / region), not where the provider served it. For failed attempts,"
         " tokens, cost, and performance are unknown (—); <i>Failed after</i> is the time"
         " until the failure was detected.</p>\n"
     )
@@ -368,10 +383,12 @@ def render_requests_page(requests: list[dict], data: str = DEFAULT_DATA) -> str:
     # sideways on narrow screens.
     header = (
         "<tr><th>Time (UTC)</th><th>Request</th><th>Outcome</th>"
-        "<th>Total latency (ms)</th><th>TTFT (ms)</th><th>Throughput (chunks/s)</th>"
+        "<th>Total latency (ms)</th><th>TTFT (ms)</th><th>Throughput (tokens/s)</th>"
+        "<th>Throughput (chunks/s)</th>"
         "<th>Input tokens</th><th>Output tokens</th><th>Max output tokens</th>"
         "<th>Total cost ($)</th><th>Input cost ($)</th><th>Output cost ($)</th>"
-        "<th>Failed after (ms)</th><th>Provider / model</th></tr>"
+        "<th>Failed after (ms)</th><th>Provider / model</th><th>Workload</th>"
+        "<th>Origin</th></tr>"
     )
     rows = []
     for r in requests:
@@ -388,6 +405,7 @@ def render_requests_page(requests: list[dict], data: str = DEFAULT_DATA) -> str:
             f"<td>{outcome}</td>"
             f"<td class=\"primary\">{_number(metrics.get('total_latency'), '.1f')}</td>"
             f"<td>{_number(metrics.get('ttft'), '.1f')}</td>"
+            f"<td>{_number(metrics.get('output_tokens_per_s'), '.1f')}</td>"
             f"<td>{_number(metrics.get('output_chunks_per_s'), '.1f')}</td>"
             f"<td>{_number(r['input_tokens'], 'd')}</td>"
             f"<td>{_number(r['output_tokens'], 'd')}</td>"
@@ -397,6 +415,8 @@ def render_requests_page(requests: list[dict], data: str = DEFAULT_DATA) -> str:
             f"<td>{_number(r['output_cost'], '.6f')}</td>"
             f"<td>{_number(r['failed_after_ms'], '.1f')}</td>"
             f"<td>{escape(r['provider'])} / {escape(r['model'])}</td>"
+            f"<td>{_text(r['workload_id'])}</td>"
+            f"<td>{_origin(r['origin_cloud'], r['origin_region'])}</td>"
             "</tr>"
         )
     table = f'<div class="table-wrap"><table>{header}{"".join(rows)}</table></div>'

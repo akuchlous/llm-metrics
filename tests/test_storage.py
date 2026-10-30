@@ -21,8 +21,11 @@ from llm_metrics.storage import (
 )
 
 DUMMY = {"provider": "dummy", "model": "dummy-model-v1"}
+# Request facts every new attempt must supply (Step 013).
+NEW_FACTS = {"workload_id": "simulated.default.v1", "origin_cloud": "local", "origin_region": "unknown"}
 REQUEST = {
     **DUMMY,
+    **NEW_FACTS,
     "input_tokens": 3,
     "requested_max_output_tokens": 64,
     "output_tokens": 7,
@@ -36,6 +39,7 @@ REQUEST = {
 }
 FAILED = {
     **DUMMY,
+    **NEW_FACTS,
     "outcome": "rate_limited",
     "input_tokens": None,
     "requested_max_output_tokens": 64,
@@ -207,6 +211,17 @@ class StorageTest(unittest.TestCase):
                     self.save(bad, results=[])
         self.assertEqual(read_rows(self.db_path, "requests"), [])
 
+    def test_new_attempts_must_have_workload_and_origin(self):
+        for fact in ("workload_id", "origin_cloud", "origin_region"):
+            for bad in (None, ""):
+                with self.subTest(fact=fact, value=bad):
+                    with self.assertRaisesRegex(ValueError, fact):
+                        self.save({**REQUEST, fact: bad})
+                    missing = {k: v for k, v in REQUEST.items() if k != fact}
+                    with self.assertRaisesRegex(ValueError, fact):
+                        self.save(missing)
+        self.assertFalse(self.db_path.exists() and read_rows(self.db_path, "requests"))
+
     def test_failed_attempt_with_metrics_is_refused_before_writing(self):
         with self.assertRaises(ValueError):
             self.save(FAILED, results=RESULTS)
@@ -245,7 +260,7 @@ class StorageTest(unittest.TestCase):
 def real_request(model="gpt-6-luna", provider="openai", input_tokens=20, output_tokens=15, **overrides):
     price = {"input_price_per_1m": 0.10, "output_price_per_1m": 0.50}
     cost = request_cost(input_tokens, output_tokens, pricing.Price(0.10, 0.50))
-    return {**DUMMY, "provider": provider, "model": model, "outcome": "success",
+    return {**DUMMY, **NEW_FACTS, "provider": provider, "model": model, "outcome": "success",
             "input_tokens": input_tokens, "requested_max_output_tokens": 64,
             "output_tokens": output_tokens, **price, **cost, "failed_after_ms": None, **overrides}
 
@@ -401,7 +416,7 @@ class SchemaUpgradeTest(unittest.TestCase):
     def test_fresh_database_is_current_version(self):
         init(self.db_path)
         self.assertEqual(self.version(), SCHEMA_VERSION)
-        self.assertEqual(SCHEMA_VERSION, 4)
+        self.assertEqual(SCHEMA_VERSION, 5)
 
     def test_version_2_requests_become_historical_successes(self):
         # A database exactly as Step 010 created it: NOT NULL token/cost columns,
@@ -470,6 +485,41 @@ class SchemaUpgradeTest(unittest.TestCase):
         self.assertIsNone(old["provider_request_id"])  # never recorded, not invented
         new_id = save_request(self.db_path, {**FAILED, "provider_request_id": "req_abc"}, [], "prod")
         self.assertEqual(load_request(self.db_path, new_id)["provider_request_id"], "req_abc")
+        init(self.db_path)  # re-upgrading is a no-op
+        self.assertEqual(len(read_rows(self.db_path, "requests")), 2)
+
+    def test_version_4_rows_are_kept_with_unknown_workload_and_origin(self):
+        # Step 012a's requests table (version 4) with one real attempt and its observation.
+        with closing(sqlite3.connect(self.db_path)) as conn, conn:
+            conn.executescript(STEP_011_REQUESTS.replace(
+                "failed_after_ms REAL CHECK (failed_after_ms >= 0),",
+                "failed_after_ms REAL CHECK (failed_after_ms >= 0), provider_request_id TEXT,"))
+            conn.execute(
+                "INSERT INTO requests VALUES ('real1', '2026-10-30T07:16:38.431854Z', 'prod',"
+                " 'openai', 'gpt-6-luna', 'success', 17, 64, 14, 0.1, 0.5, 1.7e-06, 7e-06,"
+                " 8.7e-06, NULL, 'req_abc')"
+            )
+            conn.execute(OLD_OBSERVATIONS_V0.replace("value_ms REAL NOT NULL)",
+                                                     "value REAL NOT NULL, request_id TEXT)"))
+            conn.execute(
+                "INSERT INTO observations VALUES (1, '2026-10-30T07:16:38.431854Z', 'prod',"
+                " 'openai', 'gpt-6-luna', 'total_latency', 3880.7, 'real1')"
+            )
+        with closing(sqlite3.connect(self.db_path)) as conn:
+            conn.execute("PRAGMA user_version = 4")
+        init(self.db_path)
+        self.assertEqual(self.version(), SCHEMA_VERSION)
+        old = load_request(self.db_path, "real1")
+        self.assertEqual(
+            [old[k] for k in ("recorded_at", "outcome", "input_tokens", "output_tokens",
+                              "total_cost", "provider_request_id")],
+            ["2026-10-30T07:16:38.431854Z", "success", 17, 14, 8.7e-06, "req_abc"])
+        self.assertEqual(old["metrics"], {"total_latency": 3880.7})
+        # Never recorded, so unknown: not guessed from provider or environment.
+        self.assertEqual([old["workload_id"], old["origin_cloud"], old["origin_region"]],
+                         [None, None, None])
+        new_id = save_request(self.db_path, REQUEST, RESULTS, "test")
+        self.assertEqual(load_request(self.db_path, new_id)["workload_id"], "simulated.default.v1")
         init(self.db_path)  # re-upgrading is a no-op
         self.assertEqual(len(read_rows(self.db_path, "requests")), 2)
 

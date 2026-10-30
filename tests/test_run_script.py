@@ -96,9 +96,11 @@ class RunScriptTest(unittest.TestCase):
             self.assertIn("Provider: dummy", out)
             self.assertRegex(out, r"TTFT: \d+\.\d ms")
             self.assertRegex(out, r"Total latency: \d+\.\d ms")
-            self.assertRegex(out, r"Output throughput: \d+\.\d chunks/s")
-            self.assertRegex(out, r"Saved attempt [0-9a-f]{32} with 3 observations to data/llm_metrics.db")
-            self.assertEqual(count_rows(), 171)
+            self.assertRegex(out, r"Output token throughput: \d+\.\d tokens/s")
+            self.assertRegex(out, r"Output chunk throughput: \d+\.\d chunks/s")
+            self.assertIn("Workload: simulated.default.v1", out)
+            self.assertRegex(out, r"Saved attempt [0-9a-f]{32} with 4 observations to data/llm_metrics.db")
+            self.assertEqual(count_rows(), 172)
             self.assertRegex(out, r"Dashboard: http://127\.0\.0\.1:\d+/")
             self.assertIsNotNone(page, out + err)
             self.assertIn("TEST / SIMULATED DATA", page)
@@ -108,10 +110,10 @@ class RunScriptTest(unittest.TestCase):
             self.assertRegex(page, r"\d+ observations? in window")
             self.assertIn("p99", page)
 
-            # Second run: history already present, only the three live rows are added.
+            # Second run: history already present, only the four live rows are added.
             _, out, err, page = run_until_dashboard(copy, env)
             self.assertIn("0 new, 168 already present", out)
-            self.assertEqual(count_rows(), 174)
+            self.assertEqual(count_rows(), 176)
             self.assertRegex(page, r"\d+ observations? in window")
 
             # A failing test stops the run before seeding, measuring, or serving.
@@ -126,7 +128,7 @@ class RunScriptTest(unittest.TestCase):
             self.assertIn("Tests failed", err)
             self.assertNotIn("TTFT:", out)
             self.assertIsNone(page)
-            self.assertEqual(count_rows(), 174)
+            self.assertEqual(count_rows(), 176)
 
 
 if __name__ == "__main__":

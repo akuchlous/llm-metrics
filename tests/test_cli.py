@@ -14,6 +14,8 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 
 
 class CLITest(unittest.TestCase):
+    extra_env = {}
+
     def setUp(self):
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
@@ -21,8 +23,10 @@ class CLITest(unittest.TestCase):
         self.db_path = Path(tmp.name) / "observations.db"
 
     def run_cli(self, app_env):
-        env = {k: v for k, v in os.environ.items() if k != "APP_ENV"}
+        env = {k: v for k, v in os.environ.items()
+               if k != "APP_ENV" and not k.startswith("LLM_METRICS_ORIGIN_")}
         env["LLM_METRICS_DB_PATH"] = str(self.db_path)
+        env.update(self.extra_env)
         if app_env is not None:
             env["APP_ENV"] = app_env
         return subprocess.run(
@@ -41,13 +45,33 @@ class CLITest(unittest.TestCase):
         self.assertIn("Model: dummy-model-v1", proc.stdout)
         self.assertRegex(proc.stdout, r"TTFT: \d+\.\d ms")
         self.assertRegex(proc.stdout, r"Total latency: \d+\.\d ms")
-        self.assertRegex(proc.stdout, r"Output throughput: \d+\.\d chunks/s")
+        self.assertRegex(proc.stdout, r"Output token throughput: \d+\.\d tokens/s")
+        self.assertRegex(proc.stdout, r"Output chunk throughput: \d+\.\d chunks/s")
+        self.assertIn("Workload: simulated.default.v1", proc.stdout)
+        self.assertIn("Origin: local / unknown", proc.stdout)
+
+    def test_workload_and_origin_are_saved(self):
+        self.extra_env = {"LLM_METRICS_ORIGIN_CLOUD": "aws", "LLM_METRICS_ORIGIN_REGION": "us-east-1"}
+        proc = self.run_cli("test")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn("Origin: aws / us-east-1", proc.stdout)
+        with closing(sqlite3.connect(self.db_path)) as conn:
+            rows = conn.execute("SELECT workload_id, origin_cloud, origin_region FROM requests").fetchall()
+        self.assertEqual(rows, [("simulated.default.v1", "aws", "us-east-1")])
+
+    def test_invalid_origin_is_refused_before_measuring(self):
+        self.extra_env = {"LLM_METRICS_ORIGIN_REGION": "US East 1"}
+        proc = self.run_cli("test")
+        self.assertEqual(proc.returncode, 2)
+        self.assertIn("Invalid LLM_METRICS_ORIGIN_REGION", proc.stderr)
+        self.assertNotIn("US East 1", proc.stderr)  # input is not echoed
+        self.assertFalse(self.db_path.exists())
 
     def test_test_env_saves_one_request_with_all_metrics(self):
         proc = self.run_cli("test")
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertIn("Outcome: success", proc.stdout)
-        self.assertRegex(proc.stdout, r"Saved attempt [0-9a-f]{32} with 3 observations to")
+        self.assertRegex(proc.stdout, r"Saved attempt [0-9a-f]{32} with 4 observations to")
         self.assertIn("Input tokens: 3 (simulated)", proc.stdout)
         self.assertIn("Output tokens: 7 of max 64 (simulated)", proc.stdout)
         self.assertIn("Cost: $0.000062 (input $0.000006 + output $0.000056) (simulated)", proc.stdout)
@@ -65,7 +89,8 @@ class CLITest(unittest.TestCase):
         self.assertEqual(environment, "test")
         self.assertEqual(facts[:5], [3, 64, 7, 2.0, 8.0])
         self.assertAlmostEqual(facts[5], 6.2e-05, places=15)
-        self.assertEqual([r[4] for r in rows], ["total_latency", "ttft", "output_chunks_per_s"])
+        self.assertEqual([r[4] for r in rows],
+                         ["total_latency", "ttft", "output_tokens_per_s", "output_chunks_per_s"])
         for row_recorded_at, row_env, provider, model, _, value, row_request in rows:
             self.assertEqual((row_env, provider, model), ("test", "dummy", "dummy-model-v1"))
             self.assertEqual((row_recorded_at, row_request), (recorded_at, request_id))

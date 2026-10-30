@@ -22,6 +22,10 @@ from pathlib import Path
 # provider_request_id is the provider's own id for the attempt (OpenAI's
 # x-request-id), kept beside our `id` for tracing with the provider; NULL when
 # the provider gave none (simulated runs, connection failures, older rows).
+# workload_id names the benchmark case that was run (e.g. "smoke.short_text.v1");
+# origin_cloud / origin_region say where the benchmark runner executed (e.g.
+# "local" / "unknown"), not where the provider served it. All three are
+# required for new attempts and NULL (unknown) for rows recorded before Step 013.
 #
 # observations: one row per metric value. recorded_at is UTC ISO 8601 with a
 # "Z" suffix, e.g. "2026-10-30T12:34:56.789012Z", so text order is time order.
@@ -50,6 +54,9 @@ CREATE TABLE IF NOT EXISTS requests (
     total_cost                  REAL,
     failed_after_ms             REAL    CHECK (failed_after_ms >= 0),
     provider_request_id         TEXT,
+    workload_id                 TEXT,
+    origin_cloud                TEXT,
+    origin_region               TEXT,
     CHECK (
         (outcome = 'success'
             AND input_tokens IS NOT NULL AND output_tokens IS NOT NULL
@@ -86,7 +93,8 @@ CREATE UNIQUE INDEX IF NOT EXISTS observations_unique
 #   3: Step 011 (requests.outcome, requests.failed_after_ms; token and cost
 #      columns nullable for failed attempts)
 #   4: Step 012a (requests.provider_request_id)
-SCHEMA_VERSION = 4
+#   5: Step 013 (requests.workload_id, origin_cloud, origin_region)
+SCHEMA_VERSION = 5
 
 # Constant SQL; values are always bound as parameters.
 _INSERT_OBSERVATION = (
@@ -98,10 +106,15 @@ _REQUEST_COLUMNS = (
     "input_tokens", "requested_max_output_tokens", "output_tokens",
     "input_price_per_1m", "output_price_per_1m",
     "input_cost", "output_cost", "total_cost", "failed_after_ms", "provider_request_id",
+    "workload_id", "origin_cloud", "origin_region",
 )
+# Request facts every new attempt must supply (NULL only in older rows).
+_REQUIRED_NEW_FACTS = ("workload_id", "origin_cloud", "origin_region")
 # Columns of a version-2 requests table, copied as-is by the version 3 upgrade.
-_V2_REQUEST_COLUMNS = tuple(
-    c for c in _REQUEST_COLUMNS if c not in ("outcome", "failed_after_ms", "provider_request_id")
+_V2_REQUEST_COLUMNS = (
+    "id", "recorded_at", "environment", "provider", "model",
+    "input_tokens", "requested_max_output_tokens", "output_tokens",
+    "input_price_per_1m", "output_price_per_1m", "input_cost", "output_cost", "total_cost",
 )
 
 
@@ -150,6 +163,14 @@ def _upgrade(conn: sqlite3.Connection) -> None:
         if version < 4 and "provider_request_id" not in _columns(conn, "requests"):
             # Existing attempts keep NULL: their provider ids were never recorded.
             conn.execute("ALTER TABLE requests ADD COLUMN provider_request_id TEXT")
+        if version < 5:
+            # Workload and origin were never recorded for existing attempts, and
+            # the workload was not stable (the first real attempt was sent
+            # without reasoning.effort), so they stay NULL rather than guessed.
+            existing = _columns(conn, "requests")
+            for column in _REQUIRED_NEW_FACTS:
+                if column not in existing:
+                    conn.execute(f"ALTER TABLE requests ADD COLUMN {column} TEXT")
         conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
         conn.commit()
     except BaseException:
@@ -199,12 +220,16 @@ def save_request(db_path: Path, request: dict, results: list[dict], environment:
 
     `request` must hold every _REQUEST_COLUMNS key except id, recorded_at and
     environment (unknown facts of a failed attempt as None); provider_request_id
-    is optional (None when absent). A failed attempt has
+    is optional (None when absent). workload_id, origin_cloud and origin_region
+    must be non-empty strings. A failed attempt has
     no observations. The request row and all observations share one timestamp and
     are written in one transaction: either everything is saved or nothing.
     """
     if request["outcome"] != "success" and results:
         raise ValueError("A failed attempt must not have metric observations.")
+    for fact in _REQUIRED_NEW_FACTS:
+        if not isinstance(request.get(fact), str) or not request[fact]:
+            raise ValueError(f"A new attempt must have a non-empty {fact}.")
     request_id = uuid.uuid4().hex
     recorded_at = format_timestamp(datetime.now(timezone.utc))
     row = {"provider_request_id": None, **request, "id": request_id, "recorded_at": recorded_at, "environment": environment}

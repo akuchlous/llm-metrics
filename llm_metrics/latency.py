@@ -1,5 +1,5 @@
 """Measurement of one benchmark attempt: outcome, token facts, total latency,
-TTFT, and output chunk throughput."""
+TTFT, and output token and chunk throughput."""
 
 import time
 
@@ -9,11 +9,13 @@ from llm_metrics.providers import LLMProvider, ProviderFailure, Usage
 # Every metric this module produces: name -> (display label, unit of `value`).
 # The metric name fixes the unit; never store a different unit under a name.
 # Total latency is listed first: it is the primary user-facing latency; TTFT is
-# diagnostic (streaming responsiveness).
+# diagnostic (streaming responsiveness). Token throughput is listed before chunk
+# throughput: it is the preferred throughput; chunks/s is kept for continuity.
 METRICS = {
     "total_latency": ("Total latency", "ms"),
     "ttft": ("TTFT", "ms"),
-    "output_chunks_per_s": ("Output throughput", "chunks/s"),
+    "output_tokens_per_s": ("Output token throughput", "tokens/s"),
+    "output_chunks_per_s": ("Output chunk throughput", "chunks/s"),
 }
 
 
@@ -39,6 +41,12 @@ def measure_request(
 
     - total_latency: until the stream is fully consumed.
     - ttft: until the first text item of any content (unchanged since Step 001).
+    - output_tokens_per_s: Usage.output_tokens / (time of last non-empty chunk -
+      time of first non-empty chunk). The token count is the provider's, for the
+      whole response; the timing is the client's view of the stream. Observed
+      effective generation throughput, not internal decoding speed. Omitted when
+      undefined (fewer than 2 non-empty chunks, no elapsed time, or no output
+      tokens reported).
     - output_chunks_per_s: (non-empty chunks - 1) / (time of last non-empty
       chunk - time of first); a chunk is one non-empty text item, not a token.
       Omitted when undefined (fewer than 2 non-empty chunks, or no elapsed time).
@@ -121,5 +129,8 @@ def measure_request(
         result("ttft", (first_item_at - request_started) * 1000),
     ]
     if chunks >= 2 and last_chunk_at > first_chunk_at:
-        results.append(result("output_chunks_per_s", (chunks - 1) / (last_chunk_at - first_chunk_at)))
+        generation_s = last_chunk_at - first_chunk_at  # TTFT excluded
+        if usage.output_tokens >= 1:
+            results.append(result("output_tokens_per_s", usage.output_tokens / generation_s))
+        results.append(result("output_chunks_per_s", (chunks - 1) / generation_s))
     return attempt, results

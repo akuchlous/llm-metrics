@@ -40,11 +40,16 @@ class MeasureRequestTest(unittest.TestCase):
         request, results = measure_request(
             DummyProvider(first_token_delay_s=0, inter_token_delay_s=0.001), "Say hello.", 64
         )
-        self.assertEqual([r["metric"] for r in results], ["total_latency", "ttft", "output_chunks_per_s"])
+        self.assertEqual([r["metric"] for r in results],
+                         ["total_latency", "ttft", "output_tokens_per_s", "output_chunks_per_s"])
         for r in results:
             self.assertEqual((r["provider"], r["model"]), ("dummy", "dummy-model-v1"))
             self.assertGreater(r["value"], 0)
-        self.assertEqual(METRICS["output_chunks_per_s"], ("Output throughput", "chunks/s"))
+        self.assertEqual(METRICS["output_tokens_per_s"], ("Output token throughput", "tokens/s"))
+        self.assertEqual(METRICS["output_chunks_per_s"], ("Output chunk throughput", "chunks/s"))
+        # Token throughput is preferred: listed (and displayed) before chunk throughput.
+        self.assertLess(list(METRICS).index("output_tokens_per_s"),
+                        list(METRICS).index("output_chunks_per_s"))
         self.assertEqual(list(METRICS)[0], "total_latency")  # primary latency first
 
     def test_token_facts_come_from_usage_not_chunk_count(self):
@@ -68,7 +73,7 @@ class MeasureRequestTest(unittest.TestCase):
         request, results = measure_request(provider, "hi", 64)
         self.assertEqual(provider.calls, 1)
         self.assertEqual(provider.consumed, 5)
-        self.assertEqual(len(results), 3)
+        self.assertEqual(len(results), 4)
         self.assertEqual(request["output_tokens"], 5)  # from Usage: 4 chunks, 5 tokens
 
     def test_exact_values_with_a_controlled_clock(self):
@@ -81,6 +86,23 @@ class MeasureRequestTest(unittest.TestCase):
         self.assertAlmostEqual(values["total_latency"], 200.0)
         # 4 chunks after the first over 0.180 - 0.100 = 0.080 s -> 50 chunks/s.
         self.assertAlmostEqual(values["output_chunks_per_s"], 50.0)
+        # 5 provider-reported output tokens over the same 0.080 s -> 62.5 tokens/s.
+        self.assertAlmostEqual(values["output_tokens_per_s"], 62.5)
+
+    def test_token_throughput_uses_usage_not_chunks_and_excludes_ttft(self):
+        # 3 chunks, but the provider reports 40 output tokens. TTFT is 1.0 s and
+        # the stream ends 0.5 s after the last chunk; neither is in the duration.
+        _, values = with_clock([0.0, 1.000, 1.100, 1.200, 1.300, 1.700],
+                               ScriptedProvider(["a", "b", "c", Usage(input_tokens=2, output_tokens=40)]))
+        self.assertAlmostEqual(values["output_tokens_per_s"], 40 / 0.200)  # 200 tokens/s
+        self.assertAlmostEqual(values["output_chunks_per_s"], 2 / 0.200)   # unchanged: 10 chunks/s
+        self.assertAlmostEqual(values["ttft"], 1000.0)
+
+    def test_token_throughput_omitted_without_output_tokens(self):
+        _, values = with_clock([0.0, 0.100, 0.200, 0.250, 0.300],
+                               ScriptedProvider(["a", "b", Usage(input_tokens=2, output_tokens=0)]))
+        self.assertNotIn("output_tokens_per_s", values)  # never 0 tokens/s with text seen
+        self.assertIn("output_chunks_per_s", values)
 
     def test_empty_items_are_not_output_chunks(self):
         # An empty first item still ends TTFT (unchanged semantics) but is not a chunk.
@@ -92,12 +114,12 @@ class MeasureRequestTest(unittest.TestCase):
 
     def test_single_chunk_has_no_throughput(self):
         _, values = with_clock([0.0, 0.100, 0.105, 0.110], ScriptedProvider(["only", DEFAULT_USAGE]))
-        self.assertEqual(set(values), {"ttft", "total_latency"})
+        self.assertEqual(set(values), {"ttft", "total_latency"})  # no tokens/s or chunks/s
 
     def test_zero_generation_time_has_no_throughput(self):
         _, values = with_clock([0.0, 0.100, 0.100, 0.100, 0.100],
                                ScriptedProvider(["a", "b", DEFAULT_USAGE]))
-        self.assertEqual(set(values), {"ttft", "total_latency"})
+        self.assertEqual(set(values), {"ttft", "total_latency"})  # no infinite rate
 
     def test_ttft_unchanged_and_total_not_earlier(self):
         _, results = measure_request(

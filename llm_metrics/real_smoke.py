@@ -17,12 +17,15 @@ import os
 import sys
 
 from llm_metrics.benchmark import print_summary, run_attempt
-from llm_metrics.config import get_db_path
+from llm_metrics.config import ConfigError, get_db_path, get_origin
 from llm_metrics.openai_provider import OpenAIProvider, RequestRejected
 from llm_metrics.pricing import PRICE_PROVENANCE
 
 API_KEY_VARIABLE = "OPENAI_API_KEY"
 MODEL = "gpt-6-luna"
+# The smoke benchmark case: this prompt, cap, and request shape (streaming,
+# store false, reasoning effort none). Change the version if any of them changes.
+WORKLOAD_ID = "smoke.short_text.v1"
 # Harmless, deterministic, text-only; no tools, files, images, or search.
 PROMPT = "Reply with one short friendly sentence greeting a benchmark tool."
 MAX_OUTPUT_TOKENS = 64
@@ -49,6 +52,12 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 2
 
+    try:
+        origin = get_origin()
+    except ConfigError as e:
+        print(f"Error: {e} No request was made.", file=sys.stderr)
+        return 2
+
     provider = OpenAIProvider(api_key, model=MODEL)
     source, verified_on = PRICE_PROVENANCE[(provider.name, provider.model)]
     print(f"About to make exactly ONE paid API request: provider {provider.name}, "
@@ -60,7 +69,8 @@ def main(argv: list[str] | None = None) -> int:
     db_path = get_db_path()
     try:
         request, results, request_id = run_attempt(
-            provider, PROMPT, MAX_OUTPUT_TOKENS, ENVIRONMENT, db_path
+            provider, PROMPT, MAX_OUTPUT_TOKENS, ENVIRONMENT, db_path,
+            workload_id=WORKLOAD_ID, origin=origin,
         )
     except RequestRejected as e:
         print(f"Error: {e} Check the API key, account access, model name, and request "

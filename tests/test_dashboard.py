@@ -1,5 +1,6 @@
 import os
 import re
+import sqlite3
 import subprocess
 import sys
 import tempfile
@@ -8,6 +9,7 @@ import time
 import unittest
 import urllib.error
 import urllib.request
+from contextlib import closing
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -217,7 +219,7 @@ class MetricSelectionTest(DashboardTestCase):
             with self.subTest(window=window):
                 page = build_page(self.db_path, window, "output_chunks_per_s", NOW)
                 text = visible_text(page)
-                self.assertIn("Output throughput p50", text)
+                self.assertIn("Output chunk throughput p50", text)
                 self.assertIn(f"p50 {p50} chunks/s", text)
                 self.assertIn(f"p99 {p99} chunks/s", text)
                 self.assertIn("50.0 chunks/s", text)  # latest
@@ -310,6 +312,9 @@ class EmptyAndRenderTest(DashboardTestCase):
 
 REQUEST = {
     **DUMMY_IDENTITY,
+    "workload_id": "simulated.default.v1",
+    "origin_cloud": "local",
+    "origin_region": "unknown",
     "input_tokens": 3,
     "requested_max_output_tokens": 64,
     "output_tokens": 7,
@@ -340,7 +345,8 @@ class RequestsViewTest(DashboardTestCase):
                              metric_results(total_latency=150.0, ttft=95.0), "test")
         time.sleep(0.002)
         second = save_request(self.db_path, REQUEST,
-                              metric_results(total_latency=181.4, ttft=100.3, output_chunks_per_s=49.4),
+                              metric_results(total_latency=181.4, ttft=100.3, output_tokens_per_s=87.5,
+                                             output_chunks_per_s=49.4),
                               "test")
         page = render_requests_page(load_recent_requests(self.db_path, "test", 20))
         text = visible_text(page)
@@ -348,18 +354,21 @@ class RequestsViewTest(DashboardTestCase):
         self.assertIn("simulated tokenizer", text)
         self.assertIn("simulated prices", text)
         for header in ("Input tokens", "Max output tokens", "Output tokens", "Total latency (ms)",
-                       "TTFT (ms)", "Throughput (chunks/s)", "Input cost ($)", "Output cost ($)",
-                       "Total cost ($)"):
+                       "TTFT (ms)", "Throughput (tokens/s)", "Throughput (chunks/s)",
+                       "Input cost ($)", "Output cost ($)", "Total cost ($)", "Workload", "Origin"):
             self.assertIn(header, text)
         # Newest request first, identified by its id prefix.
         self.assertLess(page.index(second[:8]), page.index(first[:8]))
         newest_row = page[page.index(second[:8]):page.index(first[:8])]  # from its id cell on
         cells = re.findall(r"<td[^>]*>(.*?)</td>", newest_row)
-        # total latency, TTFT, throughput, input/output/max tokens, total/input/output cost
-        # outcome, total latency, TTFT, throughput, input/output/max tokens,
-        # total/input/output cost, failed after
-        self.assertEqual(cells[:11], ["success", "181.4", "100.3", "49.4", "3", "7", "64",
-                                      "0.000062", "0.000006", "0.000056", "—"])
+        # outcome, total latency, TTFT, tokens/s, chunks/s, input/output/max tokens,
+        # total/input/output cost, failed after, provider/model, workload, origin
+        self.assertEqual(cells[:15], ["success", "181.4", "100.3", "87.5", "49.4", "3", "7", "64",
+                                      "0.000062", "0.000006", "0.000056", "—",
+                                      "dummy / dummy-model-v1", "simulated.default.v1",
+                                      "local / unknown"])
+        # Token throughput is shown before (preferred over) chunk throughput.
+        self.assertLess(text.index("Throughput (tokens/s)"), text.index("Throughput (chunks/s)"))
         # The older request had no throughput: shown as missing, not invented.
         older_row = page[page.index(first[:8]):]
         self.assertIn("<td>—</td>", older_row)
@@ -375,10 +384,32 @@ class RequestsViewTest(DashboardTestCase):
         row = page[page.index(request_id[:8]):]
         cells = re.findall(r"<td[^>]*>(.*?)</td>", row)
         self.assertEqual(visible_text(cells[0]), "FAILED: Network/transport error")
-        # latency, TTFT, throughput, input/output tokens unknown; max is known
-        self.assertEqual(cells[1:7], ["—", "—", "—", "—", "—", "64"])
-        self.assertEqual(cells[7:11], ["—", "—", "—", "42.0"])  # costs unknown; failed after
+        # latency, TTFT, both throughputs, input/output tokens unknown; max is known
+        self.assertEqual(cells[1:8], ["—", "—", "—", "—", "—", "—", "64"])
+        self.assertEqual(cells[8:12], ["—", "—", "—", "42.0"])  # costs unknown; failed after
+        # Workload and origin are known for a failed attempt too.
+        self.assertEqual(cells[13:15], ["simulated.default.v1", "local / unknown"])
         self.assertNotIn(">0<", row)  # nothing shown as zero
+
+    def test_historical_rows_show_unknown_workload_and_origin(self):
+        request_id = save_request(self.db_path, REQUEST, metric_results(total_latency=1.0), "test")
+        with closing(sqlite3.connect(self.db_path)) as conn, conn:  # as a pre-Step-013 row
+            conn.execute("UPDATE requests SET workload_id = NULL, origin_cloud = NULL,"
+                         " origin_region = NULL WHERE id = ?", (request_id,))
+        page = render_requests_page(load_recent_requests(self.db_path, "test", 20))
+        cells = re.findall(r"<td[^>]*>(.*?)</td>", page[page.index(request_id[:8]):])
+        self.assertEqual(cells[-2:], ["—", "—"])  # unknown, not invented
+
+    def test_real_view_shows_token_throughput_workload_and_origin(self):
+        real = {**REQUEST, "provider": "openai", "model": "gpt-6-luna",
+                "workload_id": "smoke.short_text.v1", "origin_cloud": "aws", "origin_region": "us-east-1"}
+        save_request(self.db_path, real, [
+            {"provider": "openai", "model": "gpt-6-luna", "metric": m, "value": v}
+            for m, v in (("total_latency", 3880.7), ("ttft", 3630.3), ("output_tokens_per_s", 56.0),
+                         ("output_chunks_per_s", 36.4))], "prod")
+        text = visible_text(render_requests_page(load_recent_requests(self.db_path, "prod", 20), "real"))
+        for value in ("56.0", "36.4", "smoke.short_text.v1", "aws / us-east-1"):
+            self.assertIn(value, text)
 
     def test_text_from_storage_is_escaped(self):
         save_request(self.db_path, {**REQUEST, "model": "<script>x</script>"},

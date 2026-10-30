@@ -1,24 +1,26 @@
 # Project status
 
-_Last updated: Step 012a — 2026-10-30_
+_Last updated: Step 013 — 2026-10-30_
 
 ## Current state
+
+**Step 013 parts 1–3 complete (Metrics v1 data completeness); part 4, cache-aware facts (`cache_policy`, `cached_input_tokens`), was added to the prompt afterwards and is not implemented yet.** Successful attempts record `output_tokens_per_s` (provider-reported output tokens over the first-to-last output chunk interval; TTFT excluded; omitted when undefined), and every new attempt records its benchmark case (`workload_id`: `simulated.default.v1` or `smoke.short_text.v1`) and where the runner executed (`origin_cloud` / `origin_region` from `LLM_METRICS_ORIGIN_CLOUD` / `LLM_METRICS_ORIGIN_REGION`, default `local` / `unknown`). Schema version 5; historical rows keep these facts NULL (unknown). No paid call was made for this step.
 
 **Step 012a complete; the Step 012 live path is validated.** Step 012 added the first real provider (OpenAI `gpt-6-luna`, Responses API, standard library only) behind the existing boundary, callable only via `python -m llm_metrics.real_smoke` (one paid call, key from `OPENAI_API_KEY`, stored as `prod`); Benchmark API Spend page; real and simulated data labelled and separated. Step 012a closes it: price $0.10 / $0.50 per 1M verified against OpenAI's official pricing documentation; `reasoning.effort: none` confirmed by the official model page; OpenAI's `x-request-id` stored per attempt as `provider_request_id` (schema version 4).
 
 Live validation history (owner-run, 2026-10-30; **validation of the path, not benchmark results**): the first real request (`6a39b71e…`) failed as `provider_error` after 5425.6 ms, and three more early attempts were also stored as `provider_error`. Two later `--debug` runs got HTTP 200 followed by an in-stream `error`; once its nested details were read, it showed `insufficient_quota` / `credit_balance_exhausted` (the OpenAI account had no credit). Those two rows were deleted from the local database at the owner's request, and such account errors are now rejected and not recorded. The earlier failures' cause was never captured and is presumed but not confirmed to be the same. After credit was added, one request succeeded (`44c889cb…`): total latency 3880.7 ms, TTFT 3630.3 ms, 17 input / 14 output tokens (max 64), about $0.000009. One sample says nothing about typical performance.
 
 Working:
-- `./run.sh` creates/reuses `.venv`, runs tests, seeds simulated TTFT history (test only, idempotent), makes one benchmark attempt (outcome, tokens, total latency, TTFT, throughput, cost), then serves the dashboard at `http://127.0.0.1:8000/` until Ctrl+C.
+- `./run.sh` creates/reuses `.venv`, runs tests, seeds simulated TTFT history (test only, idempotent), makes one benchmark attempt (outcome, tokens, total latency, TTFT, token and chunk throughput, cost; workload `simulated.default.v1`), then serves the dashboard at `http://127.0.0.1:8000/` until Ctrl+C.
 - `APP_ENV=test` is the safe default; `APP_ENV=prod ./run.sh` refuses to run (no implicit spend).
-- `python -m llm_metrics.real_smoke [--debug]`: exactly one real OpenAI `gpt-6-luna` request (requires `OPENAI_API_KEY`; refuses without it), stored with `environment = 'prod'` and OpenAI's request id; `--debug` prints sanitized failure diagnostics (never stored). Request/configuration and account-credit errors are rejected and not recorded.
-- Each run saves one `requests` row (attempt) with its `outcome`. Success: tokens, max output tokens, prices, costs, and up to three linked observations (`total_latency`, `ttft`, `output_chunks_per_s`), in one transaction. Failure: category, `failed_after_ms`, prices and cap; tokens/costs NULL (unknown); no observations.
+- `python -m llm_metrics.real_smoke [--debug]`: exactly one real OpenAI `gpt-6-luna` request (requires `OPENAI_API_KEY`; refuses without it), stored with `environment = 'prod'`, workload `smoke.short_text.v1`, origin, and OpenAI's request id; `--debug` prints sanitized failure diagnostics (never stored). Request/configuration and account-credit errors are rejected and not recorded.
+- Each run saves one `requests` row (attempt) with its `outcome`, `workload_id`, `origin_cloud` and `origin_region` (all three required). Success: tokens, max output tokens, prices, costs, and up to four linked observations (`total_latency`, `ttft`, `output_tokens_per_s`, `output_chunks_per_s`), in one transaction. Failure: category, `failed_after_ms`, prices and cap; tokens/costs NULL (unknown); no observations.
 - `python3 -m llm_metrics.seed_history` adds 168 hourly simulated TTFT rows (2026-10-23 00:00 to 2026-10-29 23:00 UTC); re-running adds nothing.
-- Dashboard (`python -m llm_metrics.dashboard`, `/?window=24h|7d|30d&metric=total_latency|ttft|output_chunks_per_s`): `TEST / SIMULATED DATA` label, metric and window links, observed benchmark success rate over all attempts in the window (count, rate, failures by category; no attempts → no rate), then for successful attempts only: latest value, nearest-rank p50/p95/p99 with `n` (in the metric's unit), and an SVG chart spanning the window, all from the same `test`/dummy/<metric> rows with `now − window <= recorded_at <= now`. Invalid or repeated `window`/`metric` → HTTP 400. Standard library only; no JavaScript.
-- Recent requests view (`/requests`): the 20 most recent `test` attempts with outcome (FAILED + category), tokens, total latency (primary), TTFT, chunk throughput, costs, and failed-after time; unknown values shown as "—"; labelled simulated.
+- Dashboard (`python -m llm_metrics.dashboard`, `/?window=24h|7d|30d&metric=total_latency|ttft|output_tokens_per_s|output_chunks_per_s`): `TEST / SIMULATED DATA` label, metric and window links, observed benchmark success rate over all attempts in the window (count, rate, failures by category; no attempts → no rate), then for successful attempts only: latest value, nearest-rank p50/p95/p99 with `n` (in the metric's unit), and an SVG chart spanning the window, all from the same `test`/dummy/<metric> rows with `now − window <= recorded_at <= now`. Invalid or repeated `window`/`metric` → HTTP 400. Standard library only; no JavaScript.
+- Recent requests view (`/requests`): the 20 most recent attempts with outcome (FAILED + category), tokens, total latency (primary), TTFT, token throughput (before chunk throughput), chunk throughput, costs, failed-after time, provider / model, workload, and origin; unknown values shown as "—"; labelled simulated or real.
 - Benchmark API Spend (`/spend?window=`, default 30d, real data only): per provider/model successful paid calls, tokens, known total cost, failed attempts (cost unknown), and a grand total.
 - Pages are labelled TEST / SIMULATED DATA or REAL PROVIDER DATA; `/requests?data=simulated|real` switches population.
-- 169 standard-library `unittest` tests (pass on Python 3.13); none touch the network.
+- 182 standard-library `unittest` tests (pass on Python 3.13); none touch the network.
 - No third-party dependencies. Network and secrets are used only by `real_smoke`.
 
 Data from `./run.sh` is **simulated** and does not represent real LLM performance. Real data exists only after `real_smoke` is run.
@@ -65,8 +67,8 @@ data/              runtime DB; git-ignored
 
 Flow: `environment → provider → measure_request (one stream → attempt with outcome + metrics) → price_for (+ request_cost on success) → print → save_request (attempt + observations, one transaction)`; dashboard: `GET /?window=&metric= → parse_query → window_bounds(now) → load_observations(metric, start, end) → render HTML/SVG`.
 
-SQLite (schema version 4, `PRAGMA user_version`; older databases upgrade in place, transactionally, keeping all rows):
-- `requests` (one row per attempt): `id` (UUID hex, our identity), `recorded_at`, `environment`, `provider`, `model`, `outcome`, `input_tokens`, `requested_max_output_tokens`, `output_tokens`, `input_price_per_1m`, `output_price_per_1m`, `input_cost`, `output_cost`, `total_cost` (USD, unrounded), `failed_after_ms`, `provider_request_id` (OpenAI `x-request-id`; NULL when unknown). A CHECK enforces: success → tokens/costs known, `failed_after_ms` NULL; failure → tokens/costs NULL, `failed_after_ms` set.
+SQLite (schema version 5, `PRAGMA user_version`; older databases upgrade in place, transactionally, keeping all rows):
+- `requests` (one row per attempt): `id` (UUID hex, our identity), `recorded_at`, `environment`, `provider`, `model`, `outcome`, `input_tokens`, `requested_max_output_tokens`, `output_tokens`, `input_price_per_1m`, `output_price_per_1m`, `input_cost`, `output_cost`, `total_cost` (USD, unrounded), `failed_after_ms`, `provider_request_id` (OpenAI `x-request-id`; NULL when unknown), `workload_id`, `origin_cloud`, `origin_region` (required for new attempts; NULL for rows before Step 013). A CHECK enforces: success → tokens/costs known, `failed_after_ms` NULL; failure → tokens/costs NULL, `failed_after_ms` set.
 - `observations`: `id`, `recorded_at` (UTC), `environment`, `provider`, `model`, `metric`, `value` (unit fixed by `metric`), `request_id` (NULL for pre-Step-010 and seeded rows).
 A unique index on observations (`recorded_at`, `environment`, `provider`, `model`, `metric`) lets seeding skip existing rows.
 
@@ -81,12 +83,14 @@ A unique index on observations (`recorded_at`, `environment`, `provider`, `model
 - Spend covers successful calls' known costs; providers may bill some failed calls, which stay unknown. Cached-input or reasoning-token price differences are not modelled (all input at the standard rate; reasoning tokens are included in OpenAI's output count).
 - `./run.sh` uses the simulated provider only; one request per run, with a fixed prompt and `MAX_OUTPUT_TOKENS = 64`.
 - Token counts come from a simulated tokenizer (1 token per 4 characters) and prices are simulated; neither matches a real provider.
-- No token throughput (`output_tokens_per_s`): the provider gives no per-token timing.
+- `output_tokens_per_s` is observed effective throughput: whole-response token count over client-observed chunk timing. It includes first-chunk and reasoning tokens (reads high for very short responses) and is not internal decoding speed. Not backfilled for older attempts (the one real success has no tokens/s value).
+- `workload_id` is a free versioned string with no registry; nothing enforces that a version bump accompanies a prompt or cap change.
+- Origin is whatever the runner is configured to say; it is not verified. Rows before Step 013 have no workload or origin, and there are no origin/workload filters or comparison views yet.
 - Observations recorded before Step 010 and seeded history have no request details and are not counted as attempts.
 - No retries and no overall attempt deadline (OpenAI's 60 s timeout is per socket operation, so a trickling stream can take longer).
 - Partial measurements of failed attempts (e.g. TTFT before a mid-stream failure) are discarded.
 - Simulated history exists for TTFT only; total latency and throughput have only live measurements.
-- Throughput counts stream chunks, not provider tokens; the dummy's chunks are fixed (5 per response).
+- Chunk throughput counts stream chunks, not provider tokens; the dummy's chunks are fixed (5 per response), and its token throughput uses the simulated tokenizer.
 - Percentiles are reported the same way for every metric; for throughput (higher is better) the low tail (e.g. p5) would be more informative and is not shown.
 - Simulated history uses a fixed past week; it moves out of the 24h/7d windows over time (after 2026-11-28 23:00 UTC it is outside all windows).
 - Seeded and live dummy rows are both `test`/`dummy`; they are told apart only by timestamp (seeded rows are on the hour, before 2026-10-30).
@@ -102,4 +106,4 @@ A unique index on observations (`recorded_at`, `environment`, `provider`, `model
 
 To be defined by the next numbered prompt after review.
 
-Do not yet add another provider/model, scheduler, repeated benchmark runs, Docker, cloud deployment, PostgreSQL, authentication, or workload dimensions (request category, token sizes, execution location).
+Do not yet add another provider/model, scheduler, repeated benchmark runs, Docker, cloud deployment, PostgreSQL, authentication, price scraping/history, or workload matrices without a numbered prompt.

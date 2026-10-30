@@ -31,13 +31,40 @@ Metrics of a successful attempt (saved as separate observations linked to it):
 |---|---|---|---|
 | Total response latency | `total_latency` | ms | Request start → stream fully consumed. The primary latency. |
 | Time To First Token | `ttft` | ms | Request start → first text item received. Streaming diagnostic. |
-| Output throughput | `output_chunks_per_s` | chunks/s | Output rate after the first chunk: (chunks − 1) ÷ (last chunk time − first chunk time). |
+| Output token throughput | `output_tokens_per_s` | tokens/s | Provider-reported output tokens ÷ (last chunk time − first chunk time). The preferred throughput. |
+| Output chunk throughput | `output_chunks_per_s` | chunks/s | Output rate after the first chunk: (chunks − 1) ÷ (last chunk time − first chunk time). Kept for continuity. |
 
 A **chunk** is one non-empty item yielded by the provider's stream. For the
 simulated provider each chunk is one fake token; chunks are **not** API or
-tokenizer token counts. Throughput excludes the wait for the first chunk, so it
-measures generation speed independently of TTFT. It is not recorded when it is
-undefined (fewer than two non-empty chunks, or no time between them).
+tokenizer token counts. Both throughputs exclude the wait for the first chunk,
+so they measure generation speed independently of TTFT.
+
+**Token throughput** divides the provider's own output token count (from its
+usage report, never the chunk count) by the time between the first and last
+output chunk. The token count covers the whole response, while the timing is
+what the client saw on the stream, so this is an *observed effective generation
+throughput*, not the provider's internal decoding speed. Because tokens in the
+first chunk are counted but the wait for that chunk is not, it reads somewhat
+high for very short responses. For the simulated provider the tokens come from
+the simulated tokenizer.
+
+A throughput is not recorded when it is undefined: fewer than two non-empty
+chunks, no time between them, or (tokens/s only) no output tokens reported. It
+is never stored as zero or infinity.
+
+Every attempt also records two facts about how it was run:
+
+- **Workload** (`workload_id`): the benchmark case, i.e. what test was run, as a
+  stable versioned name. `simulated.default.v1` is the simulated run
+  (`./run.sh`); `smoke.short_text.v1` is the real smoke request. A changed
+  prompt, cap, or request shape gets a new version.
+- **Origin** (`origin_cloud` / `origin_region`): where the benchmark runner
+  executed, not where the provider served the request. It is set with
+  `LLM_METRICS_ORIGIN_CLOUD` and `LLM_METRICS_ORIGIN_REGION`, for example
+  `aws` / `us-east-1`. When unset it is `local` / `unknown`. Values must be
+  lowercase letters, digits and inner hyphens (at most 63 characters); anything
+  else stops the run before any request. The origin is never guessed from IP
+  addresses, geolocation, or cloud metadata services.
 
 Timings use `time.perf_counter()` (monotonic, high resolution).
 
@@ -84,14 +111,18 @@ Database: data/llm_metrics.db
 
 Provider: dummy
 Model: dummy-model-v1
+Workload: simulated.default.v1
+Origin: local / unknown
 Outcome: success
-Total latency: 181.4 ms
-TTFT: 100.3 ms
-Output throughput: 49.4 chunks/s
+Total latency: 181.7 ms
+TTFT: 100.2 ms
+Output token throughput: 85.9 tokens/s
+Output chunk throughput: 49.1 chunks/s
 Input tokens: 3 (simulated)
 Output tokens: 7 of max 64 (simulated)
 Cost: $0.000062 (input $0.000006 + output $0.000056) (simulated)
-Saved attempt 11e65da384ab475aa66a25ec43b3e721 with 3 observations to data/llm_metrics.db
+Rates: $2.00 input / $8.00 output per 1M tokens (simulated)
+Saved attempt 458744d1d960455489bab4d23a1edc63 with 4 observations to data/llm_metrics.db
 
 Dashboard: http://127.0.0.1:8000/  (Ctrl+C to stop)
 ```
@@ -104,19 +135,20 @@ Open the printed URL in a browser. Every page is labelled with its data:
 **TEST / SIMULATED DATA** (orange) or **REAL PROVIDER DATA** (blue). The two
 are never mixed on one page.
 
-- **Aggregate** (`/`): links to choose a metric (**Total latency**, **TTFT**, or
-  **Output throughput**; default TTFT) and a time window (**24h**, **7d**,
+- **Aggregate** (`/`): links to choose a metric (**Total latency**, **TTFT**,
+  **Output token throughput**, or **Output chunk throughput**; default TTFT) and a time window (**24h**, **7d**,
   **30d**; default **7d**). For the window it shows the **observed benchmark
   success rate**: successes ÷ all attempts, with the attempt count and failures
   by category (no attempts → no rate). This is what our runner observed, not a
   provider's overall uptime. Below it, for the selected metric and **successful
   attempts only**: the observation count, the latest value, p50/p95/p99, and a
-  line chart over time, all in that metric's unit (ms or chunks/s).
+  line chart over time, all in that metric's unit (ms, tokens/s, or chunks/s).
 - **Recent requests** (`/requests?data=simulated|real`, default simulated): the
   20 most recent attempts of that data, newest first,
   with time, attempt id, outcome (success or FAILED with its category), total
-  latency, TTFT, chunk throughput, input/output/max tokens, total/input/output
-  cost, and, for failures, the time until the failure. Unknown values show as
+  latency, TTFT, token throughput, chunk throughput, input/output/max tokens,
+  total/input/output cost, for failures the time until the failure, provider /
+  model, workload, and origin. Unknown values show as
   "—". Measurements recorded before Step 010 have no attempt details and are
   not listed.
 - **Benchmark API Spend** (`/spend`, real data only): for a time window (default
@@ -206,7 +238,9 @@ existing rows are kept: Step 009 renamed the `value_ms` column to `value`
 `observations.request_id` (schema version 2); Step 011 added `outcome` and
 `failed_after_ms` and made token/cost columns nullable (schema version 3), with
 Step-010 requests recorded as successes; Step 012a added
-`requests.provider_request_id` (schema version 4), NULL for existing rows.
+`requests.provider_request_id` (schema version 4), NULL for existing rows;
+Step 013 added `workload_id`, `origin_cloud` and `origin_region` (schema version
+5), NULL (unknown) for existing rows because they were never recorded.
 Older rows are not given invented token, cost, or request data.
 
 To start over, delete the `data/` folder.

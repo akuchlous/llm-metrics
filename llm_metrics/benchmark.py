@@ -16,12 +16,15 @@ from llm_metrics.storage import save_request
 
 
 def run_attempt(
-    provider: LLMProvider, prompt: str, max_output_tokens: int, environment: str, db_path: Path
+    provider: LLMProvider, prompt: str, max_output_tokens: int, environment: str, db_path: Path,
+    *, workload_id: str, origin: tuple[str, str],
 ) -> tuple[dict, list[dict], str]:
     """Make one attempt and save it; return (request, results, request_id).
 
-    The price is looked up before the call, so a missing price never wastes a
-    paid request.
+    `workload_id` names the benchmark case (what was run); `origin` is
+    (origin_cloud, origin_region) of this runner (see config.get_origin). Both
+    are stored with the attempt. The price is looked up before the call, so a
+    missing price never wastes a paid request.
     """
     price = price_for(provider.name, provider.model)
     attempt, results = measure_request(provider, prompt, max_output_tokens)
@@ -29,8 +32,12 @@ def run_attempt(
         cost = request_cost(attempt["input_tokens"], attempt["output_tokens"], price)
     else:  # unknown, not zero
         cost = {"input_cost": None, "output_cost": None, "total_cost": None}
+    origin_cloud, origin_region = origin
     request = {
         **attempt,
+        "workload_id": workload_id,
+        "origin_cloud": origin_cloud,
+        "origin_region": origin_region,
         "input_price_per_1m": price.input_per_1m,
         "output_price_per_1m": price.output_per_1m,
         **cost,
@@ -44,6 +51,8 @@ def print_summary(request: dict, results: list[dict], request_id: str, db_path: 
     note = " (simulated)" if simulated else ""
     print(f"Provider: {request['provider']}")
     print(f"Model: {request['model']}")
+    print(f"Workload: {request['workload_id']}")
+    print(f"Origin: {request['origin_cloud']} / {request['origin_region']}")
     if request["outcome"] == SUCCESS:
         print("Outcome: success")
         for result in results:

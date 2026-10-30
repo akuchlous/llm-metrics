@@ -8,6 +8,7 @@ from llm_metrics.config import (
     ConfigError,
     get_app_env,
     get_db_path,
+    get_origin,
     get_port,
     get_provider,
 )
@@ -64,6 +65,29 @@ class GetPortTest(unittest.TestCase):
             with self.subTest(bad=bad):
                 with self.assertRaisesRegex(ConfigError, "Invalid LLM_METRICS_PORT"):
                     get_port({"LLM_METRICS_PORT": bad})
+
+
+
+class GetOriginTest(unittest.TestCase):
+    def test_unset_or_empty_is_local_and_deterministic(self):
+        self.assertEqual(get_origin({}), ("local", "unknown"))
+        self.assertEqual(get_origin({"LLM_METRICS_ORIGIN_CLOUD": "",
+                                     "LLM_METRICS_ORIGIN_REGION": ""}), ("local", "unknown"))
+
+    def test_explicit_values(self):
+        for cloud, region in (("aws", "us-east-1"), ("gcp", "us-central1"), ("azure", "eastus")):
+            with self.subTest(cloud=cloud):
+                self.assertEqual(get_origin({"LLM_METRICS_ORIGIN_CLOUD": cloud,
+                                             "LLM_METRICS_ORIGIN_REGION": region}), (cloud, region))
+        self.assertEqual(get_origin({"LLM_METRICS_ORIGIN_CLOUD": "aws"}), ("aws", "unknown"))
+
+    def test_invalid_values_fail_without_echoing_them(self):
+        for bad in ("AWS", "us east 1", "-aws", "aws-", "x" * 64, "a/b", "ünï"):
+            for variable in ("LLM_METRICS_ORIGIN_CLOUD", "LLM_METRICS_ORIGIN_REGION"):
+                with self.subTest(variable=variable, bad=bad):
+                    with self.assertRaisesRegex(ConfigError, f"Invalid {variable}") as ctx:
+                        get_origin({variable: bad})
+                    self.assertNotIn(bad, str(ctx.exception))
 
 
 if __name__ == "__main__":

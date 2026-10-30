@@ -24,6 +24,7 @@ from llm_metrics.pricing import PRICE_PROVENANCE, Price, price_for, request_cost
 from llm_metrics.providers import ProviderFailure, Usage
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
+SMOKE_CASE = {"workload_id": "smoke.short_text.v1", "origin": ("local", "unknown")}
 FAKE_KEY = "fake-test-key-NEVER-SHOW-THIS-0123456789"
 
 
@@ -92,7 +93,8 @@ class StreamTranslationTest(unittest.TestCase):
         attempt, results = measure_request(provider, "hi", 64)
         self.assertEqual(attempt["outcome"], "success")
         self.assertEqual((attempt["input_tokens"], attempt["output_tokens"]), (12, 5))  # 2 chunks
-        self.assertEqual({r["metric"] for r in results}, {"total_latency", "ttft", "output_chunks_per_s"})
+        self.assertEqual({r["metric"] for r in results},
+                         {"total_latency", "ttft", "output_tokens_per_s", "output_chunks_per_s"})
         self.assertEqual(attempt["provider"], "openai")
         self.assertEqual(attempt["model"], "gpt-6-luna")
 
@@ -132,7 +134,7 @@ class ProviderRequestIdTest(unittest.TestCase):
         provider, _ = provider_with(response=self.response(sse(delta("a"), completed())))
         with tempfile.TemporaryDirectory() as tmp:
             db_path = Path(tmp) / "x.db"
-            request, _, request_id = run_attempt(provider, "p", 64, "prod", db_path)
+            request, _, request_id = run_attempt(provider, "p", 64, "prod", db_path, **SMOKE_CASE)
             from llm_metrics.storage import load_request
             stored = load_request(db_path, request_id)
         self.assertEqual(stored["provider_request_id"], "req_8d31bcc50b4b40b58ae702b1305f67de")
@@ -279,7 +281,7 @@ class FailureMappingTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             db_path = Path(tmp) / "x.db"
             with self.assertRaises(RequestRejected):
-                run_attempt(provider, "p", 64, "prod", db_path)
+                run_attempt(provider, "p", 64, "prod", db_path, **SMOKE_CASE)
             self.assertFalse(db_path.exists() and b"credit_balance_exhausted" in db_path.read_bytes())
 
     def test_plain_rate_limit_429_is_still_rate_limited(self):
@@ -398,7 +400,7 @@ class DiagnosticsTest(unittest.TestCase):
         provider, _ = provider_with(response=FakeResponse(sse(event)))
         with tempfile.TemporaryDirectory() as tmp:
             db_path = Path(tmp) / "x.db"
-            request, _, _ = run_attempt(provider, "p", 64, "prod", db_path)
+            request, _, _ = run_attempt(provider, "p", 64, "prod", db_path, **SMOKE_CASE)
             self.assertEqual(request["diagnostics"]["error_code"], "server_error_marker_xyz")
             self.assertNotIn(b"server_error_marker_xyz", db_path.read_bytes())
 
@@ -411,7 +413,7 @@ class SecretHandlingTest(unittest.TestCase):
         self.assertNotIn(FAKE_KEY, str(ProviderFailure("timeout")))
         with tempfile.TemporaryDirectory() as tmp:
             db_path = Path(tmp) / "x.db"
-            request, results, request_id = run_attempt(provider, "secret prompt", 64, "prod", db_path)
+            request, results, request_id = run_attempt(provider, "secret prompt", 64, "prod", db_path, **SMOKE_CASE)
             out = io.StringIO()
             with contextlib.redirect_stdout(out):
                 print_summary(request, results, request_id, db_path, simulated=False)
@@ -462,7 +464,9 @@ class RealSmokeCommandTest(unittest.TestCase):
 
     def run_main(self, env, opener=None):
         out, err = io.StringIO(), io.StringIO()
-        patches = [mock.patch.dict(os.environ, {"LLM_METRICS_DB_PATH": str(self.db_path), **env})]
+        patches = [mock.patch.dict(os.environ, {"LLM_METRICS_DB_PATH": str(self.db_path),
+                                                "LLM_METRICS_ORIGIN_CLOUD": "",
+                                                "LLM_METRICS_ORIGIN_REGION": "", **env})]
         if opener is not None:
             real_init = OpenAIProvider.__init__
 
@@ -515,6 +519,12 @@ class RealSmokeCommandTest(unittest.TestCase):
         [stored] = load_recent_requests(self.db_path, "prod", 20)
         self.assertEqual((stored["provider"], stored["model"], stored["environment"]),
                          ("openai", "gpt-6-luna", "prod"))
+        self.assertEqual((stored["workload_id"], stored["origin_cloud"], stored["origin_region"]),
+                         ("smoke.short_text.v1", "local", "unknown"))
+        self.assertIn("Workload: smoke.short_text.v1", out)
+        # Real token throughput comes from OpenAI's usage (15 tokens), not the 2 chunks.
+        self.assertIn("output_tokens_per_s", stored["metrics"])
+        self.assertIn("Output token throughput:", out)
         self.assertAlmostEqual(stored["total_cost"], 0.0000095, places=15)
         self.assertEqual(load_recent_requests(self.db_path, "test", 20), [])
 
@@ -541,6 +551,26 @@ class RealSmokeCommandTest(unittest.TestCase):
         from llm_metrics.storage import load_recent_requests
         [stored] = load_recent_requests(self.db_path, "prod", 20)
         self.assertEqual(stored["provider_request_id"], "req_42")
+
+    def test_origin_comes_from_the_environment(self):
+        opener = FakeOpener(response=FakeResponse(sse(delta("a"), delta("b"), completed())))
+        code, out, _ = self.run_main({"OPENAI_API_KEY": FAKE_KEY, "LLM_METRICS_ORIGIN_CLOUD": "gcp",
+                                      "LLM_METRICS_ORIGIN_REGION": "us-central1"}, opener)
+        self.assertEqual(code, 0)
+        self.assertIn("Origin: gcp / us-central1", out)
+        from llm_metrics.storage import load_recent_requests
+        [stored] = load_recent_requests(self.db_path, "prod", 20)
+        self.assertEqual((stored["origin_cloud"], stored["origin_region"]), ("gcp", "us-central1"))
+
+    def test_invalid_origin_is_refused_before_any_request(self):
+        opener = FakeOpener(response=FakeResponse(sse(delta("a"), completed())))
+        code, out, err = self.run_main({"OPENAI_API_KEY": FAKE_KEY,
+                                        "LLM_METRICS_ORIGIN_CLOUD": "AWS!"}, opener)
+        self.assertEqual(code, 2)
+        self.assertIn("Invalid LLM_METRICS_ORIGIN_CLOUD", err)
+        self.assertIn("No request was made", err)
+        self.assertEqual(opener.calls, [])
+        self.assertFalse(self.db_path.exists())
 
     def test_unknown_arguments_are_refused_before_any_request(self):
         self.argv = ["--loop"]
