@@ -16,7 +16,7 @@ Build useful measurement data first, then quality, routing, and exchange mechani
 
 Pricing is part of Metrics data, but automated price discovery is deferred. For Metrics v1, keep verified provider/model prices in `pricing.py` and store the effective rates used on each request. Do not build price scraping, price-history services, or provider pricing API integrations yet; revisit those when Router/Exchange makes continuously current pricing operationally valuable.
 
-Future real benchmarking needs deliberate dimensions: provider/model, workload category/identity, input size, requested output size, actual output size, and measurement origin (cloud/region/zone). Performance claims are meaningful only for a defined population and methodology.
+Future real benchmarking needs deliberate dimensions: provider/model, workload category/identity, input size, requested output size, actual output size, measurement origin (cloud/region/zone), and cache policy/observed cached-input usage. Performance claims are meaningful only for a defined population and methodology. Cached/warm and explicitly uncached/cold-ish measurements must not be silently mixed.
 
 **Publishing/visibility is part of the product direction.** Engineering milestones and later benchmark findings should become useful public material for llmxchange.com and channels such as LinkedIn. Prefer publishing reproducible measurements, methodology, charts, and costs over generic product promotion. The site should eventually make the cost of running the benchmark itself transparent.
 
@@ -30,25 +30,25 @@ Keep real benchmark spend deliberately small during development: tests make no p
 
 ### Longer-term analytics / exchange metrics
 
-Keep the implementation small now, but preserve an architecture that can grow toward multidimensional provider analytics. Useful dimensions/facts include provider, model, variant/quantization, timestamp/time-of-day, measurement cloud/region/zone, workload/category, input tokens/context length, requested maximum output tokens, actual output tokens, cached input tokens, reasoning tokens, finish reason, and later reproducibly defined workload complexity/classifiers.
+Keep the implementation small now, but preserve an architecture that can grow toward multidimensional provider analytics. Useful dimensions/facts include provider, model, variant/quantization, timestamp/time-of-day, measurement cloud/region/zone, workload/category, input tokens/context length, requested maximum output tokens, actual output tokens, cache policy, cached input tokens, reasoning tokens, finish reason, and later reproducibly defined workload complexity/classifiers.
 
-Useful measurements include TTFT, total latency, generation tokens/sec, end-to-end effective output tokens/sec, request cost, success/error, error/rate-limit type, retry/fallback count, and availability. Public views can emphasize total latency, cost, token counts, throughput, and reliability while retaining TTFT as an advanced/diagnostic metric.
+Useful measurements include TTFT, total latency, generation tokens/sec, end-to-end effective output tokens/sec, request cost, success/error, error/rate-limit type, retry/fallback count, and availability. Public views can emphasize total latency, cost, token counts, throughput, reliability, and whether cached input reuse affected the sample while retaining TTFT as an advanced/diagnostic metric.
 
 For the eventual Exchange, request constraints may include maximum price, latency/deadline, minimum throughput, model/workload requirements, and other buyer constraints. Fulfillment facts may later include bid/ask price, selected provider, actual settlement/fulfillment price, retries/fallbacks, and capacity. Do not implement these speculative fields until a concrete step needs them.
 
 Design principle: **dimensions describe the conditions under which a request was measured; metrics describe what happened.** Keep request identity and request-level facts separate from extensible measurements so later analytics can filter coherent populations without turning every dimension into a metric row.
 
-OpenRouter is a useful product reference: its provider/analytics surfaces emphasize latency/TTFT, throughput, uptime/error behavior, token usage, spend/cost, context length, provider/model/origin dimensions, and routing based on realized price/performance/reliability. llmxchange should retain comparable core facts from the start where practical, then differentiate with controlled benchmark methodology, origin/workload dimensions, and eventual market/fulfillment constraints.
+OpenRouter is a useful product reference: its provider/analytics surfaces emphasize latency/TTFT, throughput, uptime/error behavior, token usage, spend/cost, context length, provider/model/origin dimensions, and routing based on realized price/performance/reliability. llmxchange should retain comparable core facts from the start where practical, then differentiate with controlled benchmark methodology, origin/workload/cache dimensions, and eventual market/fulfillment constraints.
 
 ## Development and learning workflow
 
 - GitHub is the source of truth.
 - Claude implements one small numbered step; ChatGPT reviews actual code and design material before the next step.
 - Material issues get a corrective step before new functionality.
-- Used prompts are immutable history.
+- Used prompts are immutable history once implementation begins; update the current pending prompt when product requirements change before implementation.
 - Each step writes `prompts/NNN-output.md` and follows `prompts/DESIGN_QUESTIONS.md` for role-specific learning material.
 - Implementation drives learning: after review, discuss one or two questions grounded in the completed step.
-- Whenever ChatGPT creates a numbered prompt, update this file in the same workflow.
+- Whenever ChatGPT creates or materially revises a pending numbered prompt, update this file in the same workflow.
 
 ## Implementation progression
 
@@ -62,18 +62,20 @@ OpenRouter is a useful product reference: its provider/analytics surfaces emphas
 - Step 011 — errors, normalized failure categories, persisted failed attempts, and observed benchmark success/failure rate: complete and reviewed.
 - Step 012 — first real provider/model (OpenAI `gpt-6-luna`), explicit low-cost real-call path, official-price verification, and publishable benchmark API spend grouped by provider/model: complete; live path validated in Step 012a.
 - Step 012a — live validation cleanup: sanitized diagnostics kept, OpenAI `x-request-id` stored per attempt (schema v4), pricing verified against official docs, `reasoning.effort: none` confirmed by the official model page: complete and reviewed; 169 tests reported passing.
-- Step 013 — Metrics v1 data completeness: add authoritative output tokens/sec, stable workload identity, and measurement origin (cloud/region). Price scraping/history explicitly deferred: prompt written, implementation pending.
+- Step 013 — Metrics v1 data completeness: add authoritative output tokens/sec, stable workload identity, measurement origin (cloud/region), and cache-aware request facts (`cache_policy` plus provider-authoritative cached input tokens where available). Price scraping/history explicitly deferred: prompt updated, implementation pending.
 - Planned after Step 013: add a small number of additional real providers/models, then automation/deployment/public Metrics product rather than continuing foundation work indefinitely.
 
-The aggregate dashboard should answer: **How is this provider/model performing, and is performance changing?** The individual-call view should answer: **What exactly happened on this benchmark request, how much work did it do, how long did it take, what did it cost, and did it succeed?** Simulated data must always be clearly labeled.
+The aggregate dashboard should answer: **How is this provider/model performing, under what workload/origin/cache conditions, and is performance changing?** The individual-call view should answer: **What exactly happened on this benchmark request, how much work did it do, how long did it take, what did it cost, was cached input reused, and did it succeed?** Simulated data must always be clearly labeled.
 
 ## Key design learning
 
 Keep raw measurements/facts as the source of truth. Percentiles and costs are derived views/facts whose inputs should remain available. Materialize summaries only when scale/performance justifies it. Percentiles are generally not composable; at scale retain raw data or mergeable distribution summaries rather than only precomputed percentile values.
 
-Define the population before the statistic. The chart and summary statistics must use the same observation population. Eventually a coherent population includes provider/model + origin + workload + request sizes + time window. More samples do not make a mixed population meaningful.
+Define the population before the statistic. The chart and summary statistics must use the same observation population. Eventually a coherent population includes provider/model + origin + workload + request sizes + cache state + time window. More samples do not make a mixed population meaningful.
 
-"Fastest provider" is not a provider property in isolation. Observed performance depends on origin, workload, request characteristics, network path, connection setup, time, and timer boundaries. Measurement methodology must match the workload being represented.
+"Fastest provider" is not a provider property in isolation. Observed performance depends on origin, workload, request characteristics, network path, connection setup, cache reuse, time, and timer boundaries. Measurement methodology must match the workload being represented.
+
+Cache terminology must be evidence-based. "Cold" cannot safely mean every internal provider/model/GPU cache is empty. Record the requested cache policy and provider-authoritative cached-input usage separately. `cached_input_tokens = 0` is an observed zero only when explicitly reported; NULL means unknown/not reported. Prefer terms such as explicitly uncached/cold-ish, cached/warm, provider-default, and unknown, and do not silently aggregate incompatible cache populations.
 
 For user-facing API performance, total completion latency is usually the intuitive primary metric. TTFT remains useful for streaming responsiveness and diagnostics but should not require public users to understand LLM internals. TTFT also does not isolate provider compute from DNS/TCP/TLS/queueing/prefill when those occur inside the measured boundary.
 
@@ -93,4 +95,8 @@ Operating budget: the project-wide constraint is **$10/day**, including LLM API 
 
 ## Step 013 direction
 
-Step 013 is intentionally the last small data-completeness step before broader provider coverage. Add `output_tokens_per_s` only when provider-authoritative output usage and defensible first-to-last output timing exist; keep chunks/s unchanged for backward compatibility. Add a stable `workload_id` and explicit benchmark-runner `origin_cloud` / `origin_region` as request facts, with honest unknowns for historical rows. Do not create workload registries, arbitrary dimensions, geolocation, pricing collectors, or other abstractions. After this, prefer real provider coverage and production data over more speculative foundation work.
+Step 013 is intentionally the last small data-completeness step before broader provider coverage. Add `output_tokens_per_s` only when provider-authoritative output usage and defensible first-to-last output timing exist; keep chunks/s unchanged for backward compatibility. Add a stable `workload_id` and explicit benchmark-runner `origin_cloud` / `origin_region` as request facts.
+
+Also make cache state explicit enough for trustworthy analytics: store a small requested `cache_policy` and provider-authoritative `cached_input_tokens` when available. Do not infer cached tokens from latency or repeated prompts, and do not label a request cold unless the provider/API evidence supports that statement. Keep `0` distinct from unknown/NULL. If the current OpenAI API/model has a documented cache-disable control, use it for the controlled benchmark; otherwise record provider-default/unknown honestly. Do not randomize prompts merely to defeat caches. Dedicated warm-vs-uncached experiments can come later.
+
+Do not create workload registries, arbitrary dimensions, geolocation, pricing collectors, cache frameworks, or other abstractions. After this, prefer real provider coverage and production data over more speculative foundation work.
