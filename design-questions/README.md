@@ -1,8 +1,14 @@
 # Software design questions
 
-Interview-style design questions drawn from each completed step of `llm-metrics`. Use them to practise explaining real engineering decisions at different levels of seniority.
+Interview-style design questions drawn from each completed step of `llm-metrics`, answered from what the project actually did, then critiqued.
 
-Each file covers one numbered step (matching `prompts/NNN-*.md`) and has one question per level:
+Each step has a folder matching its prompt number, with one file per level:
+
+```text
+design-questions/
+  01/  lead-engineer.md  principal-engineer.md  senior-manager.md  director.md
+  02/  ...
+```
 
 | Level | What the question probes |
 |---|---|
@@ -11,20 +17,16 @@ Each file covers one numbered step (matching `prompts/NNN-*.md`) and has one que
 | **Senior manager** | Delivery, process, risk, and team practices. |
 | **Director** | Strategy, credibility, cost of decisions, and organisational impact. |
 
-Every question has:
+Each file has:
 
-- **Sample answer:** a realistic, decent-but-imperfect answer.
-- **Good:** what the answer does well.
-- **Weak:** what it misses or gets wrong.
-- **Improve:** how a stronger answer would go.
+- **Answer:** a strong answer grounded in the real implementation, decisions (`DECISIONS.md`) and step reports (`prompts/NNN-output.md`).
+- **Critique:** what was **good** about the decision or answer, what was **weak**, and how to **improve** it.
 
-The sample answers are deliberately not perfect; the critique is the learning material. The facts come from the code, `DECISIONS.md`, and `prompts/NNN-output.md`.
-
-| Step | File |
-|---|---|
-| 001 — TTFT with a dummy provider | [001-initial-ttft.md](001-initial-ttft.md) |
-| 002 — One-command local run | [002-local-run-script.md](002-local-run-script.md) |
-| 003 — SQLite persistence | [003-sqlite-storage.md](003-sqlite-storage.md) |
-| 004 — Simulated history | [004-simulated-history.md](004-simulated-history.md) |
-| 005 — Local dashboard | [005-first-ttft-dashboard.md](005-first-ttft-dashboard.md) |
-| 006 — TTFT percentiles | [006-ttft-percentiles.md](006-ttft-percentiles.md) |
+| Step | Topic | Prompt |
+|---|---|---|
+| [01](01/) | TTFT with a dummy provider | `prompts/001-initial-ttft.md` |
+| [02](02/) | One-command local run | `prompts/002-local-run-script.md` |
+| [03](03/) | SQLite persistence | `prompts/003-sqlite-storage.md` |
+| [04](04/) | Deterministic simulated history | `prompts/004-simulated-history.md` |
+| [05](05/) | First local dashboard | `prompts/005-first-ttft-dashboard.md` |
+| [06](06/) | TTFT percentiles | `prompts/006-ttft-percentiles.md` |
