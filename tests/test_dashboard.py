@@ -1,4 +1,5 @@
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -13,6 +14,10 @@ from llm_metrics.dashboard import HOST, make_server, render_page
 from llm_metrics.storage import load_observations, save_new_observations
 
 DUMMY = {"provider": "dummy", "model": "dummy-model-v1", "metric": "ttft"}
+
+
+def visible_text(page):
+    return re.sub(r"\s+", " ", re.sub(r"<[^>]+>", "", page))
 
 
 def at(hour):
@@ -62,12 +67,27 @@ class DashboardTest(unittest.TestCase):
         page = render_page([("2026-10-23T01:00:00.000000Z", 101.0)])
         self.assertIn("101.0 ms", page)
         self.assertIn("<svg", page)
+        text = visible_text(page)
+        for p in ("p50", "p95", "p99"):
+            self.assertIn(f"{p} 101.0 ms", text)
+
+    def test_percentiles_from_stored_observations(self):
+        # 20 values 10..200 ms, saved newest-first to show time order is irrelevant.
+        for i in range(20, 0, -1):
+            self.save(i, float(i * 10))
+        observations = load_observations(self.db_path, "test", "dummy", "dummy-model-v1", "ttft")
+        text = visible_text(render_page(observations))
+        self.assertIn("p50 100.0 ms", text)
+        self.assertIn("p95 190.0 ms", text)
+        self.assertIn("p99 200.0 ms", text)
+        self.assertIn("nearest-rank", text)
 
     def test_empty_data_renders_valid_page(self):
         page = render_page([])
         self.assertIn("TEST / SIMULATED DATA", page)
         self.assertIn("No observations yet", page)
         self.assertNotIn("<svg", page)
+        self.assertNotIn("p50", page)
         self.assertTrue(page.rstrip().endswith("</html>"))
 
     def test_server_binds_loopback_and_serves_database_data(self):

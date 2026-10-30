@@ -3,7 +3,7 @@
 An open-source project to independently measure LLM provider performance
 (time to first token, throughput, latency, reliability, price).
 
-It is being built in small, tested steps. **Current step: 005.**
+It is being built in small, tested steps. **Current step: 006.**
 
 > **Simulated data only.** The current implementation uses a dummy provider that
 > sleeps for a fixed time and then emits fake tokens. Its numbers do **not**
@@ -28,13 +28,16 @@ cd llm-metrics
 ```
 
 `./run.sh` creates a `.venv` virtual environment on first run (and reuses it
-afterwards), runs all tests, and only if they pass runs the TTFT measurement in
-`test` mode and then starts the local dashboard:
+afterwards), runs all tests, and only if they pass: adds the simulated history
+(test mode only, once), runs the TTFT measurement, and starts the local dashboard:
 
 ```
 LLM Metrics — local test environment
 ✓ Python environment ready
 ✓ Tests passed
+Simulated TTFT history: 168 new, 0 already present (2026-10-23 00:00 to 2026-10-29 23:00 UTC, hourly)
+Database: data/llm_metrics.db
+✓ Simulated history ready
 ✓ Starting test measurement
 
 Provider: dummy
@@ -51,13 +54,14 @@ If any test fails, the test output is shown and nothing else runs.
 ## Dashboard
 
 Open the printed URL in a browser. The page shows the provider and model, a
-**TEST / SIMULATED DATA** label, the latest TTFT, and a TTFT-over-time line chart
-of all stored simulated observations (including the fixed seeded week, however
-old it is). To see the full chart, seed the history once:
+**TEST / SIMULATED DATA** label, the latest TTFT, TTFT p50/p95/p99, and a
+TTFT-over-time line chart of all stored simulated observations (including the
+fixed seeded week, however old it is).
 
-```bash
-python3 -m llm_metrics.seed_history
-```
+Percentiles use the **nearest-rank** method over the same observations as the
+chart: sort the values and take the one at rank ⌈p × n / 100⌉. The result is
+always a real observed value; with fewer than 100 observations, p99 equals the
+maximum.
 
 The dashboard uses only the Python standard library, has no JavaScript, and
 listens on `127.0.0.1` only, so it is not reachable from other machines. On a
@@ -95,7 +99,8 @@ python3 -c "import sqlite3; [print(r) for r in sqlite3.connect('data/llm_metrics
 
 ### Simulated history
 
-To add a week of simulated hourly TTFT history (for upcoming graphs):
+`./run.sh` adds a week of simulated hourly TTFT history automatically in test
+mode. To add it by hand:
 
 ```bash
 python3 -m llm_metrics.seed_history
@@ -103,8 +108,8 @@ python3 -m llm_metrics.seed_history
 
 This inserts 168 deterministic observations, one per hour from
 2026-10-23 00:00 to 2026-10-29 23:00 UTC, labelled `environment = 'test'`.
-Running it again adds nothing. It refuses to run with `APP_ENV=prod`.
-`./run.sh` does not seed; normal measurements are unaffected.
+Running it again adds nothing. It refuses to run with `APP_ENV=prod`, and
+`./run.sh` never seeds in `prod`.
 
 To start over, delete the `data/` folder.
 

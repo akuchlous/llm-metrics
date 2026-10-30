@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# One-command local run: prepare .venv, run the tests, run the measurement,
-# then serve the dashboard until Ctrl+C.
+# One-command local run: prepare .venv, run the tests, seed simulated history
+# (test mode only), run the measurement, then serve the dashboard until Ctrl+C.
 # Usage: ./run.sh
 set -euo pipefail
 
@@ -30,6 +30,13 @@ fi
 echo "✓ Tests passed"
 
 export APP_ENV="${APP_ENV:-test}"
+
+# Idempotent: adds the fixed simulated week once, then nothing. Never in prod.
+if [ "$APP_ENV" = "test" ]; then
+    "$PYTHON" -m llm_metrics.seed_history
+    echo "✓ Simulated history ready"
+fi
+
 echo "✓ Starting $APP_ENV measurement"
 echo
 "$PYTHON" -m llm_metrics

@@ -80,28 +80,36 @@ class RunScriptTest(unittest.TestCase):
                 with closing(sqlite3.connect(db_path)) as conn:
                     return conn.execute("SELECT COUNT(*) FROM observations").fetchone()[0]
 
-            # First run: creates .venv, measures, saves, then serves the dashboard.
-            _, out, err, page = run_until_dashboard(copy, env)
+            # prod on a fresh copy: never seeds, refuses to measure, no dashboard.
+            returncode, out, err, page = run_until_dashboard(copy, {**env, "APP_ENV": "prod"})
+            self.assertEqual(returncode, 2)
             self.assertIn("Creating Python environment", out)
+            self.assertNotIn("Simulated history", out)
+            self.assertIsNone(page)
+            self.assertFalse(db_path.exists())
+
+            # First test-mode run: seeds 168 rows, measures 1, serves the dashboard.
+            _, out, err, page = run_until_dashboard(copy, env)
+            self.assertNotIn("Creating Python environment", out)  # .venv reused
             self.assertIn("Tests passed", out)
+            self.assertIn("168 new, 0 already present", out)
             self.assertIn("Provider: dummy", out)
             self.assertRegex(out, r"TTFT: \d+\.\d ms")
-            self.assertTrue((copy / ".venv" / "bin" / "python").exists())
             self.assertIn("Saved observation to data/llm_metrics.db", out)
-            self.assertEqual(count_rows(), 1)
+            self.assertEqual(count_rows(), 169)
             self.assertRegex(out, r"Dashboard: http://127\.0\.0\.1:\d+/")
             self.assertIsNotNone(page, out + err)
             self.assertIn("TEST / SIMULATED DATA", page)
-            self.assertIn("All 1 observations", page)
+            self.assertIn("All 169 observations", page)
+            self.assertIn("p99", page)
 
-            # Re-running reuses the existing .venv.
+            # Second run: history already present, only the live row is added.
             _, out, err, page = run_until_dashboard(copy, env)
-            self.assertNotIn("Creating Python environment", out)
-            self.assertIn("TTFT:", out)
-            self.assertEqual(count_rows(), 2)
-            self.assertIn("All 2 observations", page)
+            self.assertIn("0 new, 168 already present", out)
+            self.assertEqual(count_rows(), 170)
+            self.assertIn("All 170 observations", page)
 
-            # A failing test stops the run before the measurement and dashboard.
+            # A failing test stops the run before seeding, measuring, or serving.
             (copy / "tests" / "test_zz_fail.py").write_text(
                 "import unittest\n"
                 "class F(unittest.TestCase):\n"
@@ -113,14 +121,7 @@ class RunScriptTest(unittest.TestCase):
             self.assertIn("Tests failed", err)
             self.assertNotIn("TTFT:", out)
             self.assertIsNone(page)
-            self.assertEqual(count_rows(), 2)
-
-            # prod refuses to measure, so the dashboard is not started either.
-            (copy / "tests" / "test_zz_fail.py").unlink()
-            returncode, out, err, page = run_until_dashboard(copy, {**env, "APP_ENV": "prod"})
-            self.assertEqual(returncode, 2)
-            self.assertIsNone(page)
-            self.assertEqual(count_rows(), 2)
+            self.assertEqual(count_rows(), 170)
 
 if __name__ == "__main__":
     unittest.main()

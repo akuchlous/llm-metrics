@@ -14,6 +14,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 
 from llm_metrics.config import ConfigError, get_db_path, get_port
+from llm_metrics.percentiles import percentile
 from llm_metrics.providers import DummyProvider
 from llm_metrics.storage import load_observations
 
@@ -24,6 +25,7 @@ ENVIRONMENT = "test"
 PROVIDER = DummyProvider.name
 MODEL = DummyProvider.model
 METRIC = "ttft"
+PERCENTILES = (50, 95, 99)
 
 # Chart geometry in SVG units (the SVG scales to the page width).
 WIDTH, HEIGHT = 800, 300
@@ -40,6 +42,7 @@ PAGE = """<!doctype html>
   .label {{ display: inline-block; background: #b45309; color: #fff; font-weight: 700; padding: .3rem .7rem; border-radius: 4px; letter-spacing: .05em; }}
   .latest {{ font-size: 2rem; font-weight: 700; margin: .2rem 0; }}
   .muted {{ color: #555; }}
+  .percentiles {{ font-size: 1.15rem; }}
   svg {{ width: 100%; height: auto; border: 1px solid #ddd; }}
 </style>
 </head>
@@ -104,9 +107,15 @@ def render_page(observations: list[tuple[str, float]]) -> str:
     else:
         latest_at, latest_value = observations[-1]
         first_at = observations[0][0]
+        values = [v for _, v in observations]
+        summary = " · ".join(
+            f"p{p} <b>{percentile(values, p):.1f} ms</b>" for p in PERCENTILES
+        )
         body = (
             f'<p class="muted">Latest TTFT ({_display_time(latest_at)})</p>\n'
             f'<p class="latest">{latest_value:.1f} ms</p>\n'
+            f'<p class="percentiles">TTFT {summary}'
+            ' <span class="muted">(nearest-rank, all observations below)</span></p>\n'
             f'<p class="muted">All {len(observations)} observations,'
             f" {_display_time(first_at)} to {_display_time(latest_at)}.</p>\n"
             + _chart_svg(observations)
