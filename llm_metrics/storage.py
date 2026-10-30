@@ -81,13 +81,33 @@ def save_new_observations(
 
 
 def load_observations(
-    db_path: Path, environment: str, provider: str, model: str, metric: str
+    db_path: Path,
+    environment: str,
+    provider: str,
+    model: str,
+    metric: str,
+    *,
+    start: datetime,
+    end: datetime,
 ) -> list[tuple[str, float]]:
-    """Return (recorded_at, value_ms) for matching observations, oldest first."""
+    """Return (recorded_at, value_ms) for matching observations, oldest first.
+
+    Only observations with start <= recorded_at <= end (both inclusive) are
+    returned. recorded_at is fixed-width UTC text, so text comparison is time
+    comparison.
+    """
     with closing(connect(db_path)) as conn:
         return conn.execute(
             "SELECT recorded_at, value_ms FROM observations"
             " WHERE environment = ? AND provider = ? AND model = ? AND metric = ?"
+            " AND recorded_at >= ? AND recorded_at <= ?"
             " ORDER BY recorded_at, id",
-            (environment, provider, model, metric),
+            (
+                environment,
+                provider,
+                model,
+                metric,
+                format_timestamp(start),
+                format_timestamp(end),
+            ),
         ).fetchall()

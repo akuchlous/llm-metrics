@@ -3,7 +3,7 @@
 An open-source project to independently measure LLM provider performance
 (time to first token, throughput, latency, reliability, price).
 
-It is being built in small, tested steps. **Current step: 006.**
+It is being built in small, tested steps. **Current step: 007.**
 
 > **Simulated data only.** The current implementation uses a dummy provider that
 > sleeps for a fixed time and then emits fake tokens. Its numbers do **not**
@@ -54,12 +54,19 @@ If any test fails, the test output is shown and nothing else runs.
 ## Dashboard
 
 Open the printed URL in a browser. The page shows the provider and model, a
-**TEST / SIMULATED DATA** label, the latest TTFT, TTFT p50/p95/p99, and a
-TTFT-over-time line chart of all stored simulated observations (including the
-fixed seeded week, however old it is).
+**TEST / SIMULATED DATA** label, links to choose a time window (**24h**, **7d**,
+**30d**; default **7d**), and for the selected window: the observation count,
+the latest TTFT, TTFT p50/p95/p99, and a TTFT-over-time line chart.
 
-Percentiles use the **nearest-rank** method over the same observations as the
-chart: sort the values and take the one at rank ⌈p × n / 100⌉. The result is
+Windows end at the current UTC time: `/?window=24h` shows observations with
+`now − 24h <= recorded_at <= now` (both ends inclusive). Everything on the page
+is computed from that same set of observations. Any other `window` value returns
+an error page listing the valid choices. The seeded history is a fixed week
+(2026-10-23 to 2026-10-29), so as time passes it moves out of the shorter
+windows; that is expected.
+
+Percentiles use the **nearest-rank** method over the selected window's
+observations (the same ones as the chart): sort the values and take the one at rank ⌈p × n / 100⌉. The result is
 always a real observed value; with fewer than 100 observations, p99 equals the
 maximum.
 

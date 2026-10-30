@@ -7,121 +7,209 @@ import threading
 import unittest
 import urllib.error
 import urllib.request
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from llm_metrics.dashboard import HOST, make_server, render_page
+from llm_metrics.dashboard import (
+    DEFAULT_WINDOW,
+    HOST,
+    build_page,
+    make_server,
+    parse_window,
+    render_page,
+    window_bounds,
+)
 from llm_metrics.storage import load_observations, save_new_observations
 
 DUMMY = {"provider": "dummy", "model": "dummy-model-v1", "metric": "ttft"}
+# A fixed "current time" so no test depends on the machine clock.
+NOW = datetime(2026, 11, 30, 12, 0, tzinfo=timezone.utc)
 
 
 def visible_text(page):
     return re.sub(r"\s+", " ", re.sub(r"<[^>]+>", "", page))
 
 
-def at(hour):
-    return datetime(2026, 10, 23, hour, tzinfo=timezone.utc)
+def chart_point_count(page):
+    match = re.search(r'<polyline[^>]*points="([^"]*)"', page)
+    return len(match.group(1).split()) if match else 0
 
 
-class DashboardTest(unittest.TestCase):
+class DashboardTestCase(unittest.TestCase):
     def setUp(self):
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
         self.db_path = Path(tmp.name) / "observations.db"
 
-    def save(self, hour, value_ms, environment="test", **overrides):
+    def save(self, recorded_at, value_ms, environment="test", **overrides):
         result = {**DUMMY, "value_ms": value_ms, **overrides}
-        save_new_observations(self.db_path, [(at(hour), result)], environment)
+        save_new_observations(self.db_path, [(recorded_at, result)], environment)
 
-    def test_load_filters_and_orders_by_time(self):
-        self.save(5, 105.0)
-        self.save(1, 101.0)
-        self.save(3, 103.0)
-        self.save(2, 999.0, environment="prod")
-        self.save(2, 999.0, provider="other")
-        self.save(2, 999.0, model="other-model")
-        self.save(2, 999.0, metric="other_metric")
-        rows = load_observations(self.db_path, "test", "dummy", "dummy-model-v1", "ttft")
-        self.assertEqual(
-            rows,
-            [
-                ("2026-10-23T01:00:00.000000Z", 101.0),
-                ("2026-10-23T03:00:00.000000Z", 103.0),
-                ("2026-10-23T05:00:00.000000Z", 105.0),
-            ],
+    def load(self, start, end):
+        return load_observations(
+            self.db_path, "test", "dummy", "dummy-model-v1", "ttft", start=start, end=end
         )
 
-    def test_page_shows_label_provider_latest_and_chart(self):
-        page = render_page([("2026-10-23T01:00:00.000000Z", 101.0),
-                            ("2026-10-23T02:00:00.000000Z", 123.4)])
-        self.assertIn("TEST / SIMULATED DATA", page)
-        self.assertIn("dummy", page)
-        self.assertIn("dummy-model-v1", page)
-        self.assertIn("123.4 ms", page)
-        self.assertIn("2026-10-23 02:00 UTC", page)
-        self.assertIn("<polyline", page)
-        self.assertNotIn("last 7 days", page.lower())
 
-    def test_single_observation_renders(self):
-        page = render_page([("2026-10-23T01:00:00.000000Z", 101.0)])
-        self.assertIn("101.0 ms", page)
-        self.assertIn("<svg", page)
+class LoadObservationsTest(DashboardTestCase):
+    def test_filters_by_identity_and_orders_by_time(self):
+        self.save(NOW - timedelta(hours=1), 105.0)
+        self.save(NOW - timedelta(hours=5), 101.0)
+        self.save(NOW - timedelta(hours=3), 103.0)
+        for overrides in ({"provider": "other"}, {"model": "other"}, {"metric": "other"}):
+            self.save(NOW - timedelta(hours=2), 999.0, **overrides)
+        self.save(NOW - timedelta(hours=2), 999.0, environment="prod")
+        rows = self.load(NOW - timedelta(days=1), NOW)
+        self.assertEqual([v for _, v in rows], [101.0, 103.0, 105.0])
+
+    def test_both_boundaries_are_inclusive(self):
+        start, end = NOW - timedelta(hours=24), NOW
+        micro = timedelta(microseconds=1)
+        self.save(start - micro, 1.0)  # just before the window
+        self.save(start, 2.0)          # exactly at the cutoff: included
+        self.save(start + timedelta(hours=12), 3.0)
+        self.save(end, 4.0)            # exactly now: included
+        self.save(end + micro, 5.0)    # in the future: excluded
+        self.assertEqual([v for _, v in self.load(start, end)], [2.0, 3.0, 4.0])
+
+
+class WindowTest(DashboardTestCase):
+    def test_parse_window(self):
+        self.assertEqual(parse_window(""), DEFAULT_WINDOW)
+        self.assertEqual(DEFAULT_WINDOW, "7d")
+        self.assertEqual(parse_window("other=1"), DEFAULT_WINDOW)
+        for name in ("24h", "7d", "30d"):
+            self.assertEqual(parse_window(f"window={name}"), name)
+
+    def test_invalid_window_rejected(self):
+        for query in ("window=", "window=1h", "window=7D", "window=365d",
+                      "window=24h&window=7d", "window=%3Cscript%3E"):
+            with self.subTest(query=query):
+                with self.assertRaises(ValueError):
+                    parse_window(query)
+
+    def test_window_bounds_are_relative_to_now(self):
+        self.assertEqual(window_bounds("24h", NOW), (NOW - timedelta(hours=24), NOW))
+        self.assertEqual(window_bounds("7d", NOW), (NOW - timedelta(days=7), NOW))
+        self.assertEqual(window_bounds("30d", NOW), (NOW - timedelta(days=30), NOW))
+
+
+class BuildPageTest(DashboardTestCase):
+    def setUp(self):
+        super().setUp()
+        # 24h holds 2 rows; 7d adds 2 more; 30d adds 2 more; one row is older than 30d.
+        for age, value in [
+            (timedelta(hours=1), 100.0), (timedelta(hours=10), 110.0),
+            (timedelta(days=2), 300.0), (timedelta(days=5), 310.0),
+            (timedelta(days=10), 500.0), (timedelta(days=20), 510.0),
+            (timedelta(days=40), 9999.0),
+        ]:
+            self.save(NOW - age, value)
+
+    def test_windows_select_different_populations(self):
+        expected = {
+            # window: (count, p50, p95, p99) by nearest rank over that window only
+            "24h": (2, "100.0", "110.0", "110.0"),
+            "7d": (4, "110.0", "310.0", "310.0"),
+            "30d": (6, "300.0", "510.0", "510.0"),
+        }
+        for window, (count, p50, p95, p99) in expected.items():
+            with self.subTest(window=window):
+                page = build_page(self.db_path, window, NOW)
+                text = visible_text(page)
+                self.assertIn(f"{count} observations in window", text)
+                self.assertIn(f"n = {count}", text)
+                self.assertEqual(chart_point_count(page), count)
+                self.assertIn(f"p50 {p50} ms", text)
+                self.assertIn(f"p95 {p95} ms", text)
+                self.assertIn(f"p99 {p99} ms", text)
+                self.assertIn("100.0 ms", text)  # latest value is in every window
+                self.assertNotIn("9999", text)    # older than 30d: never shown
+
+    def test_selected_window_is_marked(self):
+        page = build_page(self.db_path, "24h", NOW)
+        self.assertIn('href="/?window=24h" aria-current="page"', page)
+        self.assertNotIn('href="/?window=7d" aria-current', page)
+
+    def test_label_still_present(self):
+        self.assertIn("TEST / SIMULATED DATA", build_page(self.db_path, "7d", NOW))
+
+
+class EmptyAndRenderTest(DashboardTestCase):
+    def test_empty_valid_window_renders_cleanly(self):
+        self.save(NOW - timedelta(days=3), 120.0)  # outside 24h
+        page = build_page(self.db_path, "24h", NOW)
+        text = visible_text(page)
+        self.assertIn("No observations in the selected window (24h)", text)
+        self.assertIn("TEST / SIMULATED DATA", text)
+        self.assertNotIn("<svg", page)
+        self.assertNotIn("p50", text)
+        self.assertTrue(page.rstrip().endswith("</html>"))
+
+    def test_empty_database_renders_cleanly(self):
+        page = build_page(self.db_path, "7d", NOW)
+        self.assertIn("No observations in the selected window", page)
+
+    def test_single_observation(self):
+        start, end = window_bounds("24h", NOW)
+        page = render_page([("2026-11-30T11:00:00.000000Z", 101.0)], "24h", start, end)
         text = visible_text(page)
         for p in ("p50", "p95", "p99"):
             self.assertIn(f"{p} 101.0 ms", text)
+        self.assertEqual(chart_point_count(page), 1)
 
-    def test_percentiles_from_stored_observations(self):
-        # 20 values 10..200 ms, saved newest-first to show time order is irrelevant.
-        for i in range(20, 0, -1):
-            self.save(i, float(i * 10))
-        observations = load_observations(self.db_path, "test", "dummy", "dummy-model-v1", "ttft")
-        text = visible_text(render_page(observations))
-        self.assertIn("p50 100.0 ms", text)
-        self.assertIn("p95 190.0 ms", text)
-        self.assertIn("p99 200.0 ms", text)
-        self.assertIn("nearest-rank", text)
 
-    def test_empty_data_renders_valid_page(self):
-        page = render_page([])
-        self.assertIn("TEST / SIMULATED DATA", page)
-        self.assertIn("No observations yet", page)
-        self.assertNotIn("<svg", page)
-        self.assertNotIn("p50", page)
-        self.assertTrue(page.rstrip().endswith("</html>"))
-
-    def test_server_binds_loopback_and_serves_database_data(self):
-        self.save(1, 101.0)
-        self.save(2, 123.4)
+class ServerTest(DashboardTestCase):
+    def start_server(self):
         server = make_server(self.db_path, port=0)
         self.addCleanup(server.server_close)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        self.addCleanup(server.shutdown)
+        return server, f"http://127.0.0.1:{server.server_address[1]}"
+
+    def get(self, url):
+        with urllib.request.urlopen(url, timeout=10) as response:
+            return response.status, response.headers, response.read().decode("utf-8")
+
+    def test_binds_loopback_and_serves_database_data(self):
+        now = datetime.now(timezone.utc)  # the server uses the real clock
+        self.save(now - timedelta(minutes=30), 101.0)
+        self.save(now - timedelta(minutes=10), 123.4)
+        server, base = self.start_server()
         self.assertEqual(HOST, "127.0.0.1")
         self.assertEqual(server.server_address[0], "127.0.0.1")
-        thread = threading.Thread(target=server.serve_forever, daemon=True)
-        thread.start()
-        self.addCleanup(server.shutdown)
-        base = f"http://127.0.0.1:{server.server_address[1]}"
 
-        with urllib.request.urlopen(base + "/", timeout=10) as response:
-            self.assertEqual(response.status, 200)
-            self.assertIn("default-src 'none'", response.headers["Content-Security-Policy"])
-            page = response.read().decode("utf-8")
-        self.assertIn("123.4 ms", page)  # the latest value from SQLite
-        self.assertIn("All 2 observations", page)
+        status, headers, page = self.get(base + "/")
+        self.assertEqual(status, 200)
+        self.assertIn("default-src 'none'", headers["Content-Security-Policy"])
+        self.assertIn("123.4 ms", page)
+        self.assertIn("2 observations in window", visible_text(page))
+        self.assertIn('href="/?window=7d" aria-current="page"', page)  # default
+
+        status, _, page = self.get(base + "/?window=24h")
+        self.assertEqual(status, 200)
+        self.assertIn('href="/?window=24h" aria-current="page"', page)
 
         with self.assertRaises(urllib.error.HTTPError) as ctx:
             urllib.request.urlopen(base + "/missing", timeout=10)
         self.assertEqual(ctx.exception.code, 404)
 
-    def test_server_with_empty_database(self):
-        server = make_server(self.db_path, port=0)
-        self.addCleanup(server.server_close)
-        threading.Thread(target=server.serve_forever, daemon=True).start()
-        self.addCleanup(server.shutdown)
-        url = f"http://127.0.0.1:{server.server_address[1]}/"
-        with urllib.request.urlopen(url, timeout=10) as response:
-            self.assertEqual(response.status, 200)
-            self.assertIn("No observations yet", response.read().decode("utf-8"))
+    def test_invalid_window_is_400_with_valid_choices(self):
+        _, base = self.start_server()
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            urllib.request.urlopen(base + "/?window=%3Cscript%3E", timeout=10)
+        self.assertEqual(ctx.exception.code, 400)
+        self.assertIn("default-src 'none'", ctx.exception.headers["Content-Security-Policy"])
+        page = ctx.exception.read().decode("utf-8")
+        self.assertIn("Unknown time window", page)
+        self.assertIn('href="/?window=30d"', page)
+        self.assertNotIn("<script", page)  # the bad value is not echoed
+
+    def test_empty_database(self):
+        _, base = self.start_server()
+        status, _, page = self.get(base + "/")
+        self.assertEqual(status, 200)
+        self.assertIn("No observations in the selected window", page)
 
     def test_port_in_use_fails_clearly(self):
         busy = make_server(self.db_path, port=0)

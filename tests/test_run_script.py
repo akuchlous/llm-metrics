@@ -100,14 +100,17 @@ class RunScriptTest(unittest.TestCase):
             self.assertRegex(out, r"Dashboard: http://127\.0\.0\.1:\d+/")
             self.assertIsNotNone(page, out + err)
             self.assertIn("TEST / SIMULATED DATA", page)
-            self.assertIn("All 169 observations", page)
+            # How much seeded history falls in the default 7d window depends on
+            # today's date; the live row just measured is always in it.
+            self.assertIn('href="/?window=7d" aria-current="page"', page)
+            self.assertRegex(page, r"\d+ observations in window")
             self.assertIn("p99", page)
 
             # Second run: history already present, only the live row is added.
             _, out, err, page = run_until_dashboard(copy, env)
             self.assertIn("0 new, 168 already present", out)
             self.assertEqual(count_rows(), 170)
-            self.assertIn("All 170 observations", page)
+            self.assertRegex(page, r"\d+ observations in window")
 
             # A failing test stops the run before seeding, measuring, or serving.
             (copy / "tests" / "test_zz_fail.py").write_text(
