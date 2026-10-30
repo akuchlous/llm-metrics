@@ -1,25 +1,20 @@
-"""Tests for the dashboard: query parsing, page rendering, and the server.
+"""Tests for the dashboard pages: query validation, data loading, rendering.
 
 Covers the aggregate page (windows, metrics, success rate, percentiles,
 chart), the individual requests page, Benchmark API Spend, invalid queries,
 HTML escaping, and the separation of simulated and real data. Each test uses
-its own temporary database; the server binds to 127.0.0.1 on a free port.
+its own temporary database. The HTTP boundary is tested in test_web.py.
 """
 
 import contextlib
 import datetime
-import os
 import pathlib
 import re
 import sqlite3
-import subprocess
-import sys
 import tempfile
-import threading
 import time
 import unittest
-import urllib.error
-import urllib.request
+import urllib.parse
 
 from llm_metrics import dashboard
 from llm_metrics import storage
@@ -28,6 +23,12 @@ DUMMY_IDENTITY = {"provider": "dummy", "model": "dummy-model-v1"}
 DUMMY = {**DUMMY_IDENTITY, "metric": "ttft"}
 # A fixed "current time" so no test depends on the machine clock.
 NOW = datetime.datetime(2026, 11, 30, 12, 0, tzinfo=datetime.timezone.utc)
+
+
+def params(query):
+    """Parses a query string the way the web layer does: repeated and blank
+    values are kept, so validation can reject them."""
+    return urllib.parse.parse_qs(query, keep_blank_values=True)
 
 
 def visible_text(page):
@@ -105,18 +106,21 @@ class WindowTest(DashboardTestCase):
     def test_parse_query_defaults_and_values(self):
         self.assertEqual(dashboard.DEFAULT_WINDOW, "7d")
         self.assertEqual(dashboard.DEFAULT_METRIC, "ttft")
-        self.assertEqual(dashboard.parse_query(""), ("7d", "ttft"))
-        self.assertEqual(dashboard.parse_query("other=1"), ("7d", "ttft"))
+        self.assertEqual(dashboard.parse_query(params("")), ("7d", "ttft"))
+        self.assertEqual(
+            dashboard.parse_query(params("other=1")), ("7d", "ttft")
+        )
         for name in ("24h", "7d", "30d"):
             self.assertEqual(
-                dashboard.parse_query(f"window={name}"), (name, "ttft")
+                dashboard.parse_query(params(f"window={name}")), (name, "ttft")
             )
         self.assertEqual(
-            dashboard.parse_query("metric=total_latency"),
+            dashboard.parse_query(params("metric=total_latency")),
             ("7d", "total_latency"),
         )
         self.assertEqual(
-            dashboard.parse_query("metric=ttft&window=30d"), ("30d", "ttft")
+            dashboard.parse_query(params("metric=ttft&window=30d")),
+            ("30d", "ttft"),
         )
 
     def test_invalid_window_rejected(self):
@@ -130,7 +134,7 @@ class WindowTest(DashboardTestCase):
         ):
             with self.subTest(query=query):
                 with self.assertRaises(ValueError):
-                    dashboard.parse_query(query)
+                    dashboard.parse_query(params(query))
 
     def test_invalid_metric_rejected(self):
         for query in (
@@ -146,7 +150,7 @@ class WindowTest(DashboardTestCase):
         ):
             with self.subTest(query=query):
                 with self.assertRaises(ValueError):
-                    dashboard.parse_query(query)
+                    dashboard.parse_query(params(query))
 
     def test_window_bounds_are_relative_to_now(self):
         self.assertEqual(
@@ -821,138 +825,6 @@ class RequestsDataSelectorTest(DashboardTestCase):
         page = dashboard.render_requests_page([], "simulated")
         self.assertIn("TEST / SIMULATED DATA", page)
         self.assertNotIn("REAL PROVIDER DATA", page)
-
-
-class ServerTest(DashboardTestCase):
-
-    def start_server(self):
-        server = dashboard.make_server(self.db_path, port=0)
-        self.addCleanup(server.server_close)
-        threading.Thread(target=server.serve_forever, daemon=True).start()
-        self.addCleanup(server.shutdown)
-        return server, f"http://127.0.0.1:{server.server_address[1]}"
-
-    def get(self, url):
-        with urllib.request.urlopen(url, timeout=10) as response:
-            return (
-                response.status,
-                response.headers,
-                response.read().decode("utf-8"),
-            )
-
-    def test_binds_loopback_and_serves_database_data(self):
-        now = datetime.datetime.now(
-            datetime.timezone.utc
-        )  # the server uses the real clock
-        self.save(now - datetime.timedelta(minutes=30), 101.0)
-        self.save(now - datetime.timedelta(minutes=10), 123.4)
-        server, base = self.start_server()
-        self.assertEqual(dashboard.HOST, "127.0.0.1")
-        self.assertEqual(server.server_address[0], "127.0.0.1")
-
-        status, headers, page = self.get(base + "/")
-        self.assertEqual(status, 200)
-        self.assertIn("default-src 'none'", headers["Content-Security-Policy"])
-        self.assertIn("123.4 ms", page)
-        self.assertIn("2 observations in window", visible_text(page))
-        self.assertIn(current("7d", "ttft"), page)  # defaults
-
-        status, _, page = self.get(base + "/?window=24h")
-        self.assertEqual(status, 200)
-        self.assertIn(current("24h", "ttft"), page)
-
-        with self.assertRaises(urllib.error.HTTPError) as ctx:
-            urllib.request.urlopen(base + "/missing", timeout=10)
-        self.assertEqual(ctx.exception.code, 404)
-
-    def test_invalid_window_or_metric_is_400_with_valid_choices(self):
-        _, base = self.start_server()
-        for query in (
-            "window=%3Cscript%3E",
-            "window=24h&window=7d",
-            "metric=%3Cscript%3E",
-            "metric=ttft&metric=total_latency",
-            "metric=",
-        ):
-            with self.subTest(query=query):
-                with self.assertRaises(urllib.error.HTTPError) as ctx:
-                    urllib.request.urlopen(f"{base}/?{query}", timeout=10)
-                self.assertEqual(ctx.exception.code, 400)
-                self.assertIn(
-                    "default-src 'none'",
-                    ctx.exception.headers["Content-Security-Policy"],
-                )
-                page = ctx.exception.read().decode("utf-8")
-                self.assertIn("Invalid window or metric", page)
-                self.assertIn(link("30d", "ttft"), page)
-                self.assertIn(link("7d", "total_latency"), page)
-                self.assertNotIn("<script", page)  # the bad value is not echoed
-
-    def test_requests_route(self):
-        storage.save_request(
-            self.db_path, REQUEST, metric_results(total_latency=181.4), "test"
-        )
-        _, base = self.start_server()
-        status, headers, page = self.get(base + "/requests")
-        self.assertEqual(status, 200)
-        self.assertIn("default-src 'none'", headers["Content-Security-Policy"])
-        self.assertIn("181.4", page)
-        self.assertIn('href="/requests" aria-current="page"', page)
-        status, _, page = self.get(base + "/")
-        self.assertIn(
-            'href="/" aria-current="page"', page
-        )  # aggregate view still default
-
-    def test_spend_and_data_routes(self):
-        _, base = self.start_server()
-        status, headers, page = self.get(base + "/spend")
-        self.assertEqual(status, 200)
-        self.assertIn("default-src 'none'", headers["Content-Security-Policy"])
-        self.assertIn(
-            'href="/spend?window=30d" aria-current="page"', page
-        )  # default window
-        self.assertIn('href="/spend" aria-current="page"', page)
-        status, _, page = self.get(base + "/requests?data=real")
-        self.assertEqual(status, 200)
-        self.assertIn("REAL PROVIDER DATA", page)
-        for query in (
-            "/spend?window=1y",
-            "/spend?window=7d&window=30d",
-            "/requests?data=prod",
-            "/requests?data=",
-            "/requests?data=real&data=simulated",
-        ):
-            with self.subTest(query=query):
-                with self.assertRaises(urllib.error.HTTPError) as ctx:
-                    urllib.request.urlopen(base + query, timeout=10)
-                self.assertEqual(ctx.exception.code, 400)
-
-    def test_empty_database(self):
-        _, base = self.start_server()
-        status, _, page = self.get(base + "/")
-        self.assertEqual(status, 200)
-        self.assertIn("observations in the selected window", page)
-
-    def test_port_in_use_fails_clearly(self):
-        busy = dashboard.make_server(self.db_path, port=0)
-        self.addCleanup(busy.server_close)
-        env = {
-            **os.environ,
-            "LLM_METRICS_DB_PATH": str(self.db_path),
-            "LLM_METRICS_PORT": str(busy.server_address[1]),
-        }
-        proc = subprocess.run(
-            [sys.executable, "-m", "llm_metrics.dashboard"],
-            cwd=pathlib.Path(__file__).resolve().parent.parent,
-            env=env,
-            capture_output=True,
-            text=True,
-            timeout=30,
-            check=False,
-        )
-        self.assertEqual(proc.returncode, 1)
-        self.assertIn("already running", proc.stderr)
-        self.assertNotIn("Traceback", proc.stderr)
 
 
 if __name__ == "__main__":

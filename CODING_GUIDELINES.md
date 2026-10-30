@@ -36,10 +36,13 @@ The tools below are development-only and are not installed into the project's
 run from the repository root:
 
 ```bash
-pyink --check llm_metrics tests                 # Google's formatter; settings in pyproject.toml
-isort --profile google --check-only llm_metrics tests
-pylint --rcfile=.pylintrc --disable=inconsistent-quotes llm_metrics tests
+pyink --check llm_metrics tests scripts                 # Google's formatter; settings in pyproject.toml
+isort --profile google --check-only llm_metrics tests scripts
+pylint --rcfile=.pylintrc --disable=inconsistent-quotes llm_metrics tests scripts
 ```
+
+pylint needs the runtime dependencies importable, so install `requirements.txt`
+into the environment that runs it.
 
 All three should report no findings. `.pylintrc` is Google's published
 configuration, unmodified. `inconsistent-quotes` is disabled because, on Python

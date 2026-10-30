@@ -1134,7 +1134,7 @@ class SimulatedPathsStayOfflineTest(unittest.TestCase):
             "socket.create_connection = blocked\n"
             "import llm_metrics.openai_provider, llm_metrics.real_smoke\n"
             "import llm_metrics.dashboard, llm_metrics.storage,"
-            " llm_metrics.__main__\n"
+            " llm_metrics.__main__, llm_metrics.web\n"
         )
         proc = subprocess.run(
             [sys.executable, "-c", code],

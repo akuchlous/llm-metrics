@@ -1,7 +1,9 @@
 """End-to-end tests of `./run.sh`.
 
 The script runs in a temporary copy of the repository so the real `.venv` and
-database are untouched; the copy's dashboard binds to a free port.
+database are untouched; the copy's dashboard binds to a free port. The copy
+gets a copy of the already-provisioned virtual environment, so run.sh finds
+its dependencies up to date and makes no network request.
 """
 
 import contextlib
@@ -10,6 +12,7 @@ import pathlib
 import shutil
 import sqlite3
 import subprocess
+import sys
 import tempfile
 import threading
 import unittest
@@ -68,18 +71,27 @@ class RunScriptTest(unittest.TestCase):
         subprocess.run(["bash", "-n", str(RUN_SH)], check=True)
 
     @unittest.skipIf(os.environ.get(NESTED), "already running inside run.sh")
+    @unittest.skipIf(
+        sys.prefix == sys.base_prefix,
+        "needs the project virtual environment (run via ./run.sh or"
+        " .venv/bin/python -m unittest)",
+    )
     def test_end_to_end_in_a_copy(self):
         with tempfile.TemporaryDirectory() as tmp:
             # Copy into a temp dir so the real repository's .venv is untouched.
             copy = pathlib.Path(tmp) / "llm-metrics"
             copy.mkdir()
-            shutil.copy2(RUN_SH, copy / "run.sh")
-            for name in ("llm_metrics", "tests"):
+            for name in ("run.sh", "requirements.txt"):
+                shutil.copy2(REPO_ROOT / name, copy / name)
+            for name in ("llm_metrics", "tests", "scripts"):
                 shutil.copytree(
                     REPO_ROOT / name,
                     copy / name,
                     ignore=shutil.ignore_patterns("__pycache__"),
                 )
+            # The running environment already has the pinned dependencies and
+            # its install stamp; symlinks keep its interpreter link intact.
+            shutil.copytree(sys.prefix, copy / ".venv", symlinks=True)
             env = {
                 k: v
                 for k, v in os.environ.items()
@@ -102,7 +114,8 @@ class RunScriptTest(unittest.TestCase):
                 copy, {**env, "APP_ENV": "prod"}
             )
             self.assertEqual(returncode, 2)
-            self.assertIn("Creating Python environment", out)
+            self.assertIn("Dependencies ready", out)  # no download needed
+            self.assertNotIn("Installing dependencies", out)
             self.assertNotIn("Simulated history", out)
             self.assertIsNone(page)
             self.assertFalse(db_path.exists())

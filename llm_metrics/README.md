@@ -18,7 +18,8 @@ Its responsibility is to measure LLM-provider behavior, persist raw observations
 - `storage.py` — SQLite schema and transactional in-place upgrades; `save_request` (attempt row + linked observations in one transaction); time-window observation reads, request reads, and outcome counts.
 - `seed_history.py` — deterministic simulated history used only in the test environment.
 - `percentiles.py` — pure nearest-rank percentile calculation.
-- `dashboard.py` — local server-rendered aggregate view, recent-attempts view (simulated or real), and Benchmark API Spend (real only).
+- `dashboard.py` — dashboard pages without HTTP: validates parsed query parameters, loads data through `storage`, and renders HTML (aggregate, recent requests, Benchmark API Spend).
+- `web.py` — the Flask HTTP boundary: `create_app()` application factory, routes, status codes, security headers, and serving on 127.0.0.1. The only module that imports Flask.
 - `config.py` — environment, database-path, dashboard-port, and measurement-origin (`LLM_METRICS_ORIGIN_CLOUD` / `LLM_METRICS_ORIGIN_REGION`) configuration.
 - `__main__.py` — command-line entry point for one simulated attempt (never calls a paid API).
 

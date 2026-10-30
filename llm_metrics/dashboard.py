@@ -1,44 +1,43 @@
-"""Local metrics dashboard: server-rendered HTML pages, no JavaScript.
+"""Dashboard pages: query validation, data loading, and HTML rendering.
 
-Usage: python -m llm_metrics.dashboard   (serves http://127.0.0.1:8000/)
+This is the application/view layer behind the HTTP boundary in `web`:
 
-Routes:
+    web (Flask routes, HTTP) -> dashboard (this module) -> storage (SQLite)
 
-- `GET /?window=24h|7d|30d&metric=<name>`: for a window ending now (default
-  7d), the observed benchmark success rate of all attempts, then one metric
-  (default ttft; any key of `latency.METRICS`) over successful attempts as
-  percentiles and a line chart. Simulated data only.
-- `GET /requests?data=simulated|real`: the most recent individual attempts of
-  one data population (default simulated).
-- `GET /spend?window=24h|7d|30d`: Benchmark API Spend, the known API token cost
-  of llm-metrics' own real benchmark requests per provider/model (default
-  30d).
+It owns what each page means: which query values are valid, which data
+population and time window a page shows, and how the page is rendered. It
+does not know about HTTP or Flask: it receives already-parsed query
+parameters and returns HTML strings, so routes stay thin and the renderers
+can be replaced (by templates) without touching analytics or storage.
 
-Any unknown, empty, or repeated query value returns HTTP 400 without echoing
-the value. Simulated and real data are never shown on the same page, and every
-page is labelled with its population.
+Pages:
 
-Security: binds to 127.0.0.1 only and sends a Content-Security-Policy that
-allows no scripts or external loads. Every value read from storage is
-HTML-escaped. Uses only the standard library.
+- Aggregate: for a window ending now (default 7d), the observed benchmark
+  success rate of all attempts, then one metric (default ttft; any key of
+  `latency.METRICS`) over successful attempts as percentiles and a line chart.
+  Simulated data only.
+- Recent requests: the most recent individual attempts of one data population
+  ("simulated" or "real"; default simulated).
+- Benchmark API Spend: the known API token cost of llm-metrics' own real
+  benchmark requests per provider/model (default window 30d).
+
+Any unknown, empty, or repeated query value is rejected (`ValueError`) without
+echoing the value. Simulated and real data are never shown on the same page,
+and every page is labelled with its population. Every value read from storage
+is HTML-escaped; pages contain no scripts and load nothing external.
 """
 
+from collections.abc import Mapping
 import datetime
 import html
-import http.server
 import math
 import pathlib
-import sys
-import urllib.parse
 
-from llm_metrics import config
 from llm_metrics import latency
 from llm_metrics import outcomes
 from llm_metrics import percentiles
 from llm_metrics import providers
 from llm_metrics import storage
-
-HOST = "127.0.0.1"
 
 # The aggregate page shows simulated observations from the dummy provider only.
 ENVIRONMENT = "test"
@@ -261,9 +260,13 @@ def _nav(window: str | None, metric: str | None) -> str:
     )
 
 
-def _parse_choice(
-    params: dict[str, list[str]], name: str, choices, default: str
-) -> str:
+# Parsed query parameters: name -> every value submitted for it, in order.
+# Keeping all values (not just the last) is what lets a repeated parameter be
+# rejected instead of silently picking one.
+QueryParams = Mapping[str, list[str]]
+
+
+def _parse_choice(params: QueryParams, name: str, choices, default: str) -> str:
     """Returns the single allowed value of query parameter `name`.
 
     Raises:
@@ -278,8 +281,11 @@ def _parse_choice(
     return values[0]
 
 
-def parse_query(query: str) -> tuple[str, str]:
-    """Parses the aggregate page's query string; other parameters are ignored.
+def parse_query(params: QueryParams) -> tuple[str, str]:
+    """Validates the aggregate page's query; other parameters are ignored.
+
+    Args:
+        params: Query parameters, including blank values.
 
     Returns:
         (window, metric), using the defaults for absent parameters.
@@ -287,7 +293,6 @@ def parse_query(query: str) -> tuple[str, str]:
     Raises:
         ValueError: For an unknown, empty, or repeated window or metric.
     """
-    params = urllib.parse.parse_qs(query, keep_blank_values=True)
     window = _parse_choice(params, "window", WINDOWS, DEFAULT_WINDOW)
     metric = _parse_choice(params, "metric", latency.METRICS, DEFAULT_METRIC)
     return window, metric
@@ -440,18 +445,19 @@ def _data_nav(selected: str | None) -> str:
     return f'<nav aria-label="Data">Data: {"".join(links)}</nav>\n'
 
 
-def parse_requests_query(query: str) -> str:
-    """Returns the /requests data population: "simulated" or "real".
+def parse_requests_query(params: QueryParams) -> str:
+    """Validates the requests page's query.
+
+    Args:
+        params: Query parameters, including blank values.
+
+    Returns:
+        The data population: "simulated" or "real".
 
     Raises:
         ValueError: For an unknown, empty, or repeated value.
     """
-    return _parse_choice(
-        urllib.parse.parse_qs(query, keep_blank_values=True),
-        "data",
-        DATA,
-        DEFAULT_DATA,
-    )
+    return _parse_choice(params, "data", DATA, DEFAULT_DATA)
 
 
 def _text(value: str | None) -> str:
@@ -581,18 +587,32 @@ def render_requests_page(requests: list[dict], data: str = DEFAULT_DATA) -> str:
     return _page(intro + table, "/requests", real)
 
 
-def parse_spend_query(query: str) -> str:
-    """Returns the /spend window (default `SPEND_DEFAULT_WINDOW`).
+def build_requests_page(db_path: pathlib.Path, data: str) -> str:
+    """Loads the most recent attempts of one population and renders them.
+
+    Args:
+        db_path: Database to read.
+        data: "simulated" or "real" (see `DATA`).
+    """
+    requests = storage.load_recent_requests(
+        db_path, DATA[data], RECENT_REQUESTS
+    )
+    return render_requests_page(requests, data)
+
+
+def parse_spend_query(params: QueryParams) -> str:
+    """Validates the spend page's query.
+
+    Args:
+        params: Query parameters, including blank values.
+
+    Returns:
+        The window name (default `SPEND_DEFAULT_WINDOW`).
 
     Raises:
         ValueError: For an unknown, empty, or repeated value.
     """
-    return _parse_choice(
-        urllib.parse.parse_qs(query, keep_blank_values=True),
-        "window",
-        WINDOWS,
-        SPEND_DEFAULT_WINDOW,
-    )
+    return _parse_choice(params, "window", WINDOWS, SPEND_DEFAULT_WINDOW)
 
 
 def _money(value: float | None) -> str:
@@ -687,118 +707,3 @@ def build_spend_page(
     start, end = window_bounds(window, now)
     rows = storage.spend_by_model(db_path, DATA["real"], start=start, end=end)
     return render_spend_page(rows, window, start, end)
-
-
-class _Handler(http.server.BaseHTTPRequestHandler):
-    """Routes GET requests to the three pages; anything else is a 404.
-
-    Reads the database path from `self.server.db_path` (set by `make_server`).
-    """
-
-    # The standard library dispatches to methods named do_<HTTP method>.
-    def do_GET(self):  # pylint: disable=invalid-name
-        url = urllib.parse.urlsplit(self.path)
-        if url.path == "/requests":
-            try:
-                data = parse_requests_query(url.query)
-            except ValueError:
-                self._send_html(400, render_invalid_query_page())
-                return
-            requests = storage.load_recent_requests(
-                self.server.db_path, DATA[data], RECENT_REQUESTS
-            )
-            self._send_html(200, render_requests_page(requests, data))
-            return
-        if url.path == "/spend":
-            try:
-                window = parse_spend_query(url.query)
-            except ValueError:
-                self._send_html(400, render_invalid_query_page())
-                return
-            now = datetime.datetime.now(datetime.timezone.utc)
-            self._send_html(
-                200, build_spend_page(self.server.db_path, window, now)
-            )
-            return
-        if url.path != "/":
-            self.send_error(404)
-            return
-        try:
-            window, metric = parse_query(url.query)
-        except ValueError:
-            self._send_html(400, render_invalid_query_page())
-            return
-        now = datetime.datetime.now(datetime.timezone.utc)
-        self._send_html(
-            200, build_page(self.server.db_path, window, metric, now)
-        )
-
-    def _send_html(self, status: int, page: str) -> None:
-        body = page.encode("utf-8")
-        self.send_response(status)
-        self.send_header("Content-Type", "text/html; charset=utf-8")
-        # The pages have no scripts and load nothing external, so the policy
-        # blocks everything except their inline styles.
-        self.send_header(
-            "Content-Security-Policy",
-            "default-src 'none'; style-src 'unsafe-inline'",
-        )
-        self.send_header("Content-Length", str(len(body)))
-        self.end_headers()
-        self.wfile.write(body)
-
-
-def make_server(db_path: pathlib.Path, port: int) -> http.server.HTTPServer:
-    """Creates, but does not start, the dashboard server on 127.0.0.1.
-
-    Args:
-        db_path: Database the pages read from.
-        port: Port to bind; 0 picks any free port (see `server_address`).
-
-    Raises:
-        OSError: If the port cannot be bound.
-    """
-    server = http.server.HTTPServer((HOST, port), _Handler)
-    server.db_path = db_path
-    return server
-
-
-def main() -> int:
-    """Serves the dashboard until interrupted.
-
-    Returns:
-        Process exit code: 0 after Ctrl+C, 1 if the port cannot be bound, 2
-        for an invalid `LLM_METRICS_PORT`.
-    """
-    try:
-        port = config.get_port()
-    except config.ConfigError as e:
-        print(f"Error: {e}", file=sys.stderr)
-        return 2
-    try:
-        server = make_server(config.get_db_path(), port)
-    except OSError as e:  # Most often: the port is already in use.
-        print(
-            f"Error: cannot serve the dashboard on {HOST}:{port}"
-            f" ({e.strerror}). Is it already running? Set LLM_METRICS_PORT to"
-            " use another port.",
-            file=sys.stderr,
-        )
-        return 1
-    # The real port matters when port 0 was requested; run.sh and tests read
-    # it from this line.
-    bound_port = server.server_address[1]
-    print(
-        f"Dashboard: http://{HOST}:{bound_port}/  (Ctrl+C to stop)", flush=True
-    )
-    try:
-        server.serve_forever()
-    except KeyboardInterrupt:
-        print("\nDashboard stopped.")
-    finally:
-        server.server_close()
-    return 0
-
-
-if __name__ == "__main__":
-    sys.exit(main())

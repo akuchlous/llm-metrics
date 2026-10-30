@@ -112,7 +112,8 @@ Request facts:
 
 ## Quick start (Chromebook Linux terminal or any Linux)
 
-Requires Python 3.10+. There are no third-party dependencies.
+Requires Python 3.10+ and, on the first run only, a network connection to
+download the pinned dependencies (Flask and its libraries) from PyPI.
 
 ```bash
 git clone https://github.com/akuchlous/llm-metrics.git
@@ -121,7 +122,8 @@ cd llm-metrics
 ```
 
 `./run.sh` creates a `.venv` virtual environment on first run (and reuses it
-afterwards), runs all tests, and only if they pass: adds the simulated history
+afterwards), installs the exact versions in `requirements.txt` into it with
+hash checking (again only when that file changes), runs all tests, and only if they pass: adds the simulated history
 (test mode only, once), runs the TTFT measurement, and starts the local dashboard:
 
 ```
@@ -199,8 +201,9 @@ observations (the same ones as the chart): sort the values and take the one at r
 always a real observed value; with fewer than 100 observations, p99 equals the
 maximum.
 
-The dashboard uses only the Python standard library, has no JavaScript, and
-listens on `127.0.0.1` only, so it is not reachable from other machines. On a
+The dashboard is a small Flask application with server-rendered pages and no
+JavaScript. It listens on `127.0.0.1` only, so it is not reachable from other
+machines, and never runs in Flask debug mode. On a
 Chromebook, open the printed URL in Chrome; if it does not load, try
 `http://localhost:8000/`. Stop it with Ctrl+C. If port 8000 is busy, use another:
 `LLM_METRICS_PORT=8001 ./run.sh`.
@@ -210,12 +213,17 @@ Chromebook, open the printed URL in Chrome; if it does not load, try
 From the repository root:
 
 ```bash
-python3 -m venv --without-pip .venv   # no dependencies, so no pip needed
-source .venv/bin/activate
-python -m unittest -v               # run the tests
-APP_ENV=test python -m llm_metrics  # run the dummy measurement
-python -m llm_metrics.dashboard     # serve the dashboard only
+./run.sh                                  # first time: creates .venv, installs dependencies
+.venv/bin/python -m unittest -v           # run the tests (needs the venv's Flask)
+APP_ENV=test .venv/bin/python -m llm_metrics  # run the dummy measurement
+.venv/bin/python -m llm_metrics.web       # serve the dashboard only
 ```
+
+Dependencies are pinned with hashes in `requirements.txt` and installed by
+`scripts/install_requirements.py`, which works even though the venv has no pip:
+it downloads pip's official single-file release at a pinned version and checks
+its hash before using it. Only Flask and its own libraries are installed;
+benchmarking, storage, and analytics use the standard library only.
 
 ## Stored observations
 
