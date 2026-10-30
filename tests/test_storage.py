@@ -338,6 +338,35 @@ CREATE UNIQUE INDEX observations_unique
 CREATE INDEX observations_request ON observations (request_id);
 """
 
+STEP_011_REQUESTS = """
+CREATE TABLE requests (
+    id TEXT PRIMARY KEY, recorded_at TEXT NOT NULL,
+    environment TEXT NOT NULL CHECK (environment IN ('test', 'prod')),
+    provider TEXT NOT NULL, model TEXT NOT NULL,
+    outcome TEXT NOT NULL CHECK (outcome IN (
+        'success', 'timeout', 'rate_limited', 'provider_error',
+        'transport_error', 'invalid_response')),
+    input_tokens INTEGER CHECK (input_tokens >= 0),
+    requested_max_output_tokens INTEGER NOT NULL CHECK (requested_max_output_tokens >= 1),
+    output_tokens INTEGER CHECK (output_tokens >= 0),
+    input_price_per_1m REAL NOT NULL CHECK (input_price_per_1m >= 0),
+    output_price_per_1m REAL NOT NULL CHECK (output_price_per_1m >= 0),
+    input_cost REAL, output_cost REAL, total_cost REAL,
+    failed_after_ms REAL CHECK (failed_after_ms >= 0),
+    CHECK (
+        (outcome = 'success'
+            AND input_tokens IS NOT NULL AND output_tokens IS NOT NULL
+            AND input_cost IS NOT NULL AND output_cost IS NOT NULL
+            AND total_cost IS NOT NULL AND failed_after_ms IS NULL)
+        OR
+        (outcome <> 'success'
+            AND input_tokens IS NULL AND output_tokens IS NULL
+            AND input_cost IS NULL AND output_cost IS NULL
+            AND total_cost IS NULL AND failed_after_ms IS NOT NULL)
+    )
+);
+"""
+
 
 class SchemaUpgradeTest(unittest.TestCase):
     def setUp(self):
@@ -372,7 +401,7 @@ class SchemaUpgradeTest(unittest.TestCase):
     def test_fresh_database_is_current_version(self):
         init(self.db_path)
         self.assertEqual(self.version(), SCHEMA_VERSION)
-        self.assertEqual(SCHEMA_VERSION, 3)
+        self.assertEqual(SCHEMA_VERSION, 4)
 
     def test_version_2_requests_become_historical_successes(self):
         # A database exactly as Step 010 created it: NOT NULL token/cost columns,
@@ -422,6 +451,27 @@ class SchemaUpgradeTest(unittest.TestCase):
         self.make_old(OLD_OBSERVATIONS_V0.replace("value_ms", "value"), 1)
         init(self.db_path)
         self.assert_old_row_kept_without_fabrication()
+
+    def test_version_3_requests_keep_rows_and_gain_null_provider_request_id(self):
+        # The requests table exactly as Step 011 (version 3) created it.
+        with closing(sqlite3.connect(self.db_path)) as conn, conn:
+            conn.executescript(STEP_011_REQUESTS)
+            conn.execute(
+                "INSERT INTO requests VALUES ('old', '2026-10-30T06:56:16.000000Z', 'prod',"
+                " 'openai', 'gpt-6-luna', 'provider_error', NULL, 64, NULL, 0.1, 0.5,"
+                " NULL, NULL, NULL, 5425.6)"
+            )
+        with closing(sqlite3.connect(self.db_path)) as conn:
+            conn.execute("PRAGMA user_version = 3")
+        init(self.db_path)
+        self.assertEqual(self.version(), SCHEMA_VERSION)
+        old = load_request(self.db_path, "old")
+        self.assertEqual((old["outcome"], old["failed_after_ms"]), ("provider_error", 5425.6))
+        self.assertIsNone(old["provider_request_id"])  # never recorded, not invented
+        new_id = save_request(self.db_path, {**FAILED, "provider_request_id": "req_abc"}, [], "prod")
+        self.assertEqual(load_request(self.db_path, new_id)["provider_request_id"], "req_abc")
+        init(self.db_path)  # re-upgrading is a no-op
+        self.assertEqual(len(read_rows(self.db_path, "requests")), 2)
 
     def test_newer_database_is_refused(self):
         with closing(sqlite3.connect(self.db_path)) as conn:

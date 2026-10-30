@@ -18,15 +18,16 @@ PRICES = {
     # SIMULATED prices for the dummy provider. Not any real provider's pricing.
     ("dummy", "dummy-model-v1"): Price(input_per_1m=2.00, output_per_1m=8.00),
     # OpenAI gpt-6-luna, standard tier (synchronous API; not batch, priority, or
-    # cached-input rates). Source: https://openai.com/api/pricing/
-    # Verified by the project owner against the official page on 2026-10-30.
+    # cached-input rates). Verified on 2026-10-30 by the project owner and
+    # against OpenAI's official pricing documentation (see PRICE_PROVENANCE).
     ("openai", "gpt-6-luna"): Price(input_per_1m=0.10, output_per_1m=0.50),
 }
 
 # Where each real price came from: (provider, model) -> (source, verified on).
 # `None` means not yet verified against the official source.
 PRICE_PROVENANCE = {
-    ("openai", "gpt-6-luna"): ("https://openai.com/api/pricing/ (standard tier)", "2026-10-30"),
+    ("openai", "gpt-6-luna"): (
+        "https://developers.openai.com/api/docs/pricing (standard tier)", "2026-10-30"),
 }
 
 

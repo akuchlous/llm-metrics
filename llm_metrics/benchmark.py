@@ -66,6 +66,8 @@ def print_summary(request: dict, results: list[dict], request_id: str, db_path: 
         print(f"Failed after: {request['failed_after_ms']:.1f} ms")
         print(f"Requested max output tokens: {request['requested_max_output_tokens']}")
         print("Tokens, cost, latency, and throughput: unknown (not recorded)")
+    if request.get("provider_request_id"):
+        print(f"Provider request id: {request['provider_request_id']}")
     print(
         f"Rates: ${request['input_price_per_1m']:.2f} input / "
         f"${request['output_price_per_1m']:.2f} output per 1M tokens{note}"

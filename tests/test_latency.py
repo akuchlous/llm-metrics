@@ -58,6 +58,7 @@ class MeasureRequestTest(unittest.TestCase):
             "requested_max_output_tokens": 64,    # the cap we asked for
             "output_tokens": 7,                   # what was generated: 25 chars
             "failed_after_ms": None,
+            "provider_request_id": None,          # the dummy provider has none
         })
         # 5 chunks were streamed, yet 7 tokens are reported.
         self.assertNotEqual(request["output_tokens"], 5)

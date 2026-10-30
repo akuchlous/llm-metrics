@@ -52,3 +52,4 @@ Each file has:
 | [10](10/) | Token accounting and cost | `prompts/010-token-accounting-and-cost.md` |
 | [11](11/) | Errors and availability | `prompts/011-errors-and-availability.md` |
 | [12](12/) | First real provider and benchmark spend | `prompts/012-first-real-provider.md` |
+| [12a](12a/) | Live validation cleanup and request traceability | `prompts/012a-live-validation-cleanup.md` |

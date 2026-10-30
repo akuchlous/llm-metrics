@@ -58,8 +58,9 @@ OpenRouter is a useful product reference: its provider/analytics surfaces emphas
 - Step 009 — output chunk throughput plus metric units and schema versioning: complete and reviewed.
 - Step 010 — token accounting, requested-vs-actual output size, per-request cost, request identity, and individual-call view: complete and reviewed; 99 tests reported passing.
 - Step 011 — errors, normalized failure categories, persisted failed attempts, and observed benchmark success/failure rate: complete and reviewed; commit `71353d7`, 116 tests reported passing on Python 3.11/3.13.
-- Step 012 — prompt created: first real provider/model, explicit low-cost real-call path, official-price verification, and publishable benchmark API spend grouped by provider/model.
-- Planned after Step 012: review real measurements before adding another provider/model or scheduler.
+- Step 012 — first real provider/model (OpenAI `gpt-6-luna`), explicit low-cost real-call path, official-price verification, and publishable benchmark API spend grouped by provider/model: complete; live path validated in Step 012a.
+- Step 012a — live validation cleanup: sanitized diagnostics kept, OpenAI `x-request-id` stored per attempt (schema v4), pricing verified against official docs, `reasoning.effort: none` confirmed by the official model page: complete.
+- Planned after Step 012a: review real measurements before adding another provider/model or scheduler.
 
 The aggregate dashboard should answer: **How is this provider/model performing, and is performance changing?** The individual-call view should answer: **What exactly happened on this benchmark request, how much work did it do, how long did it take, what did it cost, and did it succeed?** Simulated data must always be clearly labeled.
 
@@ -108,3 +109,13 @@ Cross the simulated-to-real boundary with exactly one inexpensive provider/model
 Step 012 also makes benchmark economics a visible product metric: publishable API spend grouped by provider/model plus selected-window total. Keep simulated dummy costs out of real spend and do not yet materialize time aggregates. The first goal is trustworthy raw real measurements and transparent cost, not broad provider coverage.
 
 Do not add retries, scheduling, cloud deployment, workload matrices, a second provider/model, or routing in Step 012.
+
+## Step 012 live validation (Step 012a)
+
+The real path is validated, but there are no benchmark conclusions: one successful sample (total latency 3880.7 ms, TTFT 3630.3 ms, 17 input / 14 output tokens, ~$0.000009) is validation only. The first real request (`6a39b71e…`) failed as `provider_error` after 5425.6 ms; three more early attempts also failed. A later debug run showed an in-stream `insufficient_quota` / `credit_balance_exhausted` error (account had no credit). Lesson: an account-billing error is our problem, not provider unreliability; it is now rejected and not recorded, so it cannot distort the observed success rate. The early failures' cause was never captured and stays unconfirmed.
+
+Traceability: every attempt keeps llm-metrics' own UUID as its identity; OpenAI's `x-request-id` is stored beside it as diagnostic metadata (`provider_request_id`) for raising a specific request with the provider. No tracing system.
+
+`reasoning.effort` is set explicitly to `none` (official default is `medium`) so the first latency benchmark measures simple text generation. Future benchmark methodology must decide reasoning effort deliberately per workload.
+
+Operating budget: the project-wide constraint is **$10/day**, including LLM API spend and future hosting/infrastructure. Budget guardrails are designed and enforced when deployment/scheduling is introduced, not as a fake local cap.

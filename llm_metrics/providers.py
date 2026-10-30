@@ -14,10 +14,14 @@ class Usage:
 
     Sent once, as the last item of the stream (as real APIs report usage in a
     final event). Counts are in the provider's own token units.
+    `provider_request_id` is the provider's own identifier for the request
+    (e.g. OpenAI's x-request-id), if it gave one: diagnostic metadata stored
+    beside llm-metrics' own request id, never a replacement for it.
     """
 
     input_tokens: int
     output_tokens: int
+    provider_request_id: str | None = None
 
 
 class ProviderFailure(Exception):
@@ -26,15 +30,18 @@ class ProviderFailure(Exception):
     (HTTP status codes, SDK exceptions) to a category here; the message is for
     humans and is never stored. `diagnostics` holds sanitized identifiers (e.g.
     HTTP status, provider error code, request id) that may be printed for local
-    debugging; it is never stored."""
+    debugging; it is never stored. `provider_request_id` (as in Usage) is stored
+    with the failed attempt when known."""
 
-    def __init__(self, category: str, message: str = "", diagnostics: dict | None = None):
+    def __init__(self, category: str, message: str = "", diagnostics: dict | None = None,
+                 provider_request_id: str | None = None):
         if category not in FAILURE_CATEGORIES:
             raise ValueError(f"Unknown failure category {category!r}.")
         super().__init__(message or category)
         self.category = category
         # Sanitized, non-secret identifiers for local debugging only (never stored).
         self.diagnostics = diagnostics or {}
+        self.provider_request_id = provider_request_id
 
 
 class LLMProvider:

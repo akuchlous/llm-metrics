@@ -119,6 +119,63 @@ class StreamTranslationTest(unittest.TestCase):
         self.assertEqual((attempt["outcome"], attempt["output_tokens"]), ("success", 64))
 
 
+class ProviderRequestIdTest(unittest.TestCase):
+    """OpenAI's x-request-id is kept beside our own request id, never instead of it."""
+
+    def response(self, body, request_id="req_8d31bcc50b4b40b58ae702b1305f67de"):
+        response = FakeResponse(body)
+        response.headers = {"x-request-id": request_id}
+        response.status = 200
+        return response
+
+    def test_success_carries_and_stores_the_provider_request_id(self):
+        provider, _ = provider_with(response=self.response(sse(delta("a"), completed())))
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "x.db"
+            request, _, request_id = run_attempt(provider, "p", 64, "prod", db_path)
+            from llm_metrics.storage import load_request
+            stored = load_request(db_path, request_id)
+        self.assertEqual(stored["provider_request_id"], "req_8d31bcc50b4b40b58ae702b1305f67de")
+        self.assertNotEqual(request_id, stored["provider_request_id"])  # our own UUID stays the id
+        self.assertEqual(len(request_id), 32)
+
+    def test_failures_carry_the_provider_request_id(self):
+        cases = {
+            "error_event": self.response(sse({"type": "error", "error": {"code": "server_error"}})),
+            "response_failed": self.response(sse({"type": "response.failed", "response": {}})),
+            "invalid_usage": self.response(sse(delta("a"), {"type": "response.completed",
+                                                            "response": {}})),
+            # Detected by measurement, not the provider: no id (a known limitation).
+            "stream_ended_without_final_event": self.response(sse(delta("a"))),
+        }
+        for name, response in cases.items():
+            with self.subTest(case=name):
+                attempt, _ = measure_request(provider_with(response=response)[0], "p", 64)
+                self.assertNotEqual(attempt["outcome"], "success")
+                expected = None if name.startswith("stream_ended") else \
+                    "req_8d31bcc50b4b40b58ae702b1305f67de"
+                self.assertEqual(attempt["provider_request_id"], expected)
+
+    def test_http_5xx_carries_the_provider_request_id(self):
+        error = urllib.error.HTTPError(API_URL, 503, "x", {"x-request-id": "req_5xx"}, io.BytesIO(b"{}"))
+        attempt, _ = measure_request(provider_with(error=error)[0], "p", 64)
+        self.assertEqual((attempt["outcome"], attempt["provider_request_id"]),
+                         ("provider_error", "req_5xx"))
+
+    def test_unsafe_or_missing_ids_are_not_stored(self):
+        for header in (SECRETISH, "x" * 101, None):
+            with self.subTest(header=header):
+                response = FakeResponse(sse(delta("a"), completed()))
+                response.headers = {} if header is None else {"x-request-id": header}
+                attempt, _ = measure_request(provider_with(response=response)[0], "p", 64)
+                self.assertIsNone(attempt["provider_request_id"])
+
+    def test_connection_failure_has_no_provider_request_id(self):
+        attempt, _ = measure_request(provider_with(error=ConnectionRefusedError())[0], "p", 64)
+        self.assertEqual(attempt["outcome"], "transport_error")
+        self.assertIsNone(attempt["provider_request_id"])
+
+
 class UsageIsNeverFabricatedTest(unittest.TestCase):
     def outcome(self, body):
         provider, _ = provider_with(response=FakeResponse(body))
@@ -381,7 +438,8 @@ class PricingTest(unittest.TestCase):
 
     def test_price_provenance_is_recorded_and_verified(self):
         source, verified_on = PRICE_PROVENANCE[("openai", "gpt-6-luna")]
-        self.assertIn("openai.com", source)
+        self.assertTrue(source.startswith("https://developers.openai.com/api/docs/pricing"))
+        self.assertIsNotNone(verified_on)
         self.assertEqual(verified_on, "2026-10-30")
 
 
@@ -450,6 +508,7 @@ class RealSmokeCommandTest(unittest.TestCase):
                      "Rates: $0.10 input / $0.50 output per 1M tokens"):
             self.assertIn(line, out)
         self.assertNotIn("(simulated)", out)
+        self.assertNotIn("Provider request id", out)  # the fake response sent none
         self.assertNotIn(FAKE_KEY, out)
         self.assertNotIn(real_smoke.PROMPT, out)
         from llm_metrics.storage import load_recent_requests
@@ -472,6 +531,16 @@ class RealSmokeCommandTest(unittest.TestCase):
                 self.assertEqual("error_code=server_error" in err, shown)
                 for secret in (FAKE_KEY, "Bearer", real_smoke.PROMPT, "Hello there", "message"):
                     self.assertNotIn(secret, out + err)
+
+    def test_summary_shows_the_provider_request_id(self):
+        response = FakeResponse(sse(delta("Hi"), delta(" there"), completed(20, 15)))
+        response.headers = {"x-request-id": "req_42"}
+        code, out, _ = self.run_main({"OPENAI_API_KEY": FAKE_KEY}, FakeOpener(response=response))
+        self.assertEqual(code, 0)
+        self.assertIn("Provider request id: req_42", out)
+        from llm_metrics.storage import load_recent_requests
+        [stored] = load_recent_requests(self.db_path, "prod", 20)
+        self.assertEqual(stored["provider_request_id"], "req_42")
 
     def test_unknown_arguments_are_refused_before_any_request(self):
         self.argv = ["--loop"]

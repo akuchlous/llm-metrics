@@ -28,7 +28,9 @@ def measure_request(
 
     `attempt` always has: provider, model, requested_max_output_tokens, outcome
     ("success" or a failure category from outcomes.FAILURE_CATEGORIES),
-    input_tokens, output_tokens, failed_after_ms.
+    input_tokens, output_tokens, failed_after_ms, provider_request_id (the
+    provider's own id for the request, from Usage or ProviderFailure; None if
+    unknown).
 
     On success: input_tokens/output_tokens come from the provider's final
     `Usage` (never from chunk counts), failed_after_ms is None, and `results`
@@ -81,7 +83,11 @@ def measure_request(
             raise _InvalidResponse("more output tokens than requested")
     except (ProviderFailure, _InvalidResponse) as failure:
         failed_at = time.perf_counter()
-        outcome = failure.category if isinstance(failure, ProviderFailure) else "invalid_response"
+        if isinstance(failure, ProviderFailure):
+            outcome, provider_request_id = failure.category, failure.provider_request_id
+        else:
+            outcome = "invalid_response"
+            provider_request_id = usage.provider_request_id if usage is not None else None
         attempt = {
             "provider": provider.name,
             "model": provider.model,
@@ -90,6 +96,7 @@ def measure_request(
             "input_tokens": None,
             "output_tokens": None,
             "failed_after_ms": (failed_at - request_started) * 1000,
+            "provider_request_id": provider_request_id,
             # Sanitized local-debug details; not a storage column, never saved.
             "diagnostics": getattr(failure, "diagnostics", {}),
         }
@@ -103,6 +110,7 @@ def measure_request(
         "input_tokens": usage.input_tokens,
         "output_tokens": usage.output_tokens,
         "failed_after_ms": None,
+        "provider_request_id": usage.provider_request_id,
     }
 
     def result(metric: str, value: float) -> dict:

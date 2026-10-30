@@ -205,8 +205,9 @@ existing rows are kept: Step 009 renamed the `value_ms` column to `value`
 (schema version 1); Step 010 added the `requests` table and
 `observations.request_id` (schema version 2); Step 011 added `outcome` and
 `failed_after_ms` and made token/cost columns nullable (schema version 3), with
-Step-010 requests recorded as successes. Older rows are not given invented
-token, cost, or request data.
+Step-010 requests recorded as successes; Step 012a added
+`requests.provider_request_id` (schema version 4), NULL for existing rows.
+Older rows are not given invented token, cost, or request data.
 
 To start over, delete the `data/` folder.
 
@@ -240,7 +241,11 @@ It prints what it is about to do, then makes **exactly one** OpenAI Responses AP
 call (`gpt-6-luna`, a fixed harmless one-sentence prompt, `max_output_tokens` 64,
 `reasoning.effort` `none`, streaming, no tools, `store: false`, no retries),
 saves the attempt as real data,
-and prints the outcome, tokens, latencies, throughput, cost, and the rates used.
+and prints the outcome, tokens, latencies, throughput, cost, the rates used, and
+OpenAI's request id (`x-request-id`). That id is stored with the attempt next to
+llm-metrics' own request id, so a specific benchmark request can be raised with
+OpenAI. `reasoning.effort` `none` is set explicitly (the model's default is
+`medium`) so the benchmark measures plain text generation.
 It never prints the key, the prompt, or the response. Without `OPENAI_API_KEY`
 it refuses and makes no request.
 
@@ -256,13 +261,14 @@ python3 -m llm_metrics.real_smoke --debug
 
 Token counts come from OpenAI's reported usage. Cost uses the standard-tier
 price in `llm_metrics/pricing.py`: **$0.10 per 1M input tokens and $0.50 per
-1M output tokens** (source: https://openai.com/api/pricing/, verified by the
-project owner on 2026-10-30). A typical smoke call costs a few millionths of a
+1M output tokens** (source: OpenAI's official pricing documentation,
+https://developers.openai.com/api/docs/pricing, standard tier; verified on
+2026-10-30). A typical smoke call costs a few millionths of a
 dollar.
 
 Errors are recorded as failed attempts with a category (timeout, rate limited,
 provider/server error, network/transport error, invalid response). Request or
-configuration errors (bad key, no access to the model, bad parameters) are
-reported and **not** recorded.
+configuration errors (bad key, no access to the model, bad parameters, account
+out of credit) are reported and **not** recorded.
 
 Never commit secrets. `.env` is git-ignored.

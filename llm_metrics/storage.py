@@ -19,6 +19,9 @@ from pathlib import Path
 #            failed_after_ms is the time from request start until the failure
 #            was detected (it is not total_latency).
 # The table CHECK enforces exactly this.
+# provider_request_id is the provider's own id for the attempt (OpenAI's
+# x-request-id), kept beside our `id` for tracing with the provider; NULL when
+# the provider gave none (simulated runs, connection failures, older rows).
 #
 # observations: one row per metric value. recorded_at is UTC ISO 8601 with a
 # "Z" suffix, e.g. "2026-10-30T12:34:56.789012Z", so text order is time order.
@@ -46,6 +49,7 @@ CREATE TABLE IF NOT EXISTS requests (
     output_cost                 REAL,
     total_cost                  REAL,
     failed_after_ms             REAL    CHECK (failed_after_ms >= 0),
+    provider_request_id         TEXT,
     CHECK (
         (outcome = 'success'
             AND input_tokens IS NOT NULL AND output_tokens IS NOT NULL
@@ -81,7 +85,8 @@ CREATE UNIQUE INDEX IF NOT EXISTS observations_unique
 #   2: Step 010 (`requests` table; observations.request_id)
 #   3: Step 011 (requests.outcome, requests.failed_after_ms; token and cost
 #      columns nullable for failed attempts)
-SCHEMA_VERSION = 3
+#   4: Step 012a (requests.provider_request_id)
+SCHEMA_VERSION = 4
 
 # Constant SQL; values are always bound as parameters.
 _INSERT_OBSERVATION = (
@@ -92,10 +97,12 @@ _REQUEST_COLUMNS = (
     "id", "recorded_at", "environment", "provider", "model", "outcome",
     "input_tokens", "requested_max_output_tokens", "output_tokens",
     "input_price_per_1m", "output_price_per_1m",
-    "input_cost", "output_cost", "total_cost", "failed_after_ms",
+    "input_cost", "output_cost", "total_cost", "failed_after_ms", "provider_request_id",
 )
 # Columns of a version-2 requests table, copied as-is by the version 3 upgrade.
-_V2_REQUEST_COLUMNS = tuple(c for c in _REQUEST_COLUMNS if c not in ("outcome", "failed_after_ms"))
+_V2_REQUEST_COLUMNS = tuple(
+    c for c in _REQUEST_COLUMNS if c not in ("outcome", "failed_after_ms", "provider_request_id")
+)
 
 
 def _columns(conn: sqlite3.Connection, table: str) -> set[str]:
@@ -140,6 +147,9 @@ def _upgrade(conn: sqlite3.Connection) -> None:
             )
             conn.execute("DROP TABLE requests")
             conn.execute("ALTER TABLE requests_v3 RENAME TO requests")
+        if version < 4 and "provider_request_id" not in _columns(conn, "requests"):
+            # Existing attempts keep NULL: their provider ids were never recorded.
+            conn.execute("ALTER TABLE requests ADD COLUMN provider_request_id TEXT")
         conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
         conn.commit()
     except BaseException:
@@ -188,7 +198,8 @@ def save_request(db_path: Path, request: dict, results: list[dict], environment:
     """Save one benchmark attempt and its metric observations; return its new id.
 
     `request` must hold every _REQUEST_COLUMNS key except id, recorded_at and
-    environment (unknown facts of a failed attempt as None). A failed attempt has
+    environment (unknown facts of a failed attempt as None); provider_request_id
+    is optional (None when absent). A failed attempt has
     no observations. The request row and all observations share one timestamp and
     are written in one transaction: either everything is saved or nothing.
     """
@@ -196,7 +207,7 @@ def save_request(db_path: Path, request: dict, results: list[dict], environment:
         raise ValueError("A failed attempt must not have metric observations.")
     request_id = uuid.uuid4().hex
     recorded_at = format_timestamp(datetime.now(timezone.utc))
-    row = {**request, "id": request_id, "recorded_at": recorded_at, "environment": environment}
+    row = {"provider_request_id": None, **request, "id": request_id, "recorded_at": recorded_at, "environment": environment}
     values = tuple(row[column] for column in _REQUEST_COLUMNS)
     observations = [_observation_row(recorded_at, environment, r, request_id) for r in results]
     with closing(connect(db_path)) as conn, conn:  # inner `conn` commits
