@@ -1,24 +1,24 @@
 # Development prompts
 
-This directory is the historical record of the micro-step prompts used to develop `llm-metrics`.
+Number prompts in execution order. Once used, a prompt is immutable history.
 
-## Convention
+Before a step, read:
+1. `PROJECT_STATUS.md` — current state.
+2. `DECISIONS.md` — shared engineering rules and durable decisions.
+3. The current numbered prompt.
 
-Prompts are numbered in execution order:
+## Prompt standard
 
-```text
-001-initial-ttft.md
-002-local-run-script.md
-003-...
-```
+Prompts follow the same principles as code: clear, maintainable, simple, and no bloat.
 
-Once a prompt has been used, treat it as **immutable history**. Do not edit an old prompt to reflect later architecture or decisions. Add a new numbered prompt instead.
+Use only what the step needs:
 
-Before implementing a step, the coding agent should read:
+1. **Goal** — one concrete outcome.
+2. **Requirements** — only step-specific behavior and constraints.
+3. **Acceptance** — focused tests and observable success criteria.
+4. **Out of scope** — only likely scope mistakes.
+5. **Stop** — do not start the next step.
 
-1. `PROJECT_STATUS.md` — current source of truth for implementation status.
-2. `DECISIONS.md` — architectural/project decisions.
-3. The numbered prompt for the requested step.
-4. `prompts/chatgpt-conversation.md` when broader product/project context is useful.
+Do not repeat rules already in `DECISIONS.md` or current state already in `PROJECT_STATUS.md`; reference those files instead. Avoid long checklists, duplicated requirements, speculative future design, and verbose final-report instructions.
 
-Each development step should be small, independently testable, preserve all previously working functionality, update `PROJECT_STATUS.md`, and stop before implementing the next numbered step.
+Each step must preserve existing behavior, update `PROJECT_STATUS.md`, record only durable new decisions in `DECISIONS.md`, and stop for independent review.
