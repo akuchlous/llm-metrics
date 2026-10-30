@@ -1,13 +1,26 @@
 # Software design questions
 
-Interview-style design questions drawn from each completed step of `llm-metrics`, answered from what the project actually did, then critiqued.
+## Purpose
 
-Each step has a folder matching its prompt number, with one file per level:
+This directory turns each completed `llm-metrics` implementation step into reusable software-design learning and interview practice.
+
+The questions are not a separate theoretical curriculum. They are derived from code that was actually built: each answer should explain the real implementation, its tradeoffs and failure modes, then critique how the design or answer could be stronger.
+
+The reusable requirements for creating new step folders live in `prompts/DESIGN_QUESTIONS.md`.
+
+## Structure
+
+Each step has a folder matching its prompt number, with one file per engineering level:
 
 ```text
 design-questions/
-  01/  lead-engineer.md  principal-engineer.md  senior-manager.md  director.md
-  02/  ...
+  01/
+    lead-engineer.md
+    principal-engineer.md
+    senior-manager.md
+    director.md
+  02/
+    ...
 ```
 
 | Level | What the question probes |
@@ -20,8 +33,10 @@ design-questions/
 Each file has:
 
 - **Step context:** one line on what that step built, so the file stands alone.
-- **Answer:** a strong answer grounded in the real implementation, decisions (`DECISIONS.md`) and step reports (`prompts/NNN-output.md`).
-- **Critique:** what was **good** about the decision or answer, what was **weak**, and how to **improve** it.
+- **Question and answer:** role-appropriate reasoning grounded in the real implementation, `DECISIONS.md`, and `prompts/NNN-output.md`.
+- **Critique:** what was **good**, what was **weak or missing**, and how to **improve** the answer or design.
+
+## Step index
 
 | Step | Topic | Prompt |
 |---|---|---|
