@@ -16,6 +16,18 @@ Build useful measurement data first, then quality, routing, and exchange mechani
 
 Future real benchmarking needs deliberate dimensions: provider/model, workload category, input size, requested output size, actual output size, and measurement origin (cloud/region/zone). Performance claims are meaningful only for a defined population and methodology.
 
+### Longer-term analytics / exchange metrics
+
+Keep the implementation small now, but preserve an architecture that can grow toward multidimensional provider analytics. Useful dimensions/facts include provider, model, variant/quantization, timestamp/time-of-day, measurement cloud/region/zone, workload/category, input tokens/context length, requested maximum output tokens, actual output tokens, cached input tokens, reasoning tokens, finish reason, and later reproducibly defined workload complexity/classifiers.
+
+Useful measurements include TTFT, total latency, generation tokens/sec, end-to-end effective output tokens/sec, request cost, success/error, error/rate-limit type, retry/fallback count, and availability. Public views can emphasize total latency, cost, token counts, throughput, and reliability while retaining TTFT as an advanced/diagnostic metric.
+
+For the eventual Exchange, request constraints may include maximum price, latency/deadline, minimum throughput, model/workload requirements, and other buyer constraints. Fulfillment facts may later include bid/ask price, selected provider, actual settlement/fulfillment price, retries/fallbacks, and capacity. Do not implement these speculative fields until a concrete step needs them.
+
+Design principle: **dimensions describe the conditions under which a request was measured; metrics describe what happened.** Keep request identity and request-level facts separate from extensible measurements so later analytics can filter coherent populations without turning every dimension into a metric row.
+
+OpenRouter is a useful product reference: its provider/analytics surfaces emphasize latency/TTFT, throughput, uptime/error behavior, token usage (including prompt/completion/reasoning/cached tokens), spend/cost, context length, provider/model/origin dimensions, and routing based on realized price/performance/reliability. llmxchange should retain comparable core facts from the start where practical, then differentiate with controlled benchmark methodology, origin/workload dimensions, and eventual market/fulfillment constraints.
+
 ## Development and learning workflow
 
 - GitHub is the source of truth.
