@@ -64,7 +64,7 @@ OpenRouter is a useful product reference: its provider/analytics surfaces emphas
 - Step 012 — first real provider/model (OpenAI `gpt-6-luna`), explicit low-cost real-call path, official-price verification, and publishable benchmark API spend grouped by provider/model: complete; live path validated in Step 012a.
 - Step 012a — live validation cleanup: sanitized diagnostics kept, OpenAI `x-request-id` stored per attempt (schema v4), pricing verified against official docs, `reasoning.effort: none` confirmed by the official model page: complete and reviewed; 169 tests reported passing.
 - Step 013 — Metrics v1 data completeness: authoritative output tokens/sec, stable workload identity, measurement origin, and cache-aware request facts are implemented through schema v6. Review result: pass with known limitations; 192 tests reported passing and no paid call.
-- Step 014 — production-web refactor, intentionally split into 014a/014b/... rather than a large rewrite. 014a is complete and reviewed. 014b is complete and reviewed: Jinja templates/static CSS own markup, `dashboard.py` builds no HTML, autoescaping/CSP are preserved, and 222 tests are reported passing. 014c is now defined: separate reusable analytics/application facts from presentation-specific view preparation without changing product behavior.
+- Step 014 — production-web refactor, intentionally split into small reviewable substeps. 014a Flask boundary: complete/reviewed. 014b Jinja/static presentation extraction: complete/reviewed. 014c analytics-versus-presentation separation: complete/reviewed; 242 tests reported passing. 014d is now defined: add one small versioned read-only JSON aggregate endpoint that consumes the same analytics facts as the HTML dashboard, without broad API expansion.
 
 The aggregate dashboard should answer: **How is this provider/model performing, under what workload/origin/cache conditions, and is performance changing?** The individual-call view should answer: **What exactly happened on this benchmark request, how much work did it do, how long did it take, what did it cost, was cached input reused, and did it succeed?** Simulated data must always be clearly labeled.
 
@@ -88,15 +88,21 @@ Sample size must accompany reliability and percentile claims. Different sample s
 
 Productionization should separate concerns incrementally, not via a framework rewrite of the measurement core.
 
-Current direction after 014b:
+Current direction after reviewed 014c:
 
-`Flask HTTP/Jinja -> dashboard view preparation -> analytics/application facts -> storage`
+```text
+web (Flask/Jinja)
+    ↓
+dashboard (query + human presentation)
+    ↓
+analytics (natural product/statistical facts)
+    ↓
+storage
+```
 
-while benchmark/provider/measurement code remains independent of Flask/Jinja. SQLite remains until the deployment/database step earns PostgreSQL. Do not introduce Django/React/SQLAlchemy merely for architectural appearance.
+`analytics.py` owns population/statistical interpretation and returns natural values. `dashboard.py` owns human-facing formatting, links and chart geometry. The separation is test-enforced, and HTML behavior remained byte-identical across 014c with a fixed clock.
 
-014b established the presentation rule: Python prepares view data; Jinja renders markup. Templates remain deliberately dumb—no storage access, percentile/cost/reliability calculations, provider logic, or cache inference. Autoescaping and strict CSP remain part of the boundary.
-
-014c adds the next boundary: analytics/application code should expose natural/raw values (numbers, timestamps, counts, outcomes) while the dashboard/view layer owns human-facing formatting such as units, currency strings, unknown markers, links, and chart geometry. This makes analytics reusable later by a JSON API, use-case recommendation layer, or report generator without parsing display strings. Keep the implementation small; do not introduce a large DTO/service hierarchy merely for layering.
+014d should prove that this boundary is useful by adding exactly one small `/api/v1/metrics` read-only JSON endpoint. The API consumes analytics facts directly rather than dashboard-formatted strings. It must identify its population explicitly, preserve success-vs-metric population semantics, use JSON numbers/null and ISO-8601 timestamps, and treat its v1 field meanings/types as an emerging compatibility contract. Do not expand this into a complete REST API, arbitrary provider selection, authentication, OpenAPI, Router, or deployment work.
 
 ## Step 012 live validation
 
@@ -119,9 +125,10 @@ Known Step 013 limitations are acceptable: output tokens/sec is client-observed 
 ## Step 014 direction
 
 Step 014 is a sequence, not one rewrite:
-- **014a:** complete and reviewed — Flask app factory and HTTP boundary in `web.py`, preserving behavior and keeping benchmark/data modules framework-independent.
-- **014b:** complete and reviewed — full-page markup moved to Jinja templates, CSS to a static file, autoescaping and stricter CSP preserved, chart geometry remains in Python, and `dashboard.py` contains no HTML.
-- **014c:** implemented, pending review — new `analytics.py` returns natural values (frozen dataclasses for metric windows, summaries, spend; existing success-rate dict and storage rows kept) and owns population rules; `dashboard.py` keeps query semantics + view preparation and no longer reads storage; direction `web → dashboard → analytics → storage` is test-enforced. Pages byte-identical to 014b.
-- **014d+:** finish the production-web boundary (API/view organization and production serving/config/test hardening as justified) before cloud deployment. Keep each substep small and reviewable.
+- **014a:** complete and reviewed — Flask app factory and HTTP boundary in `web.py`.
+- **014b:** complete and reviewed — Jinja templates/static CSS own presentation; dashboard builds no HTML.
+- **014c:** complete and reviewed — `analytics.py` owns reusable natural-value analytics; `dashboard.py` owns query semantics + view formatting; dependency direction `web → dashboard → analytics → storage`; 242 tests reported passing, style checks clean, no paid call.
+- **014d:** defined — add exactly one versioned read-only JSON aggregate endpoint, `/api/v1/metrics`, consuming analytics directly. Keep it small and treat the response as the first emerging machine-interface compatibility contract.
+- **After 014d:** review whether any final production-serving/config hardening is actually needed before returning to product work. Do not continue refactoring merely for architectural appearance.
 
-Do not combine the Flask refactor with PostgreSQL, provider expansion, scheduling, cloud deployment, authentication, or a frontend SPA.
+Do not combine the Flask/API refactor with PostgreSQL, provider expansion, scheduling, cloud deployment, authentication, or a frontend SPA.
