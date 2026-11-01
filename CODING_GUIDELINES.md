@@ -25,6 +25,7 @@ Do not make unrelated style-only rewrites while implementing a focused step.
 - Use descriptive names. Avoid unexplained abbreviations and generic names such as `data`, `thing`, `obj`, or `tmp` when a domain-specific name is available.
 - Keep public/module boundaries clear. Measurement, provider, analytics, storage, and web code should not become mutually dependent.
 - Avoid clever abstractions, premature generalization, and speculative extension points. Introduce an abstraction when current code has demonstrated the need for it.
+- **Before implementing commodity functionality, search for a mature, widely adopted library/service. Prefer reuse unless it compromises measurement correctness, security, cost, or an important learning objective.**
 - Validate inputs at boundaries and represent unknown data honestly (`None`/SQL `NULL` where appropriate rather than fabricated zero/default facts).
 - Preserve the repository's security rules: never persist or log API keys, prompts, generated responses, raw provider error bodies, or other sensitive material unless a future explicit design decision changes that policy.
 - New behavior needs focused tests. Bug fixes should normally include a regression test.
@@ -144,6 +145,7 @@ For every numbered implementation step, the implementer should review changed co
 - security/privacy regressions;
 - clear names and responsibility boundaries;
 - unnecessary complexity or duplication;
+- whether commodity functionality is being reimplemented when a mature, widely adopted library or managed service would be a better fit;
 - comments/docstrings for non-obvious invariants and semantics;
 - stale or misleading comments;
 - test coverage of new behavior;
