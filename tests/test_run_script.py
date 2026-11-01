@@ -131,7 +131,7 @@ class RunScriptTest(unittest.TestCase):
             self.assertRegex(out, r"Total latency: \d+\.\d ms")
             self.assertRegex(out, r"Output token throughput: \d+\.\d tokens/s")
             self.assertRegex(out, r"Output chunk throughput: \d+\.\d chunks/s")
-            self.assertIn("Workload: simulated.default.v1", out)
+            self.assertIn("Workload: interactive-chat-v1", out)
             self.assertRegex(
                 out,
                 r"Saved attempt [0-9a-f]{32} with 4 observations to"

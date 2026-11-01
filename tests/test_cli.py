@@ -17,8 +17,12 @@ from unittest import mock
 
 from llm_metrics import __main__ as cli
 from llm_metrics import providers
+from llm_metrics import workloads
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
+DEFAULT = workloads.INTERACTIVE_CHAT_V1
+# What the simulated tokenizer reports for the default workload's prompt.
+DEFAULT_INPUT_TOKENS = providers.simulated_token_count(DEFAULT.prompt)
 
 
 class CLITest(unittest.TestCase):
@@ -30,7 +34,7 @@ class CLITest(unittest.TestCase):
         # Never write to the developer's real database.
         self.db_path = pathlib.Path(tmp.name) / "observations.db"
 
-    def run_cli(self, app_env):
+    def run_cli(self, app_env, *args):
         env = {
             k: v
             for k, v in os.environ.items()
@@ -41,7 +45,7 @@ class CLITest(unittest.TestCase):
         if app_env is not None:
             env["APP_ENV"] = app_env
         return subprocess.run(
-            [sys.executable, "-m", "llm_metrics"],
+            [sys.executable, "-m", "llm_metrics", *args],
             cwd=REPO_ROOT,
             env=env,
             capture_output=True,
@@ -63,7 +67,7 @@ class CLITest(unittest.TestCase):
         self.assertRegex(
             proc.stdout, r"Output chunk throughput: \d+\.\d chunks/s"
         )
-        self.assertIn("Workload: simulated.default.v1", proc.stdout)
+        self.assertIn("Workload: interactive-chat-v1", proc.stdout)
         self.assertIn("Origin: local / unknown", proc.stdout)
         # The simulated provider sends no cache control and reports no cached
         # tokens.
@@ -87,7 +91,7 @@ class CLITest(unittest.TestCase):
             rows,
             [
                 (
-                    "simulated.default.v1",
+                    "interactive-chat-v1",
                     "aws",
                     "us-east-1",
                     "provider_default",
@@ -111,10 +115,13 @@ class CLITest(unittest.TestCase):
         self.assertRegex(
             proc.stdout, r"Saved attempt [0-9a-f]{32} with 4 observations to"
         )
-        self.assertIn("Input tokens: 3 (simulated)", proc.stdout)
-        self.assertIn("Output tokens: 7 of max 64 (simulated)", proc.stdout)
+        self.assertEqual(DEFAULT_INPUT_TOKENS, 1954)
+        self.assertIn("Input tokens: 1954 (simulated)", proc.stdout)
+        # The dummy emits 7 tokens: far below the cap, and that is the fact
+        # recorded (the cap is a maximum, not a target).
+        self.assertIn("Output tokens: 7 of max 300 (simulated)", proc.stdout)
         self.assertIn(
-            "Cost: $0.000062 (input $0.000006 + output $0.000056) (simulated)",
+            "Cost: $0.003964 (input $0.003908 + output $0.000056) (simulated)",
             proc.stdout,
         )
         with contextlib.closing(sqlite3.connect(self.db_path)) as conn:
@@ -132,8 +139,8 @@ class CLITest(unittest.TestCase):
             ).fetchall()
         request_id, recorded_at, environment, *facts = request
         self.assertEqual(environment, "test")
-        self.assertEqual(facts[:5], [3, 64, 7, 2.0, 8.0])
-        self.assertAlmostEqual(facts[5], 6.2e-05, places=15)
+        self.assertEqual(facts[:5], [DEFAULT_INPUT_TOKENS, 300, 7, 2.0, 8.0])
+        self.assertAlmostEqual(facts[5], 0.003964, places=15)
         self.assertEqual(
             [r[4] for r in rows],
             [
@@ -179,7 +186,7 @@ class CLITest(unittest.TestCase):
             out
         ):
             self.assertEqual(
-                cli.main(), 0
+                cli.main([]), 0
             )  # a failed attempt is a recorded result
         text = out.getvalue()
         self.assertIn(
@@ -200,8 +207,60 @@ class CLITest(unittest.TestCase):
             ).fetchone()[0]
         self.assertEqual(row[:4], ("provider_error", None, None, None))
         self.assertGreaterEqual(row[4], 0)
-        self.assertEqual(row[5], 64)
+        self.assertEqual(row[5], 300)
         self.assertEqual(observations, 0)
+
+    def test_selected_workload_is_run_and_saved_with_its_cap(self):
+        for workload in workloads.list_workloads():
+            with self.subTest(workload=workload.workload_id):
+                proc = self.run_cli("test", "--workload", workload.workload_id)
+                self.assertEqual(proc.returncode, 0, proc.stderr)
+                self.assertIn(f"Workload: {workload.workload_id}", proc.stdout)
+                tokens = providers.simulated_token_count(workload.prompt)
+                self.assertIn(
+                    f"Input tokens: {tokens} (simulated)", proc.stdout
+                )
+                # The prompt is sent but never printed.
+                self.assertNotIn(workload.prompt[:60], proc.stdout)
+        with contextlib.closing(sqlite3.connect(self.db_path)) as conn:
+            rows = conn.execute(
+                "SELECT workload_id, requested_max_output_tokens, input_tokens"
+                " FROM requests ORDER BY recorded_at"
+            ).fetchall()
+        self.assertEqual(
+            rows,
+            [
+                (
+                    w.workload_id,
+                    w.max_output_tokens,
+                    providers.simulated_token_count(w.prompt),
+                )
+                for w in workloads.list_workloads()
+            ],
+        )
+        stored = self.db_path.read_bytes()
+        for workload in workloads.list_workloads():
+            self.assertNotIn(workload.prompt[:200].encode(), stored)
+
+    def test_unknown_workload_or_arguments_are_refused_before_measuring(self):
+        for args in (
+            ("--workload", "rag-v9<script>"),
+            ("--workload", ""),
+            ("--workload",),
+            ("rag-v1",),
+            ("--workload", "rag-v1", "extra"),
+        ):
+            with self.subTest(args=args):
+                proc = self.run_cli("test", *args)
+                self.assertEqual(proc.returncode, 2)
+                self.assertEqual(proc.stdout, "")
+                self.assertFalse(self.db_path.exists())
+        proc = self.run_cli("test", "--workload", "rag-v9<script>")
+        self.assertIn("Unknown workload. Valid workloads:", proc.stderr)
+        for workload in workloads.list_workloads():
+            self.assertIn(workload.workload_id, proc.stderr)
+        self.assertNotIn("rag-v9", proc.stderr)  # input is not echoed
+        self.assertIn(cli.USAGE, self.run_cli("test", "rag-v1").stderr)
 
     def test_prod_env_fails_without_measuring(self):
         proc = self.run_cli("prod")

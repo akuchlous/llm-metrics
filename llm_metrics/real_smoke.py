@@ -20,17 +20,16 @@ from llm_metrics import benchmark
 from llm_metrics import config
 from llm_metrics import openai_provider
 from llm_metrics import pricing
+from llm_metrics import workloads
 
 API_KEY_VARIABLE = "OPENAI_API_KEY"
 MODEL = "gpt-6-luna"
-# The smoke benchmark case: this prompt, cap, and request shape (streaming,
-# store false, reasoning effort none, prompt caching disabled). Bump the
-# version whenever any of them changes, so attempts made under different
-# conditions never share an id.
-WORKLOAD_ID = "smoke.short_text.v2"
-# Harmless, deterministic, text-only; no tools, files, images, or search.
-PROMPT = "Reply with one short friendly sentence greeting a benchmark tool."
-MAX_OUTPUT_TOKENS = 64
+# The smoke check: one short harmless prompt with a 64-token cap, defined in
+# the workload catalogue. Fixed on purpose: this command is the low-cost
+# connectivity check, not a way to run the larger benchmark workloads. Its id
+# also stands for the request shape (streaming, store false, reasoning effort
+# none, prompt caching disabled); a change to any of them needs a new version.
+WORKLOAD = workloads.SMOKE_SHORT_TEXT_V2
 ENVIRONMENT = "prod"
 
 
@@ -84,8 +83,9 @@ def main(argv: list[str] | None = None) -> int:
     ]
     print(
         "About to make exactly ONE paid API request: provider"
-        f" {provider.name}, model {provider.model}, max output tokens"
-        f" {MAX_OUTPUT_TOKENS}."
+        f" {provider.name}, model {provider.model}, workload"
+        f" {WORKLOAD.workload_id}, max output tokens"
+        f" {WORKLOAD.max_output_tokens}."
     )
     if verified_on is None:
         print(
@@ -97,13 +97,7 @@ def main(argv: list[str] | None = None) -> int:
     db_path = config.get_db_path()
     try:
         request, results, request_id = benchmark.run_attempt(
-            provider,
-            PROMPT,
-            MAX_OUTPUT_TOKENS,
-            ENVIRONMENT,
-            db_path,
-            workload_id=WORKLOAD_ID,
-            origin=origin,
+            provider, WORKLOAD, ENVIRONMENT, db_path, origin=origin
         )
     except openai_provider.RequestRejected as e:
         print(

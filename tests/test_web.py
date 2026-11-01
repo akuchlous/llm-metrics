@@ -459,6 +459,18 @@ class ImportAndDependencyTest(unittest.TestCase):
             "query.py": {"storage", *consumers},
             "analytics.py": {"query", *consumers},
             "storage.py": {"analytics", "query", *consumers},
+            # Workload definitions are methodology: nothing they could import
+            # may depend on providers, measurement, or storage.
+            "workloads.py": {
+                "analytics",
+                "benchmark",
+                "latency",
+                "openai_provider",
+                "providers",
+                "query",
+                "storage",
+                *consumers,
+            },
         }
         for name, banned in forbidden.items():
             tree = ast.parse(
@@ -493,6 +505,7 @@ class ImportAndDependencyTest(unittest.TestCase):
             "real_smoke",
             "seed_history",
             "storage",
+            "workloads",
             "__main__",
         )
         code = (

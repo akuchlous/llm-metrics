@@ -1,8 +1,12 @@
 # Python requires this file name for `python -m llm_metrics`.
 # pylint: disable=invalid-name
-"""CLI: makes one simulated benchmark attempt and saves it.
+"""CLI: runs one benchmark workload against the simulated provider and saves it.
 
-Usage: APP_ENV=test python -m llm_metrics
+Usage: APP_ENV=test python -m llm_metrics [--workload WORKLOAD_ID]
+
+The workload defaults to `workloads.DEFAULT_WORKLOAD_ID`; any id from
+`workloads.list_workloads()` can be chosen. An unknown id is refused, with the
+list of valid ids, before anything is measured.
 
 This path never calls a paid API: `APP_ENV=prod` is refused by
 `config.get_provider`. The only real-provider path is
@@ -13,40 +17,50 @@ import sys
 
 from llm_metrics import benchmark
 from llm_metrics import config
+from llm_metrics import workloads
 
-# The simulated benchmark case (what was run). Bump the version whenever the
-# prompt, the output cap, or the request shape changes, so attempts with
-# different conditions never share an id.
-WORKLOAD_ID = "simulated.default.v1"
-PROMPT = "Say hello."
-MAX_OUTPUT_TOKENS = 64  # Requested output cap for each benchmark request.
+USAGE = "Usage: python -m llm_metrics [--workload WORKLOAD_ID]"
 
 
-def main() -> int:
+def _parse_args(args: list[str]) -> workloads.Workload:
+    """Returns the selected workload.
+
+    Raises:
+        ValueError: For unexpected arguments (message: `USAGE`) or an unknown
+            workload id (`workloads.UnknownWorkloadError`, listing valid ids).
+    """
+    if not args:
+        return workloads.get_workload(workloads.DEFAULT_WORKLOAD_ID)
+    if len(args) == 2 and args[0] == "--workload":
+        return workloads.get_workload(args[1])
+    raise ValueError(USAGE)
+
+
+def main(argv: list[str] | None = None) -> int:
     """Runs one simulated attempt, prints its summary, and saves it.
+
+    Args:
+        argv: Command-line arguments without the program name; defaults to
+            `sys.argv[1:]`.
 
     Returns:
         Process exit code: 0 when the attempt was recorded (even if the attempt
         itself failed, because a failure is a valid benchmark result), 2 for a
-        configuration error, in which case nothing is measured or saved.
+        usage or configuration error, in which case nothing is measured or
+        saved.
     """
     try:
+        workload = _parse_args(sys.argv[1:] if argv is None else argv)
         app_env = config.get_app_env()
         provider = config.get_provider(app_env)
         origin = config.get_origin()
-    except config.ConfigError as e:
+    except (ValueError, config.ConfigError) as e:
         print(f"Error: {e}", file=sys.stderr)
         return 2
 
     db_path = config.get_db_path()
     request, results, request_id = benchmark.run_attempt(
-        provider,
-        PROMPT,
-        MAX_OUTPUT_TOKENS,
-        app_env,
-        db_path,
-        workload_id=WORKLOAD_ID,
-        origin=origin,
+        provider, workload, app_env, db_path, origin=origin
     )
     benchmark.print_summary(
         request, results, request_id, db_path, simulated=app_env == "test"

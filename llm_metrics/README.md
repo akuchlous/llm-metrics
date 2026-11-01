@@ -13,7 +13,8 @@ Its responsibility is to measure LLM-provider behavior, persist raw observations
 - `latency.py` — metric catalogue (`METRICS`: label and unit per metric) and single-pass measurement of a benchmark attempt: outcome, token facts from `Usage`, plus (on success) total latency, TTFT, and output token and chunk throughput.
 - `pricing.py` — the only place prices are defined (USD per 1M tokens), with their source and verification date (`PRICE_PROVENANCE`), and the per-request cost formula.
 - `openai_provider.py` — the first real provider: OpenAI Responses API over `urllib` (no SDK), translating the event stream into text chunks + `Usage` and mapping errors to failure categories.
-- `benchmark.py` — one attempt end to end (price lookup, measurement, save) and its printed summary; shared by the CLI and `real_smoke`.
+- `workloads.py` — the versioned benchmark workload catalogue: frozen `Workload` definitions (id, category, version, prompt, output cap, approximate size target) built deterministically from synthetic material; `get_workload` / `list_workloads`. Imports nothing from `llm_metrics`.
+- `benchmark.py` — one catalogue workload run once end to end (price lookup, measurement, save) and its printed summary; shared by the CLI and `real_smoke`.
 - `real_smoke.py` — the only code path that spends money: one explicit real request, key from `OPENAI_API_KEY`; `--debug` prints sanitized failure diagnostics (never stored).
 - `storage.py` — SQLite schema and transactional in-place upgrades; `save_request` (attempt row + linked observations in one transaction); time-window observation reads, request reads, and outcome counts.
 - `seed_history.py` — deterministic simulated history used only in the test environment.
@@ -25,7 +26,7 @@ Its responsibility is to measure LLM-provider behavior, persist raw observations
 - `web.py` — the Flask HTTP boundary: `create_app()` application factory, routes (HTML pages and `/api/v1/metrics`), template rendering (`render_page`), JSON encoding (`json_response`), status codes, security headers, and serving on 127.0.0.1. The only module that imports Flask or Jinja.
 - `templates/` — Jinja templates (autoescaped, no logic beyond loops and prepared conditions); `static/dashboard.css` — the only stylesheet.
 - `config.py` — environment, database-path, dashboard-port, and measurement-origin (`LLM_METRICS_ORIGIN_CLOUD` / `LLM_METRICS_ORIGIN_REGION`) configuration.
-- `__main__.py` — command-line entry point for one simulated attempt (never calls a paid API).
+- `__main__.py` — command-line entry point for one simulated attempt of a chosen workload (`--workload`, default `interactive-chat-v1`; never calls a paid API).
 
 ## Design boundaries
 

@@ -32,12 +32,11 @@ from llm_metrics import pricing
 from llm_metrics import providers
 from llm_metrics import real_smoke
 from llm_metrics import storage
+from llm_metrics import workloads
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
-SMOKE_CASE = {
-    "workload_id": "smoke.short_text.v2",
-    "origin": ("local", "unknown"),
-}
+SMOKE = workloads.SMOKE_SHORT_TEXT_V2
+ORIGIN = ("local", "unknown")
 FAKE_KEY = "fake-test-key-NEVER-SHOW-THIS-0123456789"
 
 
@@ -211,7 +210,7 @@ class ProviderRequestIdTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             db_path = pathlib.Path(tmp) / "x.db"
             _, _, request_id = benchmark.run_attempt(
-                provider, "p", 64, "prod", db_path, **SMOKE_CASE
+                provider, SMOKE, "prod", db_path, origin=ORIGIN
             )
             stored = storage.load_request(db_path, request_id)
         self.assertEqual(
@@ -394,7 +393,7 @@ class CachedInputTokensTest(unittest.TestCase):
                     )
                 )
                 _, _, request_id = benchmark.run_attempt(
-                    provider, "p", 64, "prod", db_path, **SMOKE_CASE
+                    provider, SMOKE, "prod", db_path, origin=ORIGIN
                 )
                 stored[name] = storage.load_request(db_path, request_id)
         self.assertEqual(stored["zero"]["cached_input_tokens"], 0)
@@ -414,11 +413,10 @@ class CachedInputTokensTest(unittest.TestCase):
                     with self.assertRaises(ValueError):
                         benchmark.run_attempt(
                             provider,
-                            "p",
-                            64,
+                            SMOKE,
                             "test",
                             pathlib.Path(tmp) / "x.db",
-                            **SMOKE_CASE,
+                            origin=ORIGIN,
                         )
                     self.assertFalse((pathlib.Path(tmp) / "x.db").exists())
 
@@ -579,7 +577,7 @@ class FailureMappingTest(unittest.TestCase):
             db_path = pathlib.Path(tmp) / "x.db"
             with self.assertRaises(openai_provider.RequestRejected):
                 benchmark.run_attempt(
-                    provider, "p", 64, "prod", db_path, **SMOKE_CASE
+                    provider, SMOKE, "prod", db_path, origin=ORIGIN
                 )
             self.assertFalse(
                 db_path.exists()
@@ -808,7 +806,7 @@ class DiagnosticsTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             db_path = pathlib.Path(tmp) / "x.db"
             request, _, _ = benchmark.run_attempt(
-                provider, "p", 64, "prod", db_path, **SMOKE_CASE
+                provider, SMOKE, "prod", db_path, origin=ORIGIN
             )
             self.assertEqual(
                 request["diagnostics"]["error_code"], "server_error_marker_xyz"
@@ -830,7 +828,7 @@ class SecretHandlingTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             db_path = pathlib.Path(tmp) / "x.db"
             request, results, request_id = benchmark.run_attempt(
-                provider, "secret prompt", 64, "prod", db_path, **SMOKE_CASE
+                provider, SMOKE, "prod", db_path, origin=ORIGIN
             )
             out = io.StringIO()
             with contextlib.redirect_stdout(out):
@@ -839,7 +837,7 @@ class SecretHandlingTest(unittest.TestCase):
                 )
             stored = db_path.read_bytes()
         printed = out.getvalue()
-        for secret in (FAKE_KEY, "secret prompt", "Hello there"):
+        for secret in (FAKE_KEY, SMOKE.prompt, "Hello there"):
             self.assertNotIn(secret, printed)
             self.assertNotIn(secret.encode(), stored)
         self.assertIn("Outcome: success", printed)
@@ -966,8 +964,8 @@ class RealSmokeCommandTest(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertEqual(len(opener.calls), 1)
         self.assertIn(
-            "exactly ONE paid API request: provider openai, model gpt-6-luna, "
-            "max output tokens 64",
+            "exactly ONE paid API request: provider openai, model gpt-6-luna,"
+            " workload smoke.short_text.v2, max output tokens 64",
             out,
         )
         self.assertNotIn("not yet verified", out)
@@ -984,7 +982,7 @@ class RealSmokeCommandTest(unittest.TestCase):
             "Provider request id", out
         )  # the fake response sent none
         self.assertNotIn(FAKE_KEY, out)
-        self.assertNotIn(real_smoke.PROMPT, out)
+        self.assertNotIn(real_smoke.WORKLOAD.prompt, out)
         stored = self.only_real_request()
         self.assertEqual(
             (stored["provider"], stored["model"], stored["environment"]),
@@ -1040,7 +1038,7 @@ class RealSmokeCommandTest(unittest.TestCase):
                 for secret in (
                     FAKE_KEY,
                     "Bearer",
-                    real_smoke.PROMPT,
+                    real_smoke.WORKLOAD.prompt,
                     "Hello there",
                     "message",
                 ):
@@ -1122,7 +1120,7 @@ class SimulatedPathsStayOfflineTest(unittest.TestCase):
                 "APP_ENV": "test",
             },
         ), contextlib.redirect_stdout(io.StringIO()):
-            self.assertEqual(cli.main(), 0)
+            self.assertEqual(cli.main([]), 0)
 
     def test_importing_modules_makes_no_network_calls(self):
         # Fresh process with sockets disabled before any llm_metrics import.

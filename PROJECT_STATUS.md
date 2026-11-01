@@ -1,8 +1,10 @@
 # Project status
 
-_Last updated: Step 014d — 2026-10-30_
+_Last updated: Step 015 — 2026-11-01_
 
 ## Current state
+
+**Step 015 complete: versioned benchmark workloads.** `llm_metrics/workloads.py` is the single, dependency-free catalogue of benchmark workloads: frozen `Workload` definitions (versioned id, category, version, name, description, prompt, output cap, approximate input-size target) built deterministically from original synthetic material. Six candidate benchmark workloads (`interactive-chat-v1` 300, `coding-v1` 1000, `rag-v1` 500, `summarization-v1` 1000, `extraction-v1` 150, `agent-tool-v1` 300 output tokens; ~2K/8K/16K/32K/4K/8K input tokens by a 4-characters-per-token estimate) plus the real smoke check `smoke.short_text.v2`. `benchmark.run_attempt(provider, workload, ...)` sends the catalogue's prompt and cap and stores its id, and refuses a workload that is not the catalogue definition of its id. `python -m llm_metrics [--workload ID]` (default `interactive-chat-v1`); `real_smoke` stays fixed to the smoke workload. No schema change; prompts are still never stored (D061).
 
 **Step 014d complete: a small versioned read-only JSON API.** `GET /api/v1/metrics?metric=&window=` returns one aggregate metric window as JSON facts (numbers, `null` for unknown, ISO 8601 UTC times), built from the same `analytics` result as the aggregate page. It names its population (simulated dummy provider), metric and unit, and window; `samples` covers successful observations only and `reliability` every attempt. Shared query definitions (metrics, windows, populations, validation) moved from `dashboard.py` to `query.py`; the new `api.py` serializes without Flask. HTML pages are byte-identical to 014c (D060).
 
@@ -19,7 +21,7 @@ _Last updated: Step 014d — 2026-10-30_
 Live validation history (owner-run, 2026-10-30; **validation of the path, not benchmark results**): the first real request (`6a39b71e…`) failed as `provider_error` after 5425.6 ms, and three more early attempts were also stored as `provider_error`. Two later `--debug` runs got HTTP 200 followed by an in-stream `error`; once its nested details were read, it showed `insufficient_quota` / `credit_balance_exhausted` (the OpenAI account had no credit). Those two rows were deleted from the local database at the owner's request, and such account errors are now rejected and not recorded. The earlier failures' cause was never captured and is presumed but not confirmed to be the same. After credit was added, one request succeeded (`44c889cb…`): total latency 3880.7 ms, TTFT 3630.3 ms, 17 input / 14 output tokens (max 64), about $0.000009. One sample says nothing about typical performance.
 
 Working:
-- `./run.sh` creates/reuses `.venv`, installs the hash-pinned `requirements.txt` when it changed (network needed only then), runs tests, seeds simulated TTFT history (test only, idempotent), makes one benchmark attempt (outcome, tokens, total latency, TTFT, token and chunk throughput, cost; workload `simulated.default.v1`), then serves the dashboard at `http://127.0.0.1:8000/` until Ctrl+C.
+- `./run.sh` creates/reuses `.venv`, installs the hash-pinned `requirements.txt` when it changed (network needed only then), runs tests, seeds simulated TTFT history (test only, idempotent), makes one benchmark attempt (outcome, tokens, total latency, TTFT, token and chunk throughput, cost; workload `interactive-chat-v1`), then serves the dashboard at `http://127.0.0.1:8000/` until Ctrl+C.
 - `APP_ENV=test` is the safe default; `APP_ENV=prod ./run.sh` refuses to run (no implicit spend).
 - `python -m llm_metrics.real_smoke [--debug]`: exactly one real OpenAI `gpt-6-luna` request (requires `OPENAI_API_KEY`; refuses without it), stored with `environment = 'prod'`, workload `smoke.short_text.v2`, origin, cache policy `disabled`, OpenAI-reported cached input tokens, and OpenAI's request id; `--debug` prints sanitized failure diagnostics (never stored). Request/configuration and account-credit errors are rejected and not recorded.
 - Each run saves one `requests` row (attempt) with its `outcome`, `workload_id`, `origin_cloud`, `origin_region`, `cache_policy` (all required) and `cached_input_tokens` (when reported). Success: tokens, max output tokens, prices, costs, and up to four linked observations (`total_latency`, `ttft`, `output_tokens_per_s`, `output_chunks_per_s`), in one transaction. Failure: category, `failed_after_ms`, prices and cap; tokens/costs NULL (unknown); no observations.
@@ -29,7 +31,8 @@ Working:
 - Benchmark API Spend (`/spend?window=`, default 30d, real data only): per provider/model successful paid calls, tokens, known total cost, failed attempts (cost unknown), and a grand total.
 - Pages are labelled TEST / SIMULATED DATA or REAL PROVIDER DATA; `/requests?data=simulated|real` switches population.
 - JSON API (`/api/v1/metrics?metric=&window=`, same values and defaults as the aggregate page): `api_version`, `population` (`data: "simulated"`, provider, model), `metric` (name, unit), `window` (name, ISO start/end), `samples` (successful observations: count, first/latest time, latest value, p50/p95/p99, `null` when none), `reliability` (all attempts: counts, rates `null` when none, failures by category). 400/404/405/500 under `/api/` are JSON errors that never echo input. Field meanings and types are the v1 compatibility contract (README, D060).
-- 262 `unittest` tests (pass on Python 3.13 in the project venv); none reach external networks (two web tests serve on 127.0.0.1). Web routes are tested with Flask's test client; page tests render the real templates.
+- `python -m llm_metrics --workload <id>` runs any catalogue workload against the simulated provider; an unknown id is refused (exit 2, valid ids listed, input not echoed) before anything is measured.
+- 283 `unittest` tests (pass on Python 3.13 in the project venv); none reach external networks (two web tests serve on 127.0.0.1). Web routes are tested with Flask's test client; page tests render the real templates.
 - One runtime dependency, Flask (with its libraries), used only by `web.py`. Provider network access and secrets are used only by `real_smoke`.
 - All Python follows the Google Python Style Guide (D055): `pyink` formatting, isort `google` import order, and Google's `pylintrc` report no findings. These tools are optional development tools, not dependencies.
 
@@ -61,7 +64,8 @@ llm_metrics/
   outcomes.py      outcome/failure categories + success_rate
   providers.py     provider interface (text chunks + final Usage, ProviderFailure); DummyProvider with simulated tokenizer, output cap, deterministic failures
   openai_provider.py  OpenAI Responses API adapter (urllib, SSE → chunks + Usage, error mapping)
-  benchmark.py     run_attempt (price, measure, save) + print_summary, shared by CLI and real_smoke
+  workloads.py     versioned benchmark workload catalogue (Workload, get_workload, list_workloads); deterministic synthetic prompts; imports nothing from llm_metrics
+  benchmark.py     run_attempt(provider, workload, ...) (price, measure, save) + print_summary, shared by CLI and real_smoke
   real_smoke.py    explicit one-paid-request command
   latency.py       METRICS catalogue (label, unit); measure_request: outcome + token facts + metrics in one pass
   pricing.py       all prices (USD per 1M tokens) + PRICE_PROVENANCE + request_cost
@@ -94,12 +98,13 @@ A unique index on observations (`recorded_at`, `environment`, `provider`, `model
 
 ## Known limitations
 
-- Real provider: one model, one successful live sample; no benchmark methodology, scheduling, or repeated runs yet. `real_smoke` uses a fixed prompt, cap 64, and `reasoning.effort: none`.
+- Real provider: one model, one successful live sample; no scheduling or repeated runs yet. `real_smoke` runs only `smoke.short_text.v2` (cap 64, `reasoning.effort: none`); no benchmark workload has been sent to a real provider.
+- Workloads (D061): candidate hypotheses, not validated by user research. Input sizes are estimated at 4 characters per token, not measured with any provider's tokenizer, and will differ per provider. Generated material is repetitive by design (templated records), which may let providers' caches or models behave differently than on natural text. Answers are not checked; `agent-tool-v1` asks for a tool choice in plain text (no native tool calling). The provider request shape (e.g. OpenAI `reasoning.effort`) is fixed per provider and is not part of the workload id, except for the legacy smoke id. Existing aggregate views and `/api/v1/metrics` do not filter by workload, so simulated runs of different workloads share one population.
 - The four early `provider_error` rows remain as validation history; their cause was not captured (presumed account credit, unconfirmed). They lower the observed real success rate (1 of 5).
 - `provider_request_id` is NULL for attempts before Step 012a (not backfilled), simulated runs, connection failures, and failures detected only by measurement (e.g. the stream ended without a final event). It is stored but not shown on the dashboard.
 - No whole-project budget guardrail yet (the `$10/day` operating budget is to be enforced when hosting/scheduling arrives); real spend is limited by running `real_smoke` by hand.
 - Spend covers successful calls' known costs; providers may bill some failed calls, which stay unknown. Cached-input (10% rate) and cache-write (1.25×) price differences and reasoning-token differences are not modelled (all input at the standard rate; reasoning tokens are included in OpenAI's output count).
-- `./run.sh` uses the simulated provider only; one request per run, with a fixed prompt and `MAX_OUTPUT_TOKENS = 64`.
+- `./run.sh` uses the simulated provider only; one request per run, workload `interactive-chat-v1` (the dummy ignores the prompt's content apart from counting it, and always answers with 7 tokens).
 - Token counts come from a simulated tokenizer (1 token per 4 characters) and prices are simulated; neither matches a real provider.
 - `output_tokens_per_s` is observed effective throughput: whole-response token count over client-observed chunk timing. It includes first-chunk and reasoning tokens (reads high for very short responses) and is not internal decoding speed. Not backfilled for older attempts (the one real success has no tokens/s value).
 - `workload_id` is a free versioned string with no registry; nothing enforces that a version bump accompanies a prompt or cap change.

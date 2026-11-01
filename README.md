@@ -54,10 +54,12 @@ is never stored as zero or infinity.
 
 Every attempt also records two facts about how it was run:
 
-- **Workload** (`workload_id`): the benchmark case, i.e. what test was run, as a
-  stable versioned name. `simulated.default.v1` is the simulated run
-  (`./run.sh`); `smoke.short_text.v2` is the real smoke request. A changed
-  prompt, cap, or request shape gets a new version.
+- **Workload** (`workload_id`): which versioned workload from the catalogue
+  was run (see [Benchmark workloads](#benchmark-workloads)), for example
+  `interactive-chat-v1` (the `./run.sh` default) or `smoke.short_text.v2` (the
+  real smoke request). The prompt itself is never stored; the id is the link
+  back to its definition in `llm_metrics/workloads.py`. Older attempts keep
+  their ids (`simulated.default.v1` was the "Say hello." run before Step 015).
 - **Origin** (`origin_cloud` / `origin_region`): where the benchmark runner
   executed, not where the provider served the request. It is set with
   `LLM_METRICS_ORIGIN_CLOUD` and `LLM_METRICS_ORIGIN_REGION`, for example
@@ -97,8 +99,10 @@ Request facts:
 - **`input_tokens`** and **`output_tokens`**: as reported by the provider at the
   end of the stream (never counted from chunks: a chunk may hold zero, one, or
   several tokens).
-- **`requested_max_output_tokens`**: the output cap the benchmark asked for
-  (64). The model may stop earlier, so it is stored separately from
+- **`requested_max_output_tokens`**: the output cap the workload asks for
+  (e.g. 300 for `interactive-chat-v1`, 64 for the smoke request). It is a
+  maximum, not a target: the model may stop earlier, nothing retries or
+  extends a short answer, and the generated length is stored separately as
   `output_tokens`.
 - **Cost** in USD: `input_cost = input_tokens × input price per 1M ÷ 1,000,000`,
   `output_cost` likewise, `total_cost = input_cost + output_cost`. The prices used
@@ -108,7 +112,50 @@ Request facts:
 > **Simulated tokens and prices.** The dummy provider counts tokens with a
 > simulated tokenizer (1 token per 4 characters, rounded up) and uses simulated
 > prices ($2.00 input / $8.00 output per 1M tokens). Neither matches any real
-> provider. The dummy's 5-chunk response is 7 tokens.
+> provider. The dummy's 5-chunk response is 7 tokens, whatever the workload.
+
+## Benchmark workloads
+
+A latency or throughput number means little without knowing what was asked.
+Every attempt therefore runs one **workload** from a small code-defined
+catalogue (`llm_metrics/workloads.py`): a fixed prompt and output cap under a
+stable versioned id. The six benchmark workloads are **candidate hypotheses**
+about which application shapes matter; user research may add, change, or
+retire them. They measure performance (latency, throughput, reliability,
+cost), not answer quality: nothing is graded.
+
+| Workload id | Category | Represents | Approx. input | Output cap |
+|---|---|---|---:|---:|
+| `interactive-chat-v1` | interactive_chat | Support chat: system context, conversation history, a question needing a step-by-step explanation | ~2K tokens | 300 |
+| `coding-v1` | coding | A small multi-file Python codebase with one buggy function and its failing test; asks for diagnosis, fix, and tests | ~8K tokens | 1000 |
+| `rag-v1` | rag | 145 supplied transit documents and a question combining two of them, with citations | ~16K tokens | 500 |
+| `summarization-v1` | summarization | Three years of committee minutes (216 sections) and a structured-summary request | ~32K tokens | 1000 |
+| `extraction-v1` | extraction | 55 semi-structured shipment notices to classify into a small JSON object | ~4K tokens | 150 |
+| `agent-tool-v1` | agent_tool | A catalogue of 66 tools, a log of earlier calls, and a goal; asks for the next tool call as text | ~8K tokens | 300 |
+
+`smoke.short_text.v2` (one short sentence, cap 64) is the real-provider
+connectivity check, not a benchmark workload.
+
+- **Deterministic, original content.** Prompts are built from synthetic
+  material written for this project (fictional companies, places, and data)
+  with plain templates and integer arithmetic: no randomness, dates, files, or
+  downloads. Tests pin a SHA-256 of every prompt.
+- **Versions.** A workload id names exactly one prompt and cap. If a change
+  would make new results not directly comparable (different content,
+  instructions, task, or cap), it becomes a new version (`rag-v2`); released
+  versions are never edited. Old ids stay valid in stored data.
+- **Same content, different token counts.** Every provider gets the same text
+  for a workload version. Providers tokenize differently, so each reports its
+  own input token count; those differences are recorded as facts, not
+  corrected. The "approx. input" column is a design target at about 4
+  characters per token, not a count any provider will report.
+- **Output cap.** A maximum, not a requested length (see above).
+
+Choose a workload for a simulated run with
+`APP_ENV=test .venv/bin/python -m llm_metrics --workload rag-v1`; an unknown id
+is refused with the list of valid ids before anything runs. `./run.sh` runs
+`interactive-chat-v1`. The real smoke command always runs
+`smoke.short_text.v2`.
 
 ## Quick start (Chromebook Linux terminal or any Linux)
 
@@ -137,7 +184,7 @@ Database: data/llm_metrics.db
 
 Provider: dummy
 Model: dummy-model-v1
-Workload: simulated.default.v1
+Workload: interactive-chat-v1
 Origin: local / unknown
 Cache policy: provider_default
 Outcome: success
@@ -145,10 +192,10 @@ Total latency: 181.1 ms
 TTFT: 100.3 ms
 Output token throughput: 86.7 tokens/s
 Output chunk throughput: 49.6 chunks/s
-Input tokens: 3 (simulated)
+Input tokens: 1954 (simulated)
 Cached input tokens: not reported
-Output tokens: 7 of max 64 (simulated)
-Cost: $0.000062 (input $0.000006 + output $0.000056) (simulated)
+Output tokens: 7 of max 300 (simulated)
+Cost: $0.003964 (input $0.003908 + output $0.000056) (simulated)
 Rates: $2.00 input / $8.00 output per 1M tokens (simulated)
 Saved attempt 8e5578e2e1024fe6b868f77b1ecfc801 with 4 observations to data/llm_metrics.db
 
@@ -289,7 +336,8 @@ From the repository root:
 ```bash
 ./run.sh                                  # first time: creates .venv, installs dependencies
 .venv/bin/python -m unittest -v           # run the tests (needs the venv's Flask)
-APP_ENV=test .venv/bin/python -m llm_metrics  # run the dummy measurement
+APP_ENV=test .venv/bin/python -m llm_metrics  # run the dummy measurement (default workload)
+APP_ENV=test .venv/bin/python -m llm_metrics --workload coding-v1  # another workload
 .venv/bin/python -m llm_metrics.web       # serve the dashboard only
 ```
 

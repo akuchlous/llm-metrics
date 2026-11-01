@@ -3,6 +3,10 @@
 Shared by the simulated CLI (`python -m llm_metrics`) and the real-provider
 smoke command (`python -m llm_metrics.real_smoke`), so both record attempts the
 same way. Never prints the prompt or the model's response.
+
+Dependency direction: workloads (what to send) -> benchmark (this module:
+runs one workload once) -> latency/providers (timing and protocol) -> storage
+(facts). The workload's prompt is sent but never stored; its versioned id is.
 """
 
 import os
@@ -13,19 +17,24 @@ from llm_metrics import outcomes
 from llm_metrics import pricing
 from llm_metrics import providers
 from llm_metrics import storage
+from llm_metrics import workloads
 
 
 def run_attempt(
     provider: providers.LLMProvider,
-    prompt: str,
-    max_output_tokens: int,
+    workload: workloads.Workload,
     environment: str,
     db_path: pathlib.Path,
     *,
-    workload_id: str,
     origin: tuple[str, str],
 ) -> tuple[dict, list[dict], str]:
-    """Makes one attempt and saves it with its conditions and cost.
+    """Runs one workload once and saves the attempt with its conditions.
+
+    The provider receives the workload's prompt and output cap unchanged, and
+    the attempt is stored under the workload's versioned id, so every stored
+    id stands for exactly the content that was sent. One call is one attempt:
+    nothing retries, and a response shorter than the cap is a valid result
+    (the cap is a maximum, not a target).
 
     The price is looked up before the provider is called, so a missing price
     never wastes a paid request. The provider's declared cache policy is stored
@@ -33,12 +42,10 @@ def run_attempt(
 
     Args:
         provider: Provider to call exactly once.
-        prompt: Prompt text; never stored or printed.
-        max_output_tokens: Output cap requested from the provider.
+        workload: A catalogue workload (`workloads.get_workload`). Its prompt
+            is never stored or printed.
         environment: "test" (simulated data) or "prod" (real-provider data).
         db_path: SQLite database to write to.
-        workload_id: Stable id of the benchmark case that was run, e.g.
-            "smoke.short_text.v2".
         origin: (origin_cloud, origin_region) of this runner; see
             `config.get_origin`.
 
@@ -48,10 +55,14 @@ def run_attempt(
         new request's id.
 
     Raises:
-        ValueError: If the provider declares cache policy "unknown" or a value
-            outside `providers.CACHE_POLICIES`; nothing is called or saved.
+        ValueError: If `workload` is not the catalogue's definition of its id
+            (so a stored id could not be trusted to mean that content), or the
+            provider declares cache policy "unknown" or a value outside
+            `providers.CACHE_POLICIES`. Nothing is called or saved.
         KeyError: If no price is defined for the provider/model.
     """
+    if workloads.get_workload(workload.workload_id) != workload:
+        raise ValueError("Workload is not the catalogue definition of its id.")
     if (
         provider.cache_policy not in providers.CACHE_POLICIES
         or provider.cache_policy == "unknown"
@@ -62,7 +73,7 @@ def run_attempt(
         )
     price = pricing.price_for(provider.name, provider.model)
     attempt, results = latency.measure_request(
-        provider, prompt, max_output_tokens
+        provider, workload.prompt, workload.max_output_tokens
     )
     if attempt["outcome"] == outcomes.SUCCESS:
         cost = pricing.request_cost(
@@ -75,7 +86,7 @@ def run_attempt(
     origin_cloud, origin_region = origin
     request = {
         **attempt,
-        "workload_id": workload_id,
+        "workload_id": workload.workload_id,
         "origin_cloud": origin_cloud,
         "origin_region": origin_region,
         "cache_policy": provider.cache_policy,
