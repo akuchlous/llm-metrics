@@ -2,7 +2,7 @@
 
 Concise context not captured by `PROJECT_STATUS.md` or `DECISIONS.md`. Keep only decisions and learning that affect future work; this is not a conversation transcript.
 
-_Last updated: 2026-10-30_
+_Last updated: 2026-11-01_
 
 ## Product direction
 
@@ -18,7 +18,7 @@ Pricing is part of Metrics data, but automated price discovery is deferred. For 
 
 Future real benchmarking needs deliberate dimensions: provider/model, workload category/identity, input size, requested output size, actual output size, and measurement origin (cloud/region/zone), and cache policy/observed cached-input usage. Performance claims are meaningful only for a defined population and methodology. Cached/warm and explicitly uncached/cold-ish measurements must not be silently mixed.
 
-**Publishing/visibility is part of the product direction.** Engineering milestones and later benchmark findings should become useful public material for llmxchange.com and channels such as LinkedIn. Prefer publishing reproducible measurements, methodology, charts, and costs over generic product promotion. The site should eventually make the cost of running the benchmark itself transparent.
+**Publishing/visibility and user acquisition are first-class product goals.** Across the overall effort, target approximately **30% Build/Learn and 70% Grow/Distribute**. User research and growth work run in parallel with engineering rather than unnecessarily blocking it. At every meaningful engineering milestone, run a **MARKETING CHECKPOINT**: identify whether there is a publishable finding, a user-research opportunity, or a growth task. `Do not publish yet` is a valid outcome. When a growth opportunity exists, prepare a short handoff containing the completed milestone, evidence/sample size, limitations, relevant links, and suggested opportunity. Prefer reproducible measurements, methodology, charts, user learning, and concrete data stories over generic feature-announcement marketing.
 
 ### Benchmark economics
 
@@ -64,7 +64,8 @@ OpenRouter is a useful product reference: its provider/analytics surfaces emphas
 - Step 012 — first real provider/model (OpenAI `gpt-6-luna`), explicit low-cost real-call path, official-price verification, and publishable benchmark API spend grouped by provider/model: complete; live path validated in Step 012a.
 - Step 012a — live validation cleanup: sanitized diagnostics kept, OpenAI `x-request-id` stored per attempt (schema v4), pricing verified against official docs, `reasoning.effort: none` confirmed by the official model page: complete and reviewed; 169 tests reported passing.
 - Step 013 — Metrics v1 data completeness: authoritative output tokens/sec, stable workload identity, measurement origin, and cache-aware request facts are implemented through schema v6. Review result: pass with known limitations; 192 tests reported passing and no paid call.
-- Step 014 — production-web refactor, intentionally split into small reviewable substeps. 014a Flask boundary: complete/reviewed. 014b Jinja/static presentation extraction: complete/reviewed. 014c analytics-versus-presentation separation: complete/reviewed; 242 tests reported passing. 014d is now defined: add one small versioned read-only JSON aggregate endpoint that consumes the same analytics facts as the HTML dashboard, without broad API expansion.
+- Step 014 — production-web refactor, intentionally split into small reviewable substeps. 014a Flask boundary: complete/reviewed. 014b Jinja/static presentation extraction: complete/reviewed. 014c analytics-versus-presentation separation: complete/reviewed; 242 tests reported passing. 014d implemented/reviewed: one small versioned read-only JSON aggregate endpoint consumes the same analytics facts as the HTML dashboard; 262 tests reported passing.
+- Step 015 — defined/pending implementation: create a small versioned deterministic workload catalogue (`interactive-chat-v1`, `coding-v1`, `rag-v1`, `summarization-v1`, `extraction-v1`, `agent-tool-v1`) and integrate canonical workload selection into benchmark orchestration. These are candidate benchmark hypotheses subject to user-research refinement, not validated demand. Fairness means reproducible equivalent content/semantics across providers, not forced identical token counts; provider-authoritative token usage remains the observed fact. Material workload changes require a new workload version. No provider expansion or paid comparison calls in this step.
 
 The aggregate dashboard should answer: **How is this provider/model performing, under what workload/origin/cache conditions, and is performance changing?** The individual-call view should answer: **What exactly happened on this benchmark request, how much work did it do, how long did it take, what did it cost, was cached input reused, and did it succeed?** Simulated data must always be clearly labeled.
 
@@ -88,21 +89,16 @@ Sample size must accompany reliability and percentile claims. Different sample s
 
 Productionization should separate concerns incrementally, not via a framework rewrite of the measurement core.
 
-Current direction after reviewed 014c:
+Current direction after reviewed 014d:
 
 ```text
-web (Flask/Jinja)
-    ↓
-dashboard (query + human presentation)
-    ↓
-analytics (natural product/statistical facts)
-    ↓
-storage
+HTML request -> web (Flask/Jinja) -> dashboard -> query -> analytics -> storage
+JSON request -> web (Flask)        -> api       -> query -> analytics -> storage
 ```
 
-`analytics.py` owns population/statistical interpretation and returns natural values. `dashboard.py` owns human-facing formatting, links and chart geometry. The separation is test-enforced, and HTML behavior remained byte-identical across 014c with a fixed clock.
+`analytics.py` owns population/statistical interpretation and returns natural values. `dashboard.py` owns human-facing formatting, links and chart geometry. `query.py` owns genuinely shared metric/window/population query definitions. `api.py` owns Flask-free machine representation. The separation is test-enforced.
 
-014d should prove that this boundary is useful by adding exactly one small `/api/v1/metrics` read-only JSON endpoint. The API consumes analytics facts directly rather than dashboard-formatted strings. It must identify its population explicitly, preserve success-vs-metric population semantics, use JSON numbers/null and ISO-8601 timestamps, and treat its v1 field meanings/types as an emerging compatibility contract. Do not expand this into a complete REST API, arbitrary provider selection, authentication, OpenAPI, Router, or deployment work.
+014d established `/api/v1/metrics` as a small v1 compatibility contract. It currently serves one fixed simulated population; provider/model/workload selection belongs after real multi-provider population semantics exist. Do not expand this into a complete REST API, authentication/OpenAPI work, Router, or deployment work prematurely.
 
 ## Step 012 live validation
 
@@ -124,11 +120,18 @@ Known Step 013 limitations are acceptable: output tokens/sec is client-observed 
 
 ## Step 014 direction
 
-Step 014 is a sequence, not one rewrite:
-- **014a:** complete and reviewed — Flask app factory and HTTP boundary in `web.py`.
-- **014b:** complete and reviewed — Jinja templates/static CSS own presentation; dashboard builds no HTML.
-- **014c:** complete and reviewed — `analytics.py` owns reusable natural-value analytics; `dashboard.py` owns query semantics + view formatting; dependency direction `web → dashboard → analytics → storage`; 242 tests reported passing, style checks clean, no paid call.
-- **014d:** implemented, pending review — `GET /api/v1/metrics?metric=&window=` returns one aggregate metric window as JSON facts (numbers, null for unknown, ISO 8601 UTC with `Z`), naming population, metric/unit and window; `samples` (successful observations) and `reliability` (all attempts) kept separate. Shared query definitions moved to `query.py`; Flask-free `api.py` serializes analytics results; JSON errors under `/api/` never echo input. HTML byte-identical to 014c; 262 tests passing.
-- **After 014d:** review whether any final production-serving/config hardening is actually needed before returning to product work. Do not continue refactoring merely for architectural appearance.
+Step 014 is complete:
+- **014a:** complete/reviewed — Flask app factory and HTTP boundary in `web.py`.
+- **014b:** complete/reviewed — Jinja templates/static CSS own presentation; dashboard builds no HTML.
+- **014c:** complete/reviewed — `analytics.py` owns reusable natural-value analytics; `dashboard.py` owns view formatting; 242 tests reported passing.
+- **014d:** complete/reviewed — `GET /api/v1/metrics?metric=&window=` returns one aggregate metric window as JSON facts (numbers, null for unknown, ISO 8601 UTC with `Z`), naming population, metric/unit and window; `samples` (successful observations) and `reliability` (all attempts) remain separate. Shared query definitions live in `query.py`; Flask-free `api.py` serializes analytics results; JSON errors under `/api/` never echo input. HTML remained behaviorally unchanged; 262 tests reported passing.
 
-Do not combine the Flask/API refactor with PostgreSQL, provider expansion, scheduling, cloud deployment, authentication, or a frontend SPA.
+No further Step 014 refactoring is planned. Return to product work.
+
+## Step 015 direction
+
+Step 015 defines the first real benchmark-workload catalogue before broad provider expansion. Workloads are code-defined, deterministic, versioned methodology. The initial six are hypotheses while five-developer user research runs concurrently. The design must permit later addition/deprecation/versioning without provider/storage/web rewrites.
+
+A workload's approximate input-size target is descriptive, not an exact cross-provider token quota. Send reproducible equivalent content/task semantics, then retain provider-authoritative token usage. Requested output tokens remain a cap; do not retry to force exact output length. Workload definitions should contain no private/proprietary interview or employer material and should not be persisted wholesale merely for traceability; the canonical versioned `workload_id` links a request back to methodology.
+
+Step 015 must finish with `Marketing checkpoint inputs` in its implementation report so the Growth workstream can decide whether methodology/results are publishable. Engineering and user research continue concurrently.
