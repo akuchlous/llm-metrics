@@ -74,6 +74,7 @@ class RecordingProvider(providers.LLMProvider):
 
     name = providers.DummyProvider.name
     model = providers.DummyProvider.model
+    request_profile = providers.DummyProvider.request_profile
 
     def __init__(self, input_tokens=12_345, output_tokens=3):
         self.calls = []

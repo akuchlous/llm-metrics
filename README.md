@@ -3,14 +3,17 @@
 An open-source project to independently measure LLM provider performance
 (time to first token, throughput, latency, reliability, price).
 
-It is being built in small, tested steps. **Current step: 012.**
+It is being built in small, tested steps. **Current step: 016.**
 
 > **Simulated by default.** `./run.sh` and everything it starts use a dummy
 > provider that sleeps for a fixed time and emits fake tokens; its numbers do
-> **not** represent real LLM performance and it never calls a real API. One
-> real provider (OpenAI `gpt-6-luna`) can be called **only** by explicitly running
-> `python -m llm_metrics.real_smoke` with an API key: see
-> [Real provider (one paid request)](#real-provider-one-paid-request).
+> **not** represent real LLM performance and it never calls a real API. Four
+> real providers (OpenAI, Anthropic, Google, xAI; one model each) can be called
+> **only** by explicitly running `python -m llm_metrics.real_benchmark` (one
+> chosen provider, one request) or `python -m llm_metrics.real_smoke` (OpenAI
+> connectivity check) with an API key: see
+> [Real provider (one paid request)](#real-provider-one-paid-request) and
+> [Four-provider benchmark targets](#four-provider-benchmark-targets).
 
 ## What it measures (so far)
 
@@ -418,7 +421,7 @@ Tests never touch this file; they use temporary databases. Setting
 
 Stored data uses `environment = 'test'` for simulated attempts and
 `environment = 'prod'` for real-provider attempts (written only by
-`real_smoke`).
+`real_smoke` and `real_benchmark`).
 
 ## Real provider (one paid request)
 
@@ -457,7 +460,7 @@ Token counts come from OpenAI's reported usage. Cost uses the standard-tier
 price in `llm_metrics/pricing.py`: **$0.10 per 1M input tokens and $0.50 per
 1M output tokens** (source: OpenAI's official pricing documentation,
 https://developers.openai.com/api/docs/pricing, standard tier; verified on
-2026-10-30). A typical smoke call costs a few millionths of a
+2026-11-01, together with the $0.01 cached-input rate). A typical smoke call costs a few millionths of a
 dollar.
 
 Errors are recorded as failed attempts with a category (timeout, rate limited,
@@ -466,3 +469,70 @@ configuration errors (bad key, no access to the model, bad parameters, account
 out of credit) are reported and **not** recorded.
 
 Never commit secrets. `.env` is git-ignored.
+
+## Four-provider benchmark targets
+
+Step 016 adds one deliberately chosen real model per provider, so the same
+canonical workload can be measured across providers with the same pipeline.
+Nothing here runs automatically: each paid request needs an explicit command.
+
+> The four-provider benchmark controls workload content, workload version,
+> output cap, measurement origin and known request settings. It does not
+> establish that the selected models have identical capability, tokenizer
+> behavior, internal architecture, reasoning implementation, caching
+> implementation or service infrastructure. Results describe **observed
+> behavior of these exact provider/model/request-profile combinations under
+> this benchmark methodology**, not universal provider performance claims.
+
+| Provider | Model | Request profile | API | Reasoning / thinking | Cache policy | Key variable |
+|---|---|---|---|---|---|---|
+| OpenAI | `gpt-6-luna` | `openai.gpt-6-luna.v1` | Responses | `reasoning.effort: none` (off) | `disabled` (explicit mode, no breakpoints) | `OPENAI_API_KEY` |
+| Anthropic | `claude-haiku-5-5` | `anthropic.claude-haiku-5-5.v1` | Messages | `thinking: disabled` (off; effort not sent) | `provider_default` (no `cache_control` sent) | `ANTHROPIC_API_KEY` |
+| Google | `gemini-3.5-flash-lite` | `google.gemini-3.5-flash-lite.v1` | Interactions | `thinking_level: minimal` (lowest; not fully off) | `provider_default` (implicit caching) | `GEMINI_API_KEY` |
+| xAI | `grok-4.20-0309-non-reasoning` | `xai.grok-4.20-0309-non-reasoning.v1` | Responses | non-reasoning model (no field sent) | `provider_default` (automatic caching) | `XAI_API_KEY` |
+
+- **Same workload, provider-specific wrapper.** Each provider receives the
+  exact workload text as its plain input (Anthropic: one user message), with no
+  system prompt, instructions, sampling parameters, or tools added. The output
+  cap is carried in the provider's own field (`max_output_tokens`,
+  `max_tokens`, or `generation_config.max_output_tokens`).
+- **Request profiles.** `llm_metrics/targets.py` defines every request setting
+  sent to each provider under a versioned profile id, which is stored with
+  every attempt (`requests.request_profile_id`). Any material change gets a
+  new profile version, so measurements under different settings never share an
+  id. Settings that are not sent are provider defaults and are described as
+  such.
+- **Different controls, not equivalents.** "Reasoning off" means different
+  things per provider: OpenAI and Anthropic turn it off; Gemini Flash-Lite can
+  only be set to its minimal level; the xAI model is a non-reasoning variant.
+  Only OpenAI's request disables prompt caching; the others use the provider's
+  default caching, and any cached tokens they report are recorded and priced
+  at the cached rate.
+- **TTFT** is measured exactly as before: from just before the request until
+  the first text delta. Role, start, ping, thinking-signature and other
+  metadata events never count as output.
+- **Tokens** come only from each provider's reported usage. The same text
+  yields different input counts per provider; that difference is data. Output
+  tokens include any billed thinking tokens.
+- **Prices** (USD per 1M tokens, standard tier, verified 2026-11-01 against
+  official pricing pages): OpenAI 0.10 input / 0.50 output / 0.01 cached;
+  Anthropic 0.10 / 0.50 / 0.01 (prompts up to 100K); Google 0.30 / 2.50 / 0.03;
+  xAI 1.25 / 2.50 / 0.20 (prompts under 200K). Each attempt stores the rates
+  its cost used.
+
+Run **one** request to **one** provider (the pilot path):
+
+```bash
+export ANTHROPIC_API_KEY=...   # only the chosen provider's key is read
+python3 -m llm_metrics.real_benchmark --provider anthropic --real
+python3 -m llm_metrics.real_benchmark --provider google --real --workload interactive-chat-v1 --debug
+```
+
+`--provider` and `--real` are required; there is no "all providers" option,
+no loop and no retry. Before the request it prints the provider, model,
+profile, endpoint, reasoning setting, cache policy, workload, output cap,
+origin and rates; it never prints the key, prompt or response. Missing keys,
+unknown providers or workloads, and invalid origins are refused before any
+network access. Requests the provider rejects because of our key, access,
+parameters or billing are reported and not recorded.
+

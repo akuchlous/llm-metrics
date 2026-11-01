@@ -126,6 +126,7 @@ class SeedDatabaseTest(unittest.TestCase):
             "origin_cloud": "local",
             "origin_region": "unknown",
             "cache_policy": "provider_default",
+            "request_profile_id": "dummy.dummy-model-v1.v1",
             "outcome": "success",
             "failed_after_ms": None,
         }

@@ -475,6 +475,7 @@ REQUEST = {
     "origin_cloud": "local",
     "origin_region": "unknown",
     "cache_policy": "provider_default",
+    "request_profile_id": "dummy.dummy-model-v1.v1",
     "input_tokens": 3,
     "requested_max_output_tokens": 64,
     "output_tokens": 7,

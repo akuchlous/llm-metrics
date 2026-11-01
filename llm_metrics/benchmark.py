@@ -4,9 +4,11 @@ Shared by the simulated CLI (`python -m llm_metrics`) and the real-provider
 smoke command (`python -m llm_metrics.real_smoke`), so both record attempts the
 same way. Never prints the prompt or the model's response.
 
-Dependency direction: workloads (what to send) -> benchmark (this module:
-runs one workload once) -> latency/providers (timing and protocol) -> storage
-(facts). The workload's prompt is sent but never stored; its versioned id is.
+Dependency direction: workloads (what to send) and targets (to whom, under
+which request settings) -> benchmark (this module: runs one workload once) ->
+latency/providers (timing and protocol) -> storage (facts). The workload's
+prompt is sent but never stored; its versioned id is, and so is the provider's
+request profile id.
 """
 
 import os
@@ -17,6 +19,7 @@ from llm_metrics import outcomes
 from llm_metrics import pricing
 from llm_metrics import providers
 from llm_metrics import storage
+from llm_metrics import targets
 from llm_metrics import workloads
 
 
@@ -36,9 +39,15 @@ def run_attempt(
     nothing retries, and a response shorter than the cap is a valid result
     (the cap is a maximum, not a target).
 
+    The attempt is stored with the provider's request profile id, so every
+    stored measurement names the exact provider, model and request settings
+    it was made under; a provider whose name, model or cache policy disagrees
+    with its registered profile is refused, so populations cannot silently mix
+    settings. The provider's declared cache policy is stored as-is.
+
     The price is looked up before the provider is called, so a missing price
-    never wastes a paid request. The provider's declared cache policy is stored
-    as-is, so it always matches the request that was sent.
+    never wastes a paid request. Cost uses the provider-reported cached input
+    tokens at the cached rate when reported, and the standard rates otherwise.
 
     Args:
         provider: Provider to call exactly once.
@@ -56,9 +65,12 @@ def run_attempt(
 
     Raises:
         ValueError: If `workload` is not the catalogue's definition of its id
-            (so a stored id could not be trusted to mean that content), or the
-            provider declares cache policy "unknown" or a value outside
-            `providers.CACHE_POLICIES`. Nothing is called or saved.
+            (so a stored id could not be trusted to mean that content); the
+            provider has no registered request profile, or its name, model or
+            cache policy differs from the profile's; it declares cache policy
+            "unknown" or a value outside `providers.CACHE_POLICIES`; or the
+            workload is not well within the price's prompt-size tier. Nothing
+            is called or saved.
         KeyError: If no price is defined for the provider/model.
     """
     if workloads.get_workload(workload.workload_id) != workload:
@@ -71,13 +83,32 @@ def run_attempt(
             "Provider cache_policy must be one of"
             f" {providers.CACHE_POLICIES[:3]}."
         )
+    profile = provider.request_profile
+    if profile is None or targets.get_profile(profile.profile_id) != profile:
+        raise ValueError("Provider has no registered request profile.")
+    if (provider.name, provider.model, provider.cache_policy) != (
+        profile.provider,
+        profile.model,
+        profile.cache_policy,
+    ):
+        raise ValueError("Provider does not match its request profile.")
     price = pricing.price_for(provider.name, provider.model)
+    # Rates above the tier limit are not modelled. Provider token counts
+    # differ from the workload's size estimate, so require a 2x margin.
+    if (
+        price.max_input_tokens is not None
+        and workload.target_input_tokens * 2 > price.max_input_tokens
+    ):
+        raise ValueError("Workload is too large for the modelled price tier.")
     attempt, results = latency.measure_request(
         provider, workload.prompt, workload.max_output_tokens
     )
     if attempt["outcome"] == outcomes.SUCCESS:
         cost = pricing.request_cost(
-            attempt["input_tokens"], attempt["output_tokens"], price
+            attempt["input_tokens"],
+            attempt["output_tokens"],
+            price,
+            attempt["cached_input_tokens"],
         )
     else:
         # A failed attempt's cost is unknown (it may or may not have been
@@ -90,8 +121,10 @@ def run_attempt(
         "origin_cloud": origin_cloud,
         "origin_region": origin_region,
         "cache_policy": provider.cache_policy,
+        "request_profile_id": profile.profile_id,
         "input_price_per_1m": price.input_per_1m,
         "output_price_per_1m": price.output_per_1m,
+        "cached_input_price_per_1m": price.cached_input_per_1m,
         **cost,
     }
     request_id = storage.save_request(db_path, request, results, environment)
@@ -119,6 +152,7 @@ def print_summary(
     print(f"Model: {request['model']}")
     print(f"Workload: {request['workload_id']}")
     print(f"Origin: {request['origin_cloud']} / {request['origin_region']}")
+    print(f"Request profile: {request['request_profile_id']}")
     print(f"Cache policy: {request['cache_policy']}")
     if request["outcome"] == outcomes.SUCCESS:
         print("Outcome: success")
@@ -157,6 +191,12 @@ def print_summary(
         f"Rates: ${request['input_price_per_1m']:.2f} input / "
         f"${request['output_price_per_1m']:.2f} output per 1M tokens{note}"
     )
+    if request.get("cached_input_price_per_1m") is not None:
+        print(
+            "Cached input rate (applied only to provider-reported cached"
+            f" tokens): ${request['cached_input_price_per_1m']:.2f} per 1M"
+            " tokens"
+        )
     print(
         f"Saved attempt {request_id} with {len(results)} observations "
         f"to {os.path.relpath(db_path)}"

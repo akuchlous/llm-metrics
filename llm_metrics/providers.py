@@ -13,6 +13,7 @@ import math
 import time
 
 from llm_metrics import outcomes
+from llm_metrics import targets
 
 # What a benchmark request asks of the provider's prompt/prefix cache. This is
 # the requested policy, not a claim about every internal provider cache:
@@ -99,11 +100,16 @@ class LLMProvider:
             request this provider sends asks of the provider's prompt cache.
             Declared by the provider so the stored value cannot drift from the
             request actually sent.
+        request_profile: The registered `targets.RequestProfile` describing
+            every request this provider sends; its provider, model and cache
+            policy must equal the attributes above. None only for providers
+            that are never benchmarked (`benchmark.run_attempt` refuses them).
     """
 
     name: str
     model: str
     cache_policy: str = "provider_default"
+    request_profile: targets.RequestProfile | None = None
 
     def stream(
         self, prompt: str, max_output_tokens: int
@@ -151,8 +157,9 @@ class DummyProvider(LLMProvider):
     end), and `omit_usage` ends the stream without a `Usage`.
     """
 
-    name = "dummy"
-    model = "dummy-model-v1"
+    name = targets.SIMULATED.provider
+    model = targets.SIMULATED.model
+    request_profile = targets.SIMULATED
 
     def __init__(
         self,

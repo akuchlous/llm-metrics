@@ -28,6 +28,7 @@ NEW_FACTS = {
     "origin_cloud": "local",
     "origin_region": "unknown",
     "cache_policy": "provider_default",
+    "request_profile_id": "dummy.dummy-model-v1.v1",
 }
 REQUEST = {
     **DUMMY,
@@ -645,7 +646,7 @@ class SchemaUpgradeTest(unittest.TestCase):
     def test_fresh_database_is_current_version(self):
         init(self.db_path)
         self.assertEqual(self.version(), storage.SCHEMA_VERSION)
-        self.assertEqual(storage.SCHEMA_VERSION, 6)
+        self.assertEqual(storage.SCHEMA_VERSION, 7)
 
     def test_version_2_requests_become_historical_successes(self):
         # A version-2 database exactly as that schema created it: NOT NULL
@@ -883,6 +884,53 @@ class SchemaUpgradeTest(unittest.TestCase):
         self.assertEqual(
             storage.load_request(self.db_path, "sim")["cache_policy"], "unknown"
         )
+
+    def test_version_6_rows_keep_an_unknown_request_profile(self):
+        v6 = storage._REQUESTS_TABLE.replace(  # pylint: disable=protected-access
+            "    request_profile_id          TEXT,\n"
+            "    cached_input_price_per_1m   REAL    CHECK"
+            " (cached_input_price_per_1m >= 0),\n",
+            "",
+        )
+        self.assertNotIn("request_profile_id", v6)
+        with contextlib.closing(sqlite3.connect(self.db_path)) as conn:
+            with conn:  # Commits, or rolls back on error.
+                conn.executescript(v6)
+                conn.execute(
+                    "INSERT INTO requests VALUES ('old',"
+                    " '2026-10-31T08:00:00.000000Z', 'prod', 'openai',"
+                    " 'gpt-6-luna', 'success', 20, 64, 15, 0.1, 0.5, 2e-06,"
+                    " 7.5e-06, 9.5e-06, NULL, 'req_1', 'smoke.short_text.v2',"
+                    " 'local', 'unknown', 'disabled', 0)"
+                )
+        with contextlib.closing(sqlite3.connect(self.db_path)) as conn:
+            conn.execute("PRAGMA user_version = 6")
+        init(self.db_path)
+        self.assertEqual(self.version(), storage.SCHEMA_VERSION)
+        old = storage.load_request(self.db_path, "old")
+        # Never recorded: unknown, not a guessed profile or rate.
+        self.assertIsNone(old["request_profile_id"])
+        self.assertIsNone(old["cached_input_price_per_1m"])
+        self.assertEqual(
+            (old["cache_policy"], old["cached_input_tokens"]), ("disabled", 0)
+        )
+        new_id = storage.save_request(self.db_path, REQUEST, RESULTS, "test")
+        self.assertEqual(
+            storage.load_request(self.db_path, new_id)["request_profile_id"],
+            "dummy.dummy-model-v1.v1",
+        )
+
+    def test_new_attempts_require_a_request_profile(self):
+        for value in (None, ""):
+            with self.subTest(value=value):
+                with self.assertRaisesRegex(ValueError, "request_profile_id"):
+                    storage.save_request(
+                        self.db_path,
+                        {**REQUEST, "request_profile_id": value},
+                        RESULTS,
+                        "test",
+                    )
+        self.assertFalse(self.db_path.exists() and read_rows(self.db_path))
 
     def test_newer_database_is_refused(self):
         with contextlib.closing(sqlite3.connect(self.db_path)) as conn:

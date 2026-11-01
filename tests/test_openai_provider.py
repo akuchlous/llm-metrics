@@ -26,6 +26,7 @@ import urllib.request
 
 from llm_metrics import __main__ as cli
 from llm_metrics import benchmark
+from llm_metrics import http_streaming
 from llm_metrics import latency
 from llm_metrics import openai_provider
 from llm_metrics import pricing
@@ -153,7 +154,7 @@ class StreamTranslationTest(unittest.TestCase):
         request, timeout = opener.calls[0]
         self.assertEqual(request.full_url, openai_provider.API_URL)
         self.assertEqual(request.get_method(), "POST")
-        self.assertEqual(timeout, openai_provider.TIMEOUT_S)
+        self.assertEqual(timeout, http_streaming.TIMEOUT_S)
         body = json.loads(request.data)
         self.assertEqual(
             body,
@@ -852,7 +853,13 @@ class PricingTest(unittest.TestCase):
     def test_openai_price_and_cost(self):
         price = pricing.price_for("openai", "gpt-6-luna")
         self.assertEqual(
-            price, pricing.Price(input_per_1m=0.10, output_per_1m=0.50)
+            price,
+            pricing.Price(
+                input_per_1m=0.10,
+                output_per_1m=0.50,
+                cached_input_per_1m=0.01,
+                max_input_tokens=272_000,
+            ),
         )
         cost = pricing.request_cost(
             20, 15, price
@@ -867,7 +874,7 @@ class PricingTest(unittest.TestCase):
             source.startswith("https://developers.openai.com/api/docs/pricing")
         )
         self.assertIsNotNone(verified_on)
-        self.assertEqual(verified_on, "2026-10-30")
+        self.assertEqual(verified_on, "2026-11-01")
 
 
 def no_network(test):

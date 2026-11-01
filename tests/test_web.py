@@ -39,6 +39,7 @@ SIMULATED_REQUEST = {
     "origin_cloud": "local",
     "origin_region": "unknown",
     "cache_policy": "provider_default",
+    "request_profile_id": "dummy.dummy-model-v1.v1",
     "input_tokens": 3,
     "requested_max_output_tokens": 64,
     "output_tokens": 7,
@@ -56,6 +57,7 @@ REAL_REQUEST = {
     "model": "gpt-6-luna",
     "workload_id": "smoke.short_text.v2",
     "cache_policy": "disabled",
+    "request_profile_id": "openai.gpt-6-luna.v1",
     "input_price_per_1m": 0.10,
     "output_price_per_1m": 0.50,
     "input_cost": 3e-07,
@@ -471,7 +473,46 @@ class ImportAndDependencyTest(unittest.TestCase):
                 "storage",
                 *consumers,
             },
+            # Request profiles are methodology too, as are the shared HTTP
+            # helpers: no data layer or consumer below them.
+            "targets.py": {
+                "analytics",
+                "benchmark",
+                "http_streaming",
+                "latency",
+                "providers",
+                "query",
+                "storage",
+                "workloads",
+                *consumers,
+            },
+            "http_streaming.py": {
+                "analytics",
+                "benchmark",
+                "query",
+                "storage",
+                *consumers,
+            },
         }
+        adapters = (
+            "openai_provider.py",
+            "anthropic_provider.py",
+            "google_provider.py",
+            "xai_provider.py",
+        )
+        for adapter in adapters:
+            # Adapters translate protocols only: no measurement, pricing,
+            # storage, or other adapters.
+            forbidden[adapter] = {
+                "analytics",
+                "benchmark",
+                "latency",
+                "pricing",
+                "query",
+                "storage",
+                *(a.removesuffix(".py") for a in adapters if a != adapter),
+                *consumers,
+            }
         for name, banned in forbidden.items():
             tree = ast.parse(
                 (REPO_ROOT / "llm_metrics" / name).read_text(encoding="utf-8")
@@ -491,10 +532,13 @@ class ImportAndDependencyTest(unittest.TestCase):
     def test_benchmark_and_data_layers_load_without_flask(self):
         modules = (
             "analytics",
+            "anthropic_provider",
             "api",
             "benchmark",
             "config",
             "dashboard",
+            "google_provider",
+            "http_streaming",
             "latency",
             "openai_provider",
             "outcomes",
@@ -502,10 +546,13 @@ class ImportAndDependencyTest(unittest.TestCase):
             "pricing",
             "providers",
             "query",
+            "real_benchmark",
             "real_smoke",
             "seed_history",
             "storage",
+            "targets",
             "workloads",
+            "xai_provider",
             "__main__",
         )
         code = (

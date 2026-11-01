@@ -27,6 +27,11 @@ requests: one row per benchmark attempt, successful or not.
     - `cached_input_tokens` is the provider-reported cached part of
       `input_tokens`: 0 means the provider reported zero, NULL means not
       reported or unknown.
+    - `request_profile_id` names the provider request settings the attempt
+      was made under (see `targets`); required for new attempts, NULL
+      (unknown) for older rows. `cached_input_price_per_1m` is the cached
+      input rate of the cost basis, NULL when none is defined (older rows,
+      the simulated provider).
 
 observations: one row per metric value.
     - `recorded_at` is UTC ISO 8601 text with a "Z" suffix and fixed width,
@@ -76,6 +81,8 @@ CREATE TABLE IF NOT EXISTS requests (
     cache_policy                TEXT    CHECK (cache_policy IN (
         'disabled', 'enabled', 'provider_default', 'unknown')),
     cached_input_tokens         INTEGER CHECK (cached_input_tokens >= 0),
+    request_profile_id          TEXT,
+    cached_input_price_per_1m   REAL    CHECK (cached_input_price_per_1m >= 0),
     CHECK (
         (outcome = 'success'
             AND input_tokens IS NOT NULL AND output_tokens IS NOT NULL
@@ -115,7 +122,8 @@ CREATE UNIQUE INDEX IF NOT EXISTS observations_unique
 #   4: Step 012a: requests.provider_request_id.
 #   5: Step 013: requests.workload_id, origin_cloud, origin_region.
 #   6: Step 013: requests.cache_policy and cached_input_tokens.
-SCHEMA_VERSION = 6
+#   7: Step 016: requests.request_profile_id and cached_input_price_per_1m.
+SCHEMA_VERSION = 7
 
 _INSERT_OBSERVATION = (
     "observations (recorded_at, environment, provider, model, metric, value,"
@@ -143,6 +151,8 @@ _REQUEST_COLUMNS = (
     "origin_region",
     "cache_policy",
     "cached_input_tokens",
+    "request_profile_id",
+    "cached_input_price_per_1m",
 )
 # Conditions every new attempt must record. The columns stay nullable only so
 # older rows can honestly say "unknown"; `save_request` enforces them.
@@ -151,6 +161,7 @@ _REQUIRED_NEW_FACTS = (
     "origin_cloud",
     "origin_region",
     "cache_policy",
+    "request_profile_id",
 )
 # Columns of a version-2 requests table, copied as-is by the version 3 upgrade.
 _V2_REQUEST_COLUMNS = (
@@ -258,6 +269,20 @@ def _upgrade(conn: sqlite3.Connection) -> None:
                 "UPDATE requests SET cache_policy = 'unknown'"
                 " WHERE cache_policy IS NULL"
             )
+        if version < 7:
+            # Older attempts' request settings were never recorded: the
+            # profile stays NULL (unknown) rather than a guessed profile, and
+            # so does the cached rate (their costs used standard rates only).
+            existing = _columns(conn, "requests")
+            if "request_profile_id" not in existing:
+                conn.execute(
+                    "ALTER TABLE requests ADD COLUMN request_profile_id TEXT"
+                )
+            if "cached_input_price_per_1m" not in existing:
+                conn.execute(
+                    "ALTER TABLE requests ADD COLUMN cached_input_price_per_1m"
+                    " REAL CHECK (cached_input_price_per_1m >= 0)"
+                )
         conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
         conn.commit()
     except BaseException:
@@ -322,8 +347,9 @@ def save_request(
         db_path: Database file.
         request: Every `_REQUEST_COLUMNS` key except "id", "recorded_at", and
             "environment", with unknown facts of a failed attempt as None.
-            "provider_request_id" and "cached_input_tokens" may be omitted
-            (stored as NULL). Extra keys (e.g. "diagnostics") are ignored.
+            "provider_request_id", "cached_input_tokens" and
+            "cached_input_price_per_1m" may be omitted (stored as NULL).
+            Extra keys (e.g. "diagnostics") are ignored.
         results: Metric observations; must be empty for a failed attempt.
         environment: "test" or "prod".
 
@@ -332,7 +358,8 @@ def save_request(
 
     Raises:
         ValueError: If a failed attempt has observations, or a required
-            condition (workload, origin, cache policy) is missing or empty.
+            condition (workload, origin, cache policy, request profile) is
+            missing or empty.
             Nothing is written.
         sqlite3.IntegrityError: If facts violate the table's CHECKs.
     """
@@ -346,6 +373,7 @@ def save_request(
     row = {
         "provider_request_id": None,
         "cached_input_tokens": None,
+        "cached_input_price_per_1m": None,
         **request,
         "id": request_id,
         "recorded_at": recorded_at,

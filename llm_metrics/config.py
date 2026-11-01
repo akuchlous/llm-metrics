@@ -6,7 +6,8 @@ reader takes an optional `environ` mapping so tests never touch the real
 process environment. Invalid values raise `ConfigError` before any measurement
 or paid call happens.
 
-Secrets are not read here: the OpenAI key is read only by `real_smoke`.
+Secrets are not read here: provider API keys are read only by `real_smoke`
+and `real_benchmark`, each from its provider's environment variable.
 """
 
 from collections.abc import Mapping

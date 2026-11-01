@@ -59,3 +59,4 @@ Each file has:
 | [14c](14c/) | Analytics vs view preparation | `prompts/014c-separate-analytics-view-preparation.md` |
 | [14d](14d/) | Versioned read-only JSON API | `prompts/014d-versioned-json-api.md` |
 | [15](15/) | Versioned benchmark workloads | `prompts/015-versioned-benchmark-workloads.md` |
+| [16](16/) | Four-provider benchmark adapters | `prompts/016-four-provider-benchmark-adapters.md` |

@@ -1,8 +1,10 @@
 # Project status
 
-_Last updated: Step 015 — 2026-11-01_
+_Last updated: Step 016 — 2026-11-01_
 
 ## Current state
+
+**Step 016 implemented (pending review): four-provider benchmark adapters.** One real target per provider, each defined by a versioned request profile in `llm_metrics/targets.py` and stored with every attempt (`requests.request_profile_id`, schema v7): OpenAI `gpt-6-luna` (`openai.gpt-6-luna.v1`), Anthropic `claude-haiku-5-5` (`anthropic.claude-haiku-5-5.v1`), Google `gemini-3.5-flash-lite` (`google.gemini-3.5-flash-lite.v1`), xAI `grok-4.20-0309-non-reasoning` (`xai.grok-4.20-0309-non-reasoning.v1`). New standard-library adapters (`anthropic_provider`, `google_provider`, `xai_provider`) share `http_streaming` helpers with the refactored OpenAI adapter; every adapter builds its body from its profile, and `benchmark.run_attempt` refuses a provider whose model or cache policy disagrees with its registered profile. Costs price provider-reported cached input at the cached rate, and each attempt stores the cached rate (`requests.cached_input_price_per_1m`). `python -m llm_metrics.real_benchmark --provider <name> --real [--workload ID]` is the explicit one-request pilot path. Model ids, endpoints, streaming, usage, reasoning, cache controls and prices were verified against official documentation on 2026-11-01 (D062–D064, `prompts/016-output.md`). No paid or network call was made; `interactive-chat-v1` is unchanged; pages and API responses are byte-identical to Step 015.
 
 **Step 015 complete: versioned benchmark workloads.** `llm_metrics/workloads.py` is the single, dependency-free catalogue of benchmark workloads: frozen `Workload` definitions (versioned id, category, version, name, description, prompt, output cap, approximate input-size target) built deterministically from original synthetic material. Six candidate benchmark workloads (`interactive-chat-v1` 300, `coding-v1` 1000, `rag-v1` 500, `summarization-v1` 1000, `extraction-v1` 150, `agent-tool-v1` 300 output tokens; ~2K/8K/16K/32K/4K/8K input tokens by a 4-characters-per-token estimate) plus the real smoke check `smoke.short_text.v2`. `benchmark.run_attempt(provider, workload, ...)` sends the catalogue's prompt and cap and stores its id, and refuses a workload that is not the catalogue definition of its id. `python -m llm_metrics [--workload ID]` (default `interactive-chat-v1`); `real_smoke` stays fixed to the smoke workload. No schema change; prompts are still never stored (D061).
 
@@ -23,6 +25,7 @@ Live validation history (owner-run, 2026-10-30; **validation of the path, not be
 Working:
 - `./run.sh` creates/reuses `.venv`, installs the hash-pinned `requirements.txt` when it changed (network needed only then), runs tests, seeds simulated TTFT history (test only, idempotent), makes one benchmark attempt (outcome, tokens, total latency, TTFT, token and chunk throughput, cost; workload `interactive-chat-v1`), then serves the dashboard at `http://127.0.0.1:8000/` until Ctrl+C.
 - `APP_ENV=test` is the safe default; `APP_ENV=prod ./run.sh` refuses to run (no implicit spend).
+- `python -m llm_metrics.real_benchmark --provider openai|anthropic|google|xai --real [--workload ID] [--debug]`: exactly one real request to the one chosen benchmark target (default workload `interactive-chat-v1`), stored as `prod` with its request profile id, workload, origin, cache policy, provider-reported tokens (including cached input), provider request id, and the rates used. Requires that provider's key variable only; every refusal happens before network access. Never iterates providers.
 - `python -m llm_metrics.real_smoke [--debug]`: exactly one real OpenAI `gpt-6-luna` request (requires `OPENAI_API_KEY`; refuses without it), stored with `environment = 'prod'`, workload `smoke.short_text.v2`, origin, cache policy `disabled`, OpenAI-reported cached input tokens, and OpenAI's request id; `--debug` prints sanitized failure diagnostics (never stored). Request/configuration and account-credit errors are rejected and not recorded.
 - Each run saves one `requests` row (attempt) with its `outcome`, `workload_id`, `origin_cloud`, `origin_region`, `cache_policy` (all required) and `cached_input_tokens` (when reported). Success: tokens, max output tokens, prices, costs, and up to four linked observations (`total_latency`, `ttft`, `output_tokens_per_s`, `output_chunks_per_s`), in one transaction. Failure: category, `failed_after_ms`, prices and cap; tokens/costs NULL (unknown); no observations.
 - `python3 -m llm_metrics.seed_history` adds 168 hourly simulated TTFT rows (2026-10-23 00:00 to 2026-10-29 23:00 UTC); re-running adds nothing.
@@ -32,11 +35,11 @@ Working:
 - Pages are labelled TEST / SIMULATED DATA or REAL PROVIDER DATA; `/requests?data=simulated|real` switches population.
 - JSON API (`/api/v1/metrics?metric=&window=`, same values and defaults as the aggregate page): `api_version`, `population` (`data: "simulated"`, provider, model), `metric` (name, unit), `window` (name, ISO start/end), `samples` (successful observations: count, first/latest time, latest value, p50/p95/p99, `null` when none), `reliability` (all attempts: counts, rates `null` when none, failures by category). 400/404/405/500 under `/api/` are JSON errors that never echo input. Field meanings and types are the v1 compatibility contract (README, D060).
 - `python -m llm_metrics --workload <id>` runs any catalogue workload against the simulated provider; an unknown id is refused (exit 2, valid ids listed, input not echoed) before anything is measured.
-- 283 `unittest` tests (pass on Python 3.13 in the project venv); none reach external networks (two web tests serve on 127.0.0.1). Web routes are tested with Flask's test client; page tests render the real templates.
-- One runtime dependency, Flask (with its libraries), used only by `web.py`. Provider network access and secrets are used only by `real_smoke`.
+- 342 `unittest` tests (pass on Python 3.13 in the project venv); none reach external networks (two web tests serve on 127.0.0.1). Web routes are tested with Flask's test client; page tests render the real templates.
+- One runtime dependency, Flask (with its libraries), used only by `web.py`. Provider network access and secrets are used only by `real_smoke` and `real_benchmark`.
 - All Python follows the Google Python Style Guide (D055): `pyink` formatting, isort `google` import order, and Google's `pylintrc` report no findings. These tools are optional development tools, not dependencies.
 
-Data from `./run.sh` is **simulated** and does not represent real LLM performance. Real data exists only after `real_smoke` is run.
+Data from `./run.sh` is **simulated** and does not represent real LLM performance. Real data exists only after `real_smoke` or `real_benchmark` is run.
 
 ## Run
 
@@ -63,10 +66,16 @@ scripts/install_requirements.py  hash-checked install; pinned, verified pip zipa
 llm_metrics/
   outcomes.py      outcome/failure categories + success_rate
   providers.py     provider interface (text chunks + final Usage, ProviderFailure); DummyProvider with simulated tokenizer, output cap, deterministic failures
+  targets.py       benchmark targets: versioned RequestProfile per provider/model (settings, reasoning, cache policy, key variable); imports nothing from llm_metrics
+  http_streaming.py  shared adapter HTTP behavior: one request without retry, error mapping, SSE parsing, sanitizing, RequestRejected base
   openai_provider.py  OpenAI Responses API adapter (urllib, SSE → chunks + Usage, error mapping)
+  anthropic_provider.py  Anthropic Messages API adapter
+  google_provider.py  Gemini Interactions API adapter
+  xai_provider.py  xAI Responses API adapter
   workloads.py     versioned benchmark workload catalogue (Workload, get_workload, list_workloads); deterministic synthetic prompts; imports nothing from llm_metrics
-  benchmark.py     run_attempt(provider, workload, ...) (price, measure, save) + print_summary, shared by CLI and real_smoke
-  real_smoke.py    explicit one-paid-request command
+  benchmark.py     run_attempt(provider, workload, ...) (profile/price checks, measure, save) + print_summary, shared by CLI, real_smoke and real_benchmark
+  real_benchmark.py  explicit one-paid-request pilot command for one chosen benchmark target
+  real_smoke.py    explicit one-paid-request OpenAI connectivity check
   latency.py       METRICS catalogue (label, unit); measure_request: outcome + token facts + metrics in one pass
   pricing.py       all prices (USD per 1M tokens) + PRICE_PROVENANCE + request_cost
   storage.py       SQLite init + transactional versioned upgrade; save_request; time-window reads; request reads; count_outcomes; spend_by_model
@@ -89,8 +98,8 @@ data/              runtime DB; git-ignored
 
 Flow: `environment → provider → measure_request (one stream → attempt with outcome + metrics) → price_for (+ request_cost on success) → print → save_request (attempt + observations, one transaction)`; dashboard: `GET /?window=&metric= → web route (Flask query args) → dashboard.parse_query → dashboard.load_aggregate_view → window_bounds(now) → analytics.load_metric_window (storage.load_observations / count_outcomes → Observation, MetricSummary, success rate) → dashboard.aggregate_view → view data (formatted values, chart coordinates) → web.render_page("aggregate.html") → Jinja (autoescaped HTML/SVG) → response (status, CSP)`.
 
-SQLite (schema version 6, `PRAGMA user_version`; older databases upgrade in place, transactionally, keeping all rows):
-- `requests` (one row per attempt): `id` (UUID hex, our identity), `recorded_at`, `environment`, `provider`, `model`, `outcome`, `input_tokens`, `requested_max_output_tokens`, `output_tokens`, `input_price_per_1m`, `output_price_per_1m`, `input_cost`, `output_cost`, `total_cost` (USD, unrounded), `failed_after_ms`, `provider_request_id` (OpenAI `x-request-id`; NULL when unknown), `workload_id`, `origin_cloud`, `origin_region` (required for new attempts; NULL for rows before Step 013), `cache_policy` (`disabled` / `enabled` / `provider_default` / `unknown`, CHECKed; `unknown` for rows before schema version 6), `cached_input_tokens` (provider-reported; NULL = not reported). A CHECK enforces: success → tokens/costs known, `failed_after_ms` NULL; failure → tokens/costs NULL, `failed_after_ms` set.
+SQLite (schema version 7, `PRAGMA user_version`; older databases upgrade in place, transactionally, keeping all rows):
+- `requests` (one row per attempt): `id` (UUID hex, our identity), `recorded_at`, `environment`, `provider`, `model`, `outcome`, `input_tokens`, `requested_max_output_tokens`, `output_tokens`, `input_price_per_1m`, `output_price_per_1m`, `input_cost`, `output_cost`, `total_cost` (USD, unrounded), `failed_after_ms`, `provider_request_id` (OpenAI `x-request-id`; NULL when unknown), `workload_id`, `origin_cloud`, `origin_region` (required for new attempts; NULL for rows before Step 013), `cache_policy` (`disabled` / `enabled` / `provider_default` / `unknown`, CHECKed; `unknown` for rows before schema version 6), `cached_input_tokens` (provider-reported; NULL = not reported), `request_profile_id` (required for new attempts; NULL before schema version 7), `cached_input_price_per_1m` (cached rate of the cost basis; NULL when none). A CHECK enforces: success → tokens/costs known, `failed_after_ms` NULL; failure → tokens/costs NULL, `failed_after_ms` set.
 - `observations`: `id`, `recorded_at` (UTC), `environment`, `provider`, `model`, `metric`, `value` (unit fixed by `metric`), `request_id` (NULL for pre-Step-010 and seeded rows).
 A unique index on observations (`recorded_at`, `environment`, `provider`, `model`, `metric`) lets seeding skip existing rows.
 
@@ -98,16 +107,18 @@ A unique index on observations (`recorded_at`, `environment`, `provider`, `model
 
 ## Known limitations
 
-- Real provider: one model, one successful live sample; no scheduling or repeated runs yet. `real_smoke` runs only `smoke.short_text.v2` (cap 64, `reasoning.effort: none`); no benchmark workload has been sent to a real provider.
+- Real providers: four adapters exist, but only OpenAI has been exercised live (one successful smoke sample). The Anthropic, Google and xAI adapters are verified only against documentation and mocked fixtures; their first live requests are Step 016a. No benchmark workload has been sent to a real provider; no scheduling or repeated runs.
+- Comparability (D062): the four targets share workload content, version, cap, origin and known request settings, not capability, tokenizer, reasoning or caching implementation, or infrastructure. Reasoning controls differ (Gemini Flash-Lite cannot turn thinking fully off); only OpenAI's request disables caching, so other providers may report cached input on repeated runs (recorded and priced at the cached rate, never inferred).
+- Provider-protocol assumptions not yet confirmed live: Gemini Interactions `total_output_tokens` excludes thought tokens (output is stored as output + thought, per Google's billing description); Gemini "incomplete" has no reason field, so it counts as a cap stop only when reported output reached the cap; Anthropic and Gemini spend/quota-cap 429s are indistinguishable from rate limits and are recorded as `rate_limited`; Gemini and xAI request ids come from the stream body, so failures before the first event have none. The Google adapter uses the `v1beta` Interactions endpoint shown in Google's examples.
+- Long-context price tiers and Anthropic cache-write rates are not modelled (all catalogue workloads stay within the standard tiers; no `cache_control` is sent).
 - Workloads (D061): candidate hypotheses, not validated by user research. Input sizes are estimated at 4 characters per token, not measured with any provider's tokenizer, and will differ per provider. Generated material is repetitive by design (templated records), which may let providers' caches or models behave differently than on natural text. Answers are not checked; `agent-tool-v1` asks for a tool choice in plain text (no native tool calling). The provider request shape (e.g. OpenAI `reasoning.effort`) is fixed per provider and is not part of the workload id, except for the legacy smoke id. Existing aggregate views and `/api/v1/metrics` do not filter by workload, so simulated runs of different workloads share one population.
 - The four early `provider_error` rows remain as validation history; their cause was not captured (presumed account credit, unconfirmed). They lower the observed real success rate (1 of 5).
 - `provider_request_id` is NULL for attempts before Step 012a (not backfilled), simulated runs, connection failures, and failures detected only by measurement (e.g. the stream ended without a final event). It is stored but not shown on the dashboard.
-- No whole-project budget guardrail yet (the `$10/day` operating budget is to be enforced when hosting/scheduling arrives); real spend is limited by running `real_smoke` by hand.
-- Spend covers successful calls' known costs; providers may bill some failed calls, which stay unknown. Cached-input (10% rate) and cache-write (1.25×) price differences and reasoning-token differences are not modelled (all input at the standard rate; reasoning tokens are included in OpenAI's output count).
+- No whole-project budget guardrail yet (the `$10/day` operating budget is to be enforced when hosting/scheduling arrives); real spend is limited by running `real_smoke` or `real_benchmark` by hand, one request per command.
+- Spend covers successful calls' known costs; providers may bill some failed calls, which stay unknown. Provider-reported cached input is priced at the cached rate (Step 016); cache-write rates are not modelled. Reasoning/thinking tokens are counted in output tokens for every provider.
 - `./run.sh` uses the simulated provider only; one request per run, workload `interactive-chat-v1` (the dummy ignores the prompt's content apart from counting it, and always answers with 7 tokens).
 - Token counts come from a simulated tokenizer (1 token per 4 characters) and prices are simulated; neither matches a real provider.
 - `output_tokens_per_s` is observed effective throughput: whole-response token count over client-observed chunk timing. It includes first-chunk and reasoning tokens (reads high for very short responses) and is not internal decoding speed. Not backfilled for older attempts (the one real success has no tokens/s value).
-- `workload_id` is a free versioned string with no registry; nothing enforces that a version bump accompanies a prompt or cap change.
 - Cache: `disabled` for OpenAI rests on the prompt caching guide's documented explicit mode (GPT-5.6 and later); the gpt-6-luna page does not name the field, and it has not been exercised live. If rejected, the smoke run fails with HTTP 400 and records nothing. The smoke prompt (~17 tokens) is far below the 1,024-token caching minimum anyway, so caching could not affect it yet. Cache-write tokens are not stored. Only the metric-observation query has a cache-policy filter; success-rate and spend queries do not yet, and there are no cache comparison views.
 - Origin is whatever the runner is configured to say; it is not verified. Rows before Step 013 have no workload or origin, and there are no origin/workload filters or comparison views yet.
 - Observations recorded before Step 010 and seeded history have no request details and are not counted as attempts.
@@ -135,4 +146,6 @@ A unique index on observations (`recorded_at`, `environment`, `provider`, `model
 
 To be defined by the next numbered prompt after review.
 
-Do not yet add another provider/model, scheduler, repeated benchmark runs, Docker, cloud deployment, PostgreSQL, authentication, price scraping/history, or workload matrices without a numbered prompt.
+Next intended milestone: Step 016a — small paid four-provider pilot (manual, one request per provider), then a marketing checkpoint.
+
+Do not yet add more models, a scheduler, repeated benchmark runs, Docker, cloud deployment, PostgreSQL, authentication, price scraping/history, or workload matrices without a numbered prompt.

@@ -20,10 +20,11 @@ from llm_metrics import benchmark
 from llm_metrics import config
 from llm_metrics import openai_provider
 from llm_metrics import pricing
+from llm_metrics import targets
 from llm_metrics import workloads
 
 API_KEY_VARIABLE = "OPENAI_API_KEY"
-MODEL = "gpt-6-luna"
+MODEL = targets.OPENAI.model
 # The smoke check: one short harmless prompt with a 64-token cap, defined in
 # the workload catalogue. Fixed on purpose: this command is the low-cost
 # connectivity check, not a way to run the larger benchmark workloads. Its id
