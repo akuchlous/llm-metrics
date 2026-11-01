@@ -78,46 +78,40 @@ def _error_fields(error) -> dict[str, str]:
     return {"error_type": http_streaming.safe(error["type"])}
 
 
+def _request_id(headers):
+    """Returns Anthropic's raw `request-id` header value, or None."""
+    return headers.get("request-id") if headers else None
+
+
 def _failure_for_status(
     error: urllib.error.HTTPError,
 ) -> providers.ProviderFailure | RequestRejected:
     """Maps an HTTP error status to a recorded failure or a rejection."""
-    status = error.code
-    request_id = http_streaming.safe_id(
-        error.headers.get("request-id") if error.headers else None
-    )
+    request_id = _request_id(error.headers)
     diagnostics = {
         "where": "http_status",
-        "http_status": http_streaming.safe(status),
+        "http_status": http_streaming.safe(error.code),
     }
     if request_id is not None:
-        diagnostics["request_id"] = request_id
+        diagnostics["request_id"] = http_streaming.safe(request_id)
     body = http_streaming.read_error_body(error)
     diagnostics.update(_error_fields(body.get("error") if body else None))
-    if status == 429:
-        category = "rate_limited"
-    elif status in (408, 504):
-        category = "timeout"
-    elif status >= 500:
-        category = "provider_error"
-    else:
-        return RequestRejected(status, diagnostics)
-    return providers.ProviderFailure(
-        category, f"HTTP {status}", diagnostics, request_id
+    return http_streaming.status_failure(
+        error.code,
+        diagnostics,
+        RequestRejected,
+        http_streaming.safe_id(request_id),
     )
 
 
-def _count(usage: dict, key: str, required: bool) -> int | None:
-    """Returns a usage count, None if absent and optional.
+def _optional_count(usage: dict, key: str) -> int | None:
+    """Returns an optional cache count, None if absent.
 
     Raises:
-        ProviderFailure: "invalid_response" if a required count is missing or
-            any present count is not a non-negative integer.
+        ProviderFailure: "invalid_response" if present but not a count.
     """
     value = usage.get(key)
-    if value is None and not required:
-        return None
-    if not http_streaming.is_count(value):
+    if value is not None and not http_streaming.is_count(value):
         raise providers.ProviderFailure(
             "invalid_response", f"usage {key} is not a count"
         )
@@ -194,88 +188,62 @@ class AnthropicProvider(providers.LLMProvider):
             self._request(prompt, max_output_tokens),
             _failure_for_status,
         )
-        headers = getattr(response, "headers", None)
-        provider_request_id = http_streaming.safe_id(
-            headers.get("request-id") if headers else None
+        context = http_streaming.StreamContext(
+            response, _request_id(getattr(response, "headers", None))
         )
-        stream_info = {
-            "http_status": http_streaming.safe(
-                getattr(response, "status", None)
-            )
-        }
-        if provider_request_id is not None:
-            stream_info["request_id"] = provider_request_id
-
-        def failure(
-            category: str, where: str, **extra: str
-        ) -> providers.ProviderFailure:
-            return providers.ProviderFailure(
-                category,
-                where,
-                {"where": where, **stream_info, **extra},
-                provider_request_id,
-            )
-
         usage: dict = {}
         stop_reason = None
-        with response, http_streaming.read_failures(failure):
-            try:
-                for event in http_streaming.sse_events(
-                    iter(response.readline, b"")
-                ):
-                    kind = event.get("type")
-                    if kind == "content_block_delta":
-                        delta = event.get("delta") or {}
-                        if delta.get("type") == "text_delta":
-                            text = delta.get("text")
-                            if not isinstance(text, str):
-                                raise failure(
-                                    "invalid_response", "event:text_delta"
-                                )
-                            yield text
-                    elif kind == "message_start":
-                        message = event.get("message") or {}
-                        usage.update(message.get("usage") or {})
-                    elif kind == "message_delta":
-                        # Cumulative counts: later values replace earlier.
-                        usage.update(event.get("usage") or {})
-                        stop_reason = (event.get("delta") or {}).get(
-                            "stop_reason", stop_reason
-                        )
-                    elif kind == "message_stop":
-                        if stop_reason not in _COMPLETE_STOP_REASONS:
-                            raise failure(
-                                "provider_error",
-                                "event:message_stop",
-                                stop_reason=http_streaming.safe(stop_reason),
+        with response, context.reading():
+            for event in http_streaming.sse_events(
+                iter(response.readline, b"")
+            ):
+                kind = event.get("type")
+                if kind == "content_block_delta":
+                    delta = event.get("delta") or {}
+                    if delta.get("type") == "text_delta":
+                        text = delta.get("text")
+                        if not isinstance(text, str):
+                            raise context.failure(
+                                "invalid_response", "event:text_delta"
                             )
-                        yield self._usage(usage, provider_request_id)
-                        return
-                    elif kind == "error":
-                        error = event.get("error") or {}
-                        error_type = error.get("type")
-                        if error_type in _REJECTED_ERROR_TYPES:
-                            raise RequestRejected(
-                                200,
-                                {
-                                    "where": "event:error",
-                                    **stream_info,
-                                    **_error_fields(error),
-                                },
-                            )
-                        category = {
-                            "rate_limit_error": "rate_limited",
-                            "timeout_error": "timeout",
-                        }.get(error_type, "provider_error")
-                        raise failure(
-                            category, "event:error", **_error_fields(error)
+                        yield text
+                elif kind == "message_start":
+                    message = event.get("message") or {}
+                    usage.update(message.get("usage") or {})
+                elif kind == "message_delta":
+                    # Cumulative counts: later values replace earlier.
+                    usage.update(event.get("usage") or {})
+                    stop_reason = (event.get("delta") or {}).get(
+                        "stop_reason", stop_reason
+                    )
+                elif kind == "message_stop":
+                    if stop_reason not in _COMPLETE_STOP_REASONS:
+                        raise context.failure(
+                            "provider_error",
+                            "event:message_stop",
+                            stop_reason=http_streaming.safe(stop_reason),
                         )
-            except providers.ProviderFailure as e:
-                if not e.diagnostics:
-                    e.diagnostics = {"where": "stream", **stream_info}
-                if e.provider_request_id is None:
-                    e.provider_request_id = provider_request_id
-                raise
+                    yield self._usage(usage, context.provider_request_id)
+                    return
+                elif kind == "error":
+                    error = event.get("error") or {}
+                    error_type = error.get("type")
+                    if error_type in _REJECTED_ERROR_TYPES:
+                        raise RequestRejected(
+                            200,
+                            {
+                                "where": "event:error",
+                                **context.info,
+                                **_error_fields(error),
+                            },
+                        )
+                    category = {
+                        "rate_limit_error": "rate_limited",
+                        "timeout_error": "timeout",
+                    }.get(error_type, "provider_error")
+                    raise context.failure(
+                        category, "event:error", **_error_fields(error)
+                    )
 
     @staticmethod
     def _usage(usage: dict, provider_request_id: str | None) -> providers.Usage:
@@ -285,15 +253,14 @@ class AnthropicProvider(providers.LLMProvider):
             ProviderFailure: "invalid_response" if input or output tokens are
                 missing or any count is malformed.
         """
-        uncached = _count(usage, "input_tokens", required=True)
-        output = _count(usage, "output_tokens", required=True)
-        cache_read = _count(usage, "cache_read_input_tokens", required=False)
-        cache_write = _count(
-            usage, "cache_creation_input_tokens", required=False
-        )
-        return providers.Usage(
-            input_tokens=uncached + (cache_read or 0) + (cache_write or 0),
-            output_tokens=output,
-            provider_request_id=provider_request_id,
-            cached_input_tokens=cache_read,
+        cache_read = _optional_count(usage, "cache_read_input_tokens")
+        cache_write = _optional_count(usage, "cache_creation_input_tokens")
+        uncached = usage.get("input_tokens")
+        if http_streaming.is_count(uncached):
+            uncached += (cache_read or 0) + (cache_write or 0)
+        return http_streaming.checked_usage(
+            uncached,
+            usage.get("output_tokens"),
+            cache_read,
+            provider_request_id,
         )

@@ -88,12 +88,14 @@ def _print_diagnostics(diagnostics: dict[str, str]) -> None:
     print(f"Debug (sanitized, not stored): {details}", file=sys.stderr)
 
 
-def main(argv: list[str] | None = None) -> int:
-    """Runs the command.
+def run(
+    target: targets.RequestProfile, workload: workloads.Workload, debug: bool
+) -> int:
+    """Makes one paid attempt of `workload` against `target` and saves it.
 
-    Args:
-        argv: Command-line arguments without the program name; defaults to
-            `sys.argv[1:]`.
+    Shared by this command and `real_smoke`. Every refusal (invalid origin,
+    unpriced target, missing key, a workload `run_attempt` refuses) happens
+    before any network access.
 
     Returns:
         Process exit code: 0 when the attempt was recorded (successful or
@@ -102,14 +104,9 @@ def main(argv: list[str] | None = None) -> int:
         parameters, billing), in which case nothing is recorded.
     """
     try:
-        provider_name, workload_id, debug = _parse_args(
-            sys.argv[1:] if argv is None else argv
-        )
-        target = targets.get_target(provider_name)
-        workload = workloads.get_workload(workload_id)
         origin = config.get_origin()
         price = pricing.price_for(target.provider, target.model)
-    except (ValueError, KeyError, config.ConfigError) as e:
+    except (KeyError, config.ConfigError) as e:
         message = e.args[0] if isinstance(e, KeyError) else e
         print(f"Error: {message} No request was made.", file=sys.stderr)
         return 2
@@ -172,6 +169,25 @@ def main(argv: list[str] | None = None) -> int:
     if debug and request["outcome"] != "success":
         _print_diagnostics(request.get("diagnostics", {}))
     return 0
+
+
+def main(argv: list[str] | None = None) -> int:
+    """Runs the command; see `run` for the exit codes.
+
+    Args:
+        argv: Command-line arguments without the program name; defaults to
+            `sys.argv[1:]`.
+    """
+    try:
+        provider_name, workload_id, debug = _parse_args(
+            sys.argv[1:] if argv is None else argv
+        )
+        target = targets.get_target(provider_name)
+        workload = workloads.get_workload(workload_id)
+    except ValueError as e:
+        print(f"Error: {e} No request was made.", file=sys.stderr)
+        return 2
+    return run(target, workload, debug)
 
 
 if __name__ == "__main__":

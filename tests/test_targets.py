@@ -30,11 +30,12 @@ from llm_metrics import real_benchmark
 from llm_metrics import storage
 from llm_metrics import targets
 from llm_metrics import workloads
+from tests import fakes
 from tests import test_real_providers as fixtures
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 ORIGIN = ("local", "unknown")
-FAKE_KEY = fixtures.FAKE_KEY
+FAKE_KEY = fakes.FAKE_KEY
 
 # Every benchmark target, pinned. A change to any field changes what a stored
 # profile id means: add a new profile version instead of editing these.
@@ -308,7 +309,7 @@ class ProfileEnforcementTest(unittest.TestCase):
         run_dummy(dummy, self.db_path)  # The registered one still works.
 
     def test_real_adapter_with_another_model_is_refused_before_calling(self):
-        opener = fixtures.FakeOpener()
+        opener = fakes.FakeOpener()
         provider = fixtures.BY_PROVIDER["anthropic"].adapter(
             FAKE_KEY, opener=opener
         )
@@ -331,15 +332,7 @@ class ProfileEnforcementTest(unittest.TestCase):
             )
 
 
-def no_network(test):
-    """Decorator: any attempt to open a socket or URL fails the test."""
-
-    def blocked(*args, **kwargs):
-        raise AssertionError("network access attempted")
-
-    test = mock.patch("socket.socket.connect", blocked)(test)
-    test = mock.patch("urllib.request.urlopen", blocked)(test)
-    return test
+no_network = fakes.no_network
 
 
 class RealBenchmarkCommandTest(unittest.TestCase):
@@ -443,8 +436,8 @@ class RealBenchmarkCommandTest(unittest.TestCase):
     def test_one_call_to_the_chosen_provider_only(self):
         for spec in fixtures.SPECS:
             with self.subTest(provider=spec.profile.provider):
-                opener = fixtures.FakeOpener(
-                    response=fixtures.FakeResponse(
+                opener = fakes.FakeOpener(
+                    response=fakes.FakeResponse(
                         spec.body(texts=("Secret", " reply")),
                         spec.request_id_headers,
                     )
@@ -491,9 +484,9 @@ class RealBenchmarkCommandTest(unittest.TestCase):
         )
 
     def test_openai_target_is_available_through_the_same_command(self):
-        opener = fixtures.FakeOpener(
-            response=fixtures.FakeResponse(
-                fixtures.sse(
+        opener = fakes.FakeOpener(
+            response=fakes.FakeResponse(
+                fakes.sse(
                     {"type": "response.output_text.delta", "delta": "Hi"},
                     {
                         "type": "response.completed",
@@ -516,7 +509,7 @@ class RealBenchmarkCommandTest(unittest.TestCase):
 
     def test_rejected_request_is_not_recorded(self):
         spec = fixtures.BY_PROVIDER["anthropic"]
-        opener = fixtures.FakeOpener(error=fixtures.http_error(spec, 401))
+        opener = fakes.FakeOpener(error=fixtures.http_error(spec, 401))
         code, _, err = self.run_main(
             ["--provider", "anthropic", "--real", "--debug"],
             env={"ANTHROPIC_API_KEY": FAKE_KEY},
@@ -532,7 +525,7 @@ class RealBenchmarkCommandTest(unittest.TestCase):
 
     def test_recorded_failure_shows_debug_diagnostics(self):
         spec = fixtures.BY_PROVIDER["google"]
-        opener = fixtures.FakeOpener(error=fixtures.http_error(spec, 503))
+        opener = fakes.FakeOpener(error=fixtures.http_error(spec, 503))
         code, out, err = self.run_main(
             ["--provider", "google", "--real", "--debug"],
             env={"GEMINI_API_KEY": FAKE_KEY},

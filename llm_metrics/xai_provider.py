@@ -68,23 +68,15 @@ def _failure_for_status(
     error: urllib.error.HTTPError,
 ) -> providers.ProviderFailure | RequestRejected:
     """Maps an HTTP error status to a recorded failure or a rejection."""
-    status = error.code
     diagnostics = {
         "where": "http_status",
-        "http_status": http_streaming.safe(status),
+        "http_status": http_streaming.safe(error.code),
     }
     body = http_streaming.read_error_body(error)
-    error_object = body.get("error") if body else None
-    diagnostics.update(_error_fields(error_object))
-    if status == 429:
-        category = "rate_limited"
-    elif status in (408, 504):
-        category = "timeout"
-    elif status >= 500:
-        category = "provider_error"
-    else:
-        return RequestRejected(status, diagnostics)
-    return providers.ProviderFailure(category, f"HTTP {status}", diagnostics)
+    diagnostics.update(_error_fields(body.get("error") if body else None))
+    return http_streaming.status_failure(
+        error.code, diagnostics, RequestRejected
+    )
 
 
 def _usage(response, provider_request_id: str | None) -> providers.Usage:
@@ -96,28 +88,12 @@ def _usage(response, provider_request_id: str | None) -> providers.Usage:
     usage = response.get("usage") if isinstance(response, dict) else None
     if not isinstance(usage, dict):
         raise providers.ProviderFailure("invalid_response", "no usage")
-    input_tokens = usage.get("input_tokens")
-    output_tokens = usage.get("output_tokens")
-    if not (
-        http_streaming.is_count(input_tokens)
-        and http_streaming.is_count(output_tokens)
-    ):
-        raise providers.ProviderFailure(
-            "invalid_response", "usage counts are not non-negative integers"
-        )
     details = usage.get("input_tokens_details")
-    cached = details.get("cached_tokens") if isinstance(details, dict) else None
-    if cached is not None and not (
-        http_streaming.is_count(cached) and cached <= input_tokens
-    ):
-        raise providers.ProviderFailure(
-            "invalid_response", "cached tokens are not a count within input"
-        )
-    return providers.Usage(
-        input_tokens=input_tokens,
-        output_tokens=output_tokens,
-        provider_request_id=provider_request_id,
-        cached_input_tokens=cached,
+    return http_streaming.checked_usage(
+        usage.get("input_tokens"),
+        usage.get("output_tokens"),
+        details.get("cached_tokens") if isinstance(details, dict) else None,
+        provider_request_id,
     )
 
 
@@ -188,82 +164,56 @@ class XAIProvider(providers.LLMProvider):
             self._request(prompt, max_output_tokens),
             _failure_for_status,
         )
-        stream_info = {
-            "http_status": http_streaming.safe(
-                getattr(response, "status", None)
-            )
-        }
-        provider_request_id = None
-
-        def failure(
-            category: str, where: str, **extra: str
-        ) -> providers.ProviderFailure:
-            return providers.ProviderFailure(
-                category,
-                where,
-                {"where": where, **stream_info, **extra},
-                provider_request_id,
-            )
-
-        with response, http_streaming.read_failures(failure):
-            try:
-                for event in http_streaming.sse_events(
-                    iter(response.readline, b"")
-                ):
-                    kind = event.get("type")
-                    final = event.get("response")
-                    if isinstance(final, dict):
-                        provider_request_id = (
-                            http_streaming.safe_id(final.get("id"))
-                            or provider_request_id
+        # xAI documents no request-id header: the response id arrives in the
+        # stream.
+        context = http_streaming.StreamContext(response)
+        with response, context.reading():
+            for event in http_streaming.sse_events(
+                iter(response.readline, b"")
+            ):
+                kind = event.get("type")
+                final = event.get("response")
+                if isinstance(final, dict):
+                    context.set_request_id(final.get("id"))
+                else:
+                    final = {}
+                if kind == "response.output_text.delta":
+                    delta = event.get("delta")
+                    if not isinstance(delta, str):
+                        raise context.failure(
+                            "invalid_response", "event:output_text.delta"
                         )
-                    else:
-                        final = {}
-                    if kind == "response.output_text.delta":
-                        delta = event.get("delta")
-                        if not isinstance(delta, str):
-                            raise failure(
-                                "invalid_response", "event:output_text.delta"
-                            )
-                        yield delta
-                    elif kind == "response.completed":
-                        yield _usage(final, provider_request_id)
-                        return
-                    elif kind == "response.incomplete":
-                        details = final.get("incomplete_details") or {}
-                        reason = details.get("reason")
-                        if reason != "max_output_tokens":
-                            raise failure(
-                                "provider_error",
-                                "event:response.incomplete",
-                                incomplete_reason=http_streaming.safe(reason),
-                            )
-                        yield _usage(final, provider_request_id)
-                        return
-                    elif kind == "response.failed":
-                        raise failure(
+                    yield delta
+                elif kind == "response.completed":
+                    yield _usage(final, context.provider_request_id)
+                    return
+                elif kind == "response.incomplete":
+                    details = final.get("incomplete_details") or {}
+                    reason = details.get("reason")
+                    if reason != "max_output_tokens":
+                        raise context.failure(
                             "provider_error",
-                            "event:response.failed",
-                            **_error_fields(final.get("error")),
+                            "event:response.incomplete",
+                            incomplete_reason=http_streaming.safe(reason),
                         )
-                    elif kind == "error":
-                        error = event.get("error")
-                        if not isinstance(error, dict):
-                            error = {
-                                k: v for k, v in event.items() if k != "type"
-                            }
-                        code = str(error.get("code") or "")
-                        category = (
-                            "rate_limited"
-                            if "rate_limit" in code
-                            else "provider_error"
-                        )
-                        raise failure(
-                            category, "event:error", **_error_fields(error)
-                        )
-            except providers.ProviderFailure as e:
-                if not e.diagnostics:
-                    e.diagnostics = {"where": "stream", **stream_info}
-                if e.provider_request_id is None:
-                    e.provider_request_id = provider_request_id
-                raise
+                    yield _usage(final, context.provider_request_id)
+                    return
+                elif kind == "response.failed":
+                    raise context.failure(
+                        "provider_error",
+                        "event:response.failed",
+                        **_error_fields(final.get("error")),
+                    )
+                elif kind == "error":
+                    error = event.get("error")
+                    if not isinstance(error, dict):
+                        error = {k: v for k, v in event.items() if k != "type"}
+                    code = str(error.get("code") or "")
+                    category = (
+                        "rate_limited"
+                        if "rate_limit" in code
+                        else "provider_error"
+                    )
+                    raise context.failure(
+                        category, "event:error", **_error_fields(error)
+                    )

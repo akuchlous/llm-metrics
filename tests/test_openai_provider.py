@@ -34,20 +34,16 @@ from llm_metrics import providers
 from llm_metrics import real_smoke
 from llm_metrics import storage
 from llm_metrics import workloads
+from tests import fakes
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 SMOKE = workloads.SMOKE_SHORT_TEXT_V2
 ORIGIN = ("local", "unknown")
-FAKE_KEY = "fake-test-key-NEVER-SHOW-THIS-0123456789"
-
-
-def sse(*events):
-    """Server-sent-event bytes for the given event dicts (or raw strings)."""
-    out = []
-    for event in events:
-        payload = event if isinstance(event, str) else json.dumps(event)
-        out.append(f"event: x\ndata: {payload}\n\n")
-    return "".join(out).encode("utf-8")
+FAKE_KEY = fakes.FAKE_KEY
+FakeOpener = fakes.FakeOpener
+FakeResponse = fakes.FakeResponse
+no_network = fakes.no_network
+sse = fakes.sse
 
 
 def delta(text):
@@ -64,32 +60,6 @@ def completed(input_tokens=12, output_tokens=3):
             }
         },
     }
-
-
-class FakeResponse(io.BytesIO):
-    """Readable like an HTTP response; optionally fails on the nth readline."""
-
-    def __init__(self, body, fail_on_line=None, error=None):
-        super().__init__(body)
-        self.fail_on_line, self.error, self.lines = fail_on_line, error, 0
-
-    def readline(self, *args):
-        self.lines += 1
-        if self.fail_on_line is not None and self.lines >= self.fail_on_line:
-            raise self.error
-        return super().readline(*args)
-
-
-class FakeOpener:
-
-    def __init__(self, response=None, error=None):
-        self.response, self.error, self.calls = response, error, []
-
-    def __call__(self, request, timeout):
-        self.calls.append((request, timeout))
-        if self.error is not None:
-            raise self.error
-        return self.response
 
 
 def provider_with(**kwargs):
@@ -877,17 +847,6 @@ class PricingTest(unittest.TestCase):
         self.assertEqual(verified_on, "2026-11-01")
 
 
-def no_network(test):
-    """Decorator: any attempt to open a socket or URL fails the test."""
-
-    def blocked(*args, **kwargs):
-        raise AssertionError("network access attempted")
-
-    test = mock.patch("socket.socket.connect", blocked)(test)
-    test = mock.patch("urllib.request.urlopen", blocked)(test)
-    return test
-
-
 class RealSmokeCommandTest(unittest.TestCase):
     argv = []
 
@@ -914,8 +873,8 @@ class RealSmokeCommandTest(unittest.TestCase):
 
             # Same signature as the real __init__; the caller's opener is
             # replaced by the test's fake so no request reaches the network.
-            def init(provider, api_key, model="gpt-6-luna", unused_opener=None):
-                real_init(provider, api_key, model=model, opener=opener)
+            def init(provider, api_key, unused_opener=None):
+                real_init(provider, api_key, opener=opener)
 
             patches.append(
                 mock.patch.object(
@@ -970,11 +929,15 @@ class RealSmokeCommandTest(unittest.TestCase):
         code, out, _ = self.run_main({"OPENAI_API_KEY": FAKE_KEY}, opener)
         self.assertEqual(code, 0)
         self.assertEqual(len(opener.calls), 1)
-        self.assertIn(
-            "exactly ONE paid API request: provider openai, model gpt-6-luna,"
-            " workload smoke.short_text.v2, max output tokens 64",
-            out,
-        )
+        for line in (
+            "About to make exactly ONE paid API request:",
+            "  Provider: openai",
+            "  Model: gpt-6-luna",
+            "  Request profile: openai.gpt-6-luna.v1",
+            "  Workload: smoke.short_text.v2 (about 15 input tokens"
+            " estimated; max output tokens 64)",
+        ):
+            self.assertIn(line, out)
         self.assertNotIn("not yet verified", out)
         for line in (
             "Outcome: success",

@@ -28,53 +28,21 @@ from llm_metrics import benchmark
 from llm_metrics import google_provider
 from llm_metrics import http_streaming
 from llm_metrics import latency
+from llm_metrics import openai_provider
 from llm_metrics import providers
 from llm_metrics import storage
 from llm_metrics import targets
 from llm_metrics import workloads
 from llm_metrics import xai_provider
+from tests import fakes
 
 WORKLOAD = workloads.INTERACTIVE_CHAT_V1
 ORIGIN = ("local", "unknown")
-FAKE_KEY = "fake-test-key-NEVER-SHOW-THIS-0123456789"
-SECRETISH = "free text with spaces and sk-fake"
-
-
-def sse(*events):
-    """Server-sent-event bytes for the given event dicts (or raw strings)."""
-    out = []
-    for event in events:
-        payload = event if isinstance(event, str) else json.dumps(event)
-        out.append(f"event: x\ndata: {payload}\n\n")
-    return "".join(out).encode("utf-8")
-
-
-class FakeResponse(io.BytesIO):
-    """Readable like an HTTP response; optionally fails on the nth readline."""
-
-    def __init__(self, body, headers=None, fail_on_line=None, error=None):
-        super().__init__(body)
-        self.headers = headers or {}
-        self.status = 200
-        self.fail_on_line, self.error, self.lines = fail_on_line, error, 0
-
-    def readline(self, *args):
-        self.lines += 1
-        if self.fail_on_line is not None and self.lines >= self.fail_on_line:
-            raise self.error
-        return super().readline(*args)
-
-
-class FakeOpener:
-
-    def __init__(self, response=None, error=None):
-        self.response, self.error, self.calls = response, error, []
-
-    def __call__(self, request, timeout):
-        self.calls.append((request, timeout))
-        if self.error is not None:
-            raise self.error
-        return self.response
+FAKE_KEY = fakes.FAKE_KEY
+SECRETISH = fakes.SECRETISH
+FakeOpener = fakes.FakeOpener
+FakeResponse = fakes.FakeResponse
+sse = fakes.sse
 
 
 # --- Anthropic Messages API fixtures -------------------------------------
@@ -913,3 +881,122 @@ class PersistenceTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class OneRequestPerAttemptTest(unittest.TestCase):
+    """Zero retries, fallbacks, or model substitution in every adapter."""
+
+    def adapters(self):
+        yield "openai", openai_provider.OpenAIProvider, targets.OPENAI
+        for spec in SPECS:
+            yield spec.profile.provider, spec.adapter, spec.profile
+
+    def test_every_failure_is_one_request_to_the_profile_model(self):
+        failures = {
+            "HTTP 429": urllib.error.HTTPError(
+                "https://x", 429, "x", {}, io.BytesIO(b"{}")
+            ),
+            "HTTP 503": urllib.error.HTTPError(
+                "https://x", 503, "x", {}, io.BytesIO(b"{}")
+            ),
+            "timeout": TimeoutError(),
+            "connection refused": ConnectionRefusedError(),
+        }
+        for name, adapter, profile in self.adapters():
+            for failure_name, error in failures.items():
+                with self.subTest(provider=name, failure=failure_name):
+                    opener = FakeOpener(error=error)
+                    attempt, _ = measure(adapter(FAKE_KEY, opener=opener))
+                    self.assertNotEqual(attempt["outcome"], "success")
+                    self.assertEqual(len(opener.calls), 1)  # No retry.
+                    body = json.loads(opener.calls[0][0].data)
+                    # No fallback or substitution: the profile's own model.
+                    self.assertEqual(body["model"], profile.model)
+                    self.assertEqual(attempt["model"], profile.model)
+
+    def test_incomplete_stream_is_not_retried(self):
+        for spec in SPECS:
+            with self.subTest(provider=spec.profile.provider):
+                opener = FakeOpener(
+                    response=FakeResponse(spec.body(final=False))
+                )
+                attempt, _ = measure(spec.adapter(FAKE_KEY, opener=opener))
+                self.assertEqual(attempt["outcome"], "invalid_response")
+                self.assertEqual(len(opener.calls), 1)
+
+
+class SharedHelpersTest(unittest.TestCase):
+    """The behavior every adapter delegates to `http_streaming`."""
+
+    def test_status_mapping(self):
+        expected = {
+            429: "rate_limited",
+            408: "timeout",
+            504: "timeout",
+            500: "provider_error",
+            529: "provider_error",
+        }
+        for status, category in expected.items():
+            with self.subTest(status=status):
+                failure = http_streaming.status_failure(
+                    status, {}, http_streaming.RequestRejected, "req_1"
+                )
+                self.assertEqual(
+                    (failure.category, failure.provider_request_id),
+                    (category, "req_1"),
+                )
+        for status in (400, 401, 402, 403, 404, 413, 422):
+            with self.subTest(status=status):
+                self.assertIsInstance(
+                    http_streaming.status_failure(
+                        status, {}, http_streaming.RequestRejected
+                    ),
+                    http_streaming.RequestRejected,
+                )
+
+    def test_checked_usage_keeps_unknown_and_rejects_malformed(self):
+        self.assertEqual(
+            http_streaming.checked_usage(10, 2, None, None).cached_input_tokens,
+            None,
+        )
+        self.assertEqual(
+            http_streaming.checked_usage(10, 2, 0, "r").cached_input_tokens, 0
+        )
+        for counts in (
+            (None, 2, None),
+            (10, -1, None),
+            (10, True, None),
+            (10, 2, 11),
+            (10, 2, "3"),
+        ):
+            with self.subTest(counts=counts):
+                with self.assertRaises(providers.ProviderFailure) as ctx:
+                    http_streaming.checked_usage(*counts, None)
+                self.assertEqual(ctx.exception.category, "invalid_response")
+
+    def test_stream_context_identifies_failures(self):
+        context = http_streaming.StreamContext(FakeResponse(b""), SECRETISH)
+        self.assertIsNone(context.provider_request_id)
+        self.assertEqual(context.info["request_id"], "<redacted>")
+        context.set_request_id("resp_1")
+        with self.assertRaises(providers.ProviderFailure) as ctx:
+            with context.reading():
+                raise providers.ProviderFailure("invalid_response")
+        self.assertEqual(ctx.exception.provider_request_id, "resp_1")
+        self.assertEqual(
+            ctx.exception.diagnostics,
+            {"where": "stream", "http_status": "200", "request_id": "resp_1"},
+        )
+        for error, category in (
+            (TimeoutError(), "timeout"),
+            (ConnectionResetError(), "transport_error"),
+            (
+                UnicodeDecodeError("utf-8", b"\xff", 0, 1, "bad"),
+                "invalid_response",
+            ),
+        ):
+            with self.subTest(error=type(error).__name__):
+                with self.assertRaises(providers.ProviderFailure) as ctx:
+                    with context.reading():
+                        raise error
+                self.assertEqual(ctx.exception.category, category)

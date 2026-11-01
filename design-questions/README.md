@@ -60,3 +60,4 @@ Each file has:
 | [14d](14d/) | Versioned read-only JSON API | `prompts/014d-versioned-json-api.md` |
 | [15](15/) | Versioned benchmark workloads | `prompts/015-versioned-benchmark-workloads.md` |
 | [16](16/) | Four-provider benchmark adapters | `prompts/016-four-provider-benchmark-adapters.md` |
+| [17](17/) | Codebase simplification and reuse | `prompts/017-codebase-simplification-and-reuse.md` |

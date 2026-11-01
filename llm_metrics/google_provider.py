@@ -94,22 +94,15 @@ def _failure_for_status(
     error: urllib.error.HTTPError,
 ) -> providers.ProviderFailure | RequestRejected:
     """Maps an HTTP error status to a recorded failure or a rejection."""
-    status = error.code
     diagnostics = {
         "where": "http_status",
-        "http_status": http_streaming.safe(status),
+        "http_status": http_streaming.safe(error.code),
     }
     body = http_streaming.read_error_body(error)
     diagnostics.update(_error_fields(body.get("error") if body else None))
-    if status == 429:
-        category = "rate_limited"
-    elif status in (408, 504):
-        category = "timeout"
-    elif status >= 500:
-        category = "provider_error"
-    else:
-        return RequestRejected(status, diagnostics)
-    return providers.ProviderFailure(category, f"HTTP {status}", diagnostics)
+    return http_streaming.status_failure(
+        error.code, diagnostics, RequestRejected
+    )
 
 
 def _usage(
@@ -125,24 +118,22 @@ def _usage(
     usage = interaction.get("usage")
     if not isinstance(usage, dict):
         raise providers.ProviderFailure("invalid_response", "no usage")
-    input_tokens = usage.get("total_input_tokens")
     output_tokens = usage.get("total_output_tokens")
     thought_tokens = usage.get("total_thought_tokens", 0)
-    cached = usage.get("total_cached_tokens")
-    for count in (input_tokens, output_tokens, thought_tokens):
-        if not http_streaming.is_count(count):
-            raise providers.ProviderFailure(
-                "invalid_response", "usage counts are not non-negative integers"
-            )
-    if cached is not None and not (
-        http_streaming.is_count(cached) and cached <= input_tokens
-    ):
+    if not http_streaming.is_count(thought_tokens):
         raise providers.ProviderFailure(
-            "invalid_response", "cached tokens are not a count within input"
+            "invalid_response", "thought tokens are not a count"
         )
-    billed_output = output_tokens + thought_tokens
+    if http_streaming.is_count(output_tokens):
+        output_tokens += thought_tokens  # Billed output includes thoughts.
+    checked = http_streaming.checked_usage(
+        usage.get("total_input_tokens"),
+        output_tokens,
+        usage.get("total_cached_tokens"),
+        provider_request_id,
+    )
     status = interaction.get("status")
-    if status == "incomplete" and billed_output < max_output_tokens:
+    if status == "incomplete" and checked.output_tokens < max_output_tokens:
         raise providers.ProviderFailure(
             "provider_error",
             "incomplete before the cap",
@@ -157,12 +148,7 @@ def _usage(
                 "status": http_streaming.safe(status),
             },
         )
-    return providers.Usage(
-        input_tokens=input_tokens,
-        output_tokens=billed_output,
-        provider_request_id=provider_request_id,
-        cached_input_tokens=cached,
-    )
+    return checked
 
 
 class GoogleProvider(providers.LLMProvider):
@@ -233,80 +219,51 @@ class GoogleProvider(providers.LLMProvider):
             self._request(prompt, max_output_tokens),
             _failure_for_status,
         )
-        stream_info = {
-            "http_status": http_streaming.safe(
-                getattr(response, "status", None)
-            )
-        }
-        provider_request_id = None
-
-        def failure(
-            category: str, where: str, **extra: str
-        ) -> providers.ProviderFailure:
-            return providers.ProviderFailure(
-                category,
-                where,
-                {"where": where, **stream_info, **extra},
-                provider_request_id,
-            )
-
-        with response, http_streaming.read_failures(failure):
-            try:
-                for event in http_streaming.sse_events(
-                    iter(response.readline, b"")
-                ):
-                    kind = event.get("event_type")
-                    if kind == "step.delta":
-                        delta = event.get("delta") or {}
-                        if delta.get("type") == "text":
-                            text = delta.get("text")
-                            if not isinstance(text, str):
-                                raise failure(
-                                    "invalid_response", "event:step.delta"
-                                )
-                            yield text
-                    elif kind in (
-                        "interaction.created",
-                        "interaction.completed",
-                    ):
-                        interaction = event.get("interaction") or {}
-                        provider_request_id = (
-                            http_streaming.safe_id(interaction.get("id"))
-                            or provider_request_id
-                        )
-                        if kind == "interaction.completed":
-                            yield _usage(
-                                interaction,
-                                max_output_tokens,
-                                provider_request_id,
+        # Google documents no request-id header: the interaction id arrives
+        # in the stream.
+        context = http_streaming.StreamContext(response)
+        with response, context.reading():
+            for event in http_streaming.sse_events(
+                iter(response.readline, b"")
+            ):
+                kind = event.get("event_type")
+                if kind == "step.delta":
+                    delta = event.get("delta") or {}
+                    if delta.get("type") == "text":
+                        text = delta.get("text")
+                        if not isinstance(text, str):
+                            raise context.failure(
+                                "invalid_response", "event:step.delta"
                             )
-                            return
-                    elif kind == "error":
-                        error = event.get("error") or {}
-                        code = _error_code(error)
-                        if any(c in code for c in _REJECTED_CODES):
-                            raise RequestRejected(
-                                200,
-                                {
-                                    "where": "event:error",
-                                    **stream_info,
-                                    **_error_fields(error),
-                                },
-                            )
-                        if any(c in code for c in _RATE_LIMIT_CODES):
-                            category = "rate_limited"
-                        elif any(c in code for c in _TIMEOUT_CODES):
-                            category = "timeout"
-                        else:
-                            category = "provider_error"
-                        raise failure(
-                            category, "event:error", **_error_fields(error)
+                        yield text
+                elif kind in ("interaction.created", "interaction.completed"):
+                    interaction = event.get("interaction") or {}
+                    context.set_request_id(interaction.get("id"))
+                    if kind == "interaction.completed":
+                        yield _usage(
+                            interaction,
+                            max_output_tokens,
+                            context.provider_request_id,
                         )
-            except providers.ProviderFailure as e:
-                if not e.diagnostics:
-                    e.diagnostics = {"where": "stream", **stream_info}
-                else:
-                    e.diagnostics = {**stream_info, **e.diagnostics}
-                if e.provider_request_id is None:
-                    e.provider_request_id = provider_request_id
-                raise
+                        return
+                elif kind == "error":
+                    error = event.get("error") or {}
+                    code = _error_code(error)
+                    if any(c in code for c in _REJECTED_CODES):
+                        raise RequestRejected(
+                            200,
+                            {
+                                "where": "event:error",
+                                **context.info,
+                                **_error_fields(error),
+                            },
+                        )
+                    if any(c in code for c in _RATE_LIMIT_CODES):
+                        category = "rate_limited"
+                    elif any(c in code for c in _TIMEOUT_CODES):
+                        category = "timeout"
+                    else:
+                        category = "provider_error"
+                    raise context.failure(
+                        category, "event:error", **_error_fields(error)
+                    )

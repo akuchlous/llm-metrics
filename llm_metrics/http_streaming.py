@@ -148,30 +148,138 @@ def open_stream(
         ) from None
 
 
-@contextlib.contextmanager
-def read_failures(
-    failure: Callable[..., providers.ProviderFailure],
-) -> Iterator[None]:
-    """Maps errors while reading an open stream to failure categories.
+def status_failure(
+    status: int,
+    diagnostics: dict[str, str],
+    rejected: type[RequestRejected],
+    provider_request_id: str | None = None,
+) -> providers.ProviderFailure | RequestRejected:
+    """Maps an HTTP error status to a recorded failure or a rejection.
 
-    Args:
-        failure: The adapter's `failure(category, where, **extra)` factory,
-            which adds the response's identifiers.
+    The mapping every adapter shares: 429 -> rate_limited, 408/504 -> timeout,
+    other 5xx -> provider_error. Every other status (400, 401, 402, 403, 404,
+    ...) means our request, key, billing or account is at fault and becomes
+    the adapter's `rejected` class, which is never recorded. Adapters check
+    provider-specific account errors (e.g. OpenAI's 429 insufficient_quota)
+    before calling this.
+    """
+    if status == 429:
+        category = "rate_limited"
+    elif status in (408, 504):
+        category = "timeout"
+    elif status >= 500:
+        category = "provider_error"
+    else:
+        return rejected(status, diagnostics)
+    return providers.ProviderFailure(
+        category, f"HTTP {status}", diagnostics, provider_request_id
+    )
+
+
+def checked_usage(
+    input_tokens,
+    output_tokens,
+    cached_input_tokens,
+    provider_request_id: str | None,
+) -> providers.Usage:
+    """Returns a `Usage` from provider-reported counts after validating them.
+
+    `cached_input_tokens` may be None ("not reported"), which is kept as
+    None, never turned into 0.
 
     Raises:
-        ProviderFailure: "timeout" for a read timeout, "transport_error" for a
-            dropped connection, "invalid_response" for undecodable bytes.
+        ProviderFailure: "invalid_response" if input or output is not a
+            non-negative integer, or a reported cached count is not one or
+            exceeds the input tokens it is part of.
     """
-    try:
-        yield
-    except (TimeoutError, socket.timeout):
-        raise failure("timeout", "stream_read") from None
-    except (http.client.HTTPException, ConnectionError, OSError) as e:
-        raise failure(
-            "transport_error", "stream_read", exception=type(e).__name__
-        ) from None
-    except UnicodeDecodeError:
-        raise failure("invalid_response", "stream_decode") from None
+    if not (is_count(input_tokens) and is_count(output_tokens)):
+        raise providers.ProviderFailure(
+            "invalid_response", "usage counts are not non-negative integers"
+        )
+    if cached_input_tokens is not None and not (
+        is_count(cached_input_tokens) and cached_input_tokens <= input_tokens
+    ):
+        raise providers.ProviderFailure(
+            "invalid_response", "cached tokens are not a count within input"
+        )
+    return providers.Usage(
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
+        provider_request_id=provider_request_id,
+        cached_input_tokens=cached_input_tokens,
+    )
+
+
+class StreamContext:
+    """Identifies one open response in every failure raised while reading it.
+
+    Attributes:
+        info: Sanitized identifiers of the response (HTTP status, and the
+            request id once known), added to every failure's diagnostics.
+        provider_request_id: The provider's request id if it is a safe token,
+            else None.
+    """
+
+    def __init__(self, response, request_id=None):
+        """Initializes the context.
+
+        Args:
+            response: The open HTTP response.
+            request_id: The provider's request id from a response header, if
+                the provider sends one there; see `set_request_id`.
+        """
+        self.info = {"http_status": safe(getattr(response, "status", None))}
+        self.provider_request_id = None
+        self.set_request_id(request_id)
+
+    def set_request_id(self, request_id) -> None:
+        """Records the provider's request id (from a header or the stream).
+
+        An unsafe value is shown as "<redacted>" in diagnostics but never
+        becomes `provider_request_id`. None leaves the current id unchanged.
+        """
+        if request_id is None:
+            return
+        self.info["request_id"] = safe(request_id)
+        self.provider_request_id = safe_id(request_id)
+
+    def failure(
+        self, category: str, where: str, **extra: str
+    ) -> providers.ProviderFailure:
+        """Returns a failure carrying this response's identifiers."""
+        return providers.ProviderFailure(
+            category,
+            where,
+            {"where": where, **self.info, **extra},
+            self.provider_request_id,
+        )
+
+    @contextlib.contextmanager
+    def reading(self) -> Iterator[None]:
+        """Maps errors while reading the stream and identifies every failure.
+
+        Raises:
+            ProviderFailure: "timeout" for a read timeout, "transport_error"
+                for a dropped connection, "invalid_response" for undecodable
+                bytes; failures raised by helpers that do not know the
+                response (e.g. `sse_events`, `checked_usage`) are given its
+                identifiers and request id.
+        """
+        try:
+            yield
+        except providers.ProviderFailure as e:
+            e.diagnostics = {"where": "stream", **self.info, **e.diagnostics}
+            if e.provider_request_id is None:
+                e.provider_request_id = self.provider_request_id
+            raise
+        except (TimeoutError, socket.timeout):
+            raise self.failure("timeout", "stream_read") from None
+        except (http.client.HTTPException, ConnectionError, OSError) as e:
+            raise self.failure(
+                "transport_error", "stream_read", exception=type(e).__name__
+            ) from None
+        except UnicodeDecodeError:
+            raise self.failure("invalid_response", "stream_decode") from None
 
 
 def sse_events(lines: Iterator[bytes]) -> Iterator[dict]:

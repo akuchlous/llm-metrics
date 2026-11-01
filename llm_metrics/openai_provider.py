@@ -62,11 +62,9 @@ def _error_fields(error) -> dict[str, str]:
     }
 
 
-def _provider_request_id(headers) -> str | None:
-    """Returns OpenAI's `x-request-id` header if it is a safe token."""
-    return http_streaming.safe_id(
-        headers.get("x-request-id") if headers else None
-    )
+def _request_id(headers):
+    """Returns OpenAI's raw `x-request-id` header value, or None."""
+    return headers.get("x-request-id") if headers else None
 
 
 def _is_account_error(error) -> bool:
@@ -113,7 +111,7 @@ def _http_error_diagnostics(
         "where": "http_status",
         "http_status": http_streaming.safe(error.code),
     }
-    request_id = error.headers.get("x-request-id") if error.headers else None
+    request_id = _request_id(error.headers)
     if request_id is not None:
         diagnostics["request_id"] = http_streaming.safe(request_id)
     body = http_streaming.read_error_body(error)
@@ -126,21 +124,14 @@ def _failure_for_status(
     error: urllib.error.HTTPError,
 ) -> providers.ProviderFailure | RequestRejected:
     """Maps an HTTP error status to a recorded failure or a rejection."""
-    status = error.code
     diagnostics, account_error = _http_error_diagnostics(error)
     if account_error:
-        return RequestRejected(status, diagnostics)
-    provider_request_id = _provider_request_id(error.headers)
-    if status == 429:
-        category = "rate_limited"
-    elif status in (408, 504):
-        category = "timeout"
-    elif status >= 500:
-        category = "provider_error"
-    else:
-        return RequestRejected(status, diagnostics)
-    return providers.ProviderFailure(
-        category, f"HTTP {status}", diagnostics, provider_request_id
+        return RequestRejected(error.code, diagnostics)
+    return http_streaming.status_failure(
+        error.code,
+        diagnostics,
+        RequestRejected,
+        http_streaming.safe_id(_request_id(error.headers)),
     )
 
 
@@ -161,33 +152,16 @@ def _usage(response: dict, provider_request_id: str | None) -> providers.Usage:
             a non-negative integer, or cached tokens exceed input tokens.
     """
     usage = response.get("usage") if isinstance(response, dict) else None
-    try:
-        input_tokens = usage["input_tokens"]
-        output_tokens = usage["output_tokens"]
-    except (KeyError, TypeError):
+    if not isinstance(usage, dict):
         raise providers.ProviderFailure(
             "invalid_response", "final event without usage"
-        ) from None
-    for count in (input_tokens, output_tokens):
-        if not http_streaming.is_count(count):
-            raise providers.ProviderFailure(
-                "invalid_response", "usage counts are not non-negative integers"
-            )
-    details = usage.get("input_tokens_details")
-    cached = details.get("cached_tokens") if isinstance(details, dict) else None
-    # Cached tokens are a part of input_tokens, so a larger value is malformed.
-    if cached is not None and not (
-        http_streaming.is_count(cached) and cached <= input_tokens
-    ):
-        raise providers.ProviderFailure(
-            "invalid_response",
-            "cached_tokens is not a count within input_tokens",
         )
-    return providers.Usage(
-        input_tokens=input_tokens,
-        output_tokens=output_tokens,
-        provider_request_id=provider_request_id,
-        cached_input_tokens=cached,
+    details = usage.get("input_tokens_details")
+    return http_streaming.checked_usage(
+        usage.get("input_tokens"),
+        usage.get("output_tokens"),
+        details.get("cached_tokens") if isinstance(details, dict) else None,
+        provider_request_id,
     )
 
 
@@ -200,22 +174,15 @@ class OpenAIProvider(providers.LLMProvider):
     """
 
     name = PROFILE.provider
+    model = PROFILE.model
     cache_policy = PROFILE.cache_policy
     request_profile = PROFILE
 
-    def __init__(
-        self,
-        api_key: str,
-        model: str = PROFILE.model,
-        opener: Callable = urllib.request.urlopen,
-    ):
+    def __init__(self, api_key: str, opener: Callable = urllib.request.urlopen):
         """Initializes the provider.
 
         Args:
             api_key: OpenAI API key.
-            model: Model name to request. `benchmark.run_attempt` refuses a
-                model other than the profile's, so it can only differ in
-                tests of this adapter.
             opener: `urllib.request.urlopen`-compatible callable. Injectable so
                 tests never touch the network.
 
@@ -224,7 +191,6 @@ class OpenAIProvider(providers.LLMProvider):
         """
         if not api_key:
             raise ValueError("An OpenAI API key is required.")
-        self.model = model
         self._api_key = api_key
         self._open = opener
 
@@ -270,93 +236,67 @@ class OpenAIProvider(providers.LLMProvider):
             _failure_for_status,
         )
 
-        headers = getattr(response, "headers", None)
-        request_id = headers.get("x-request-id") if headers else None
-        provider_request_id = _provider_request_id(headers)
-        # Identifies the HTTP response in every diagnostic raised below.
-        stream_info = {
-            "http_status": http_streaming.safe(
-                getattr(response, "status", None)
-            )
-        }
-        if request_id is not None:
-            stream_info["request_id"] = http_streaming.safe(request_id)
-
-        def failure(
-            category: str, where: str, **extra: str
-        ) -> providers.ProviderFailure:
-            return providers.ProviderFailure(
-                category,
-                where,
-                {"where": where, **stream_info, **extra},
-                provider_request_id,
-            )
+        context = http_streaming.StreamContext(
+            response, _request_id(getattr(response, "headers", None))
+        )
 
         def rejected(where: str, error: dict) -> RequestRejected:
             return RequestRejected(
-                200, {"where": where, **stream_info, **_error_fields(error)}
+                200, {"where": where, **context.info, **_error_fields(error)}
             )
 
-        with response, http_streaming.read_failures(failure):
-            try:
-                for event in http_streaming.sse_events(
-                    iter(response.readline, b"")
-                ):
-                    kind = event.get("type")
-                    if kind == "response.output_text.delta":
-                        delta = event.get("delta")
-                        if not isinstance(delta, str):
-                            raise providers.ProviderFailure(
-                                "invalid_response", "delta is not text"
-                            )
-                        yield delta
-                    elif kind == "response.completed":
-                        yield _usage(event.get("response"), provider_request_id)
-                        return
-                    elif kind == "response.incomplete":
-                        final = event.get("response") or {}
-                        details = final.get("incomplete_details") or {}
-                        reason = details.get("reason")
-                        if reason != "max_output_tokens":
-                            raise failure(
-                                "provider_error",
-                                "event:response.incomplete",
-                                incomplete_reason=http_streaming.safe(reason),
-                            )
-                        yield _usage(final, provider_request_id)
-                        return
-                    elif kind == "response.failed":
-                        final = event.get("response") or {}
-                        error = final.get("error")
-                        if _is_account_error(error):
-                            raise rejected("event:response.failed", error)
-                        raise failure(
+        with response, context.reading():
+            for event in http_streaming.sse_events(
+                iter(response.readline, b"")
+            ):
+                kind = event.get("type")
+                if kind == "response.output_text.delta":
+                    delta = event.get("delta")
+                    if not isinstance(delta, str):
+                        raise providers.ProviderFailure(
+                            "invalid_response", "delta is not text"
+                        )
+                    yield delta
+                elif kind == "response.completed":
+                    yield _usage(
+                        event.get("response"), context.provider_request_id
+                    )
+                    return
+                elif kind == "response.incomplete":
+                    final = event.get("response") or {}
+                    details = final.get("incomplete_details") or {}
+                    reason = details.get("reason")
+                    if reason != "max_output_tokens":
+                        raise context.failure(
                             "provider_error",
-                            "event:response.failed",
-                            response_status=http_streaming.safe(
-                                final.get("status")
-                            ),
-                            **_error_fields(error),
+                            "event:response.incomplete",
+                            incomplete_reason=http_streaming.safe(reason),
                         )
-                    elif kind == "error":
-                        error = _error_event_details(event)
-                        if _is_account_error(error):
-                            raise rejected("event:error", error)
-                        code = str(error.get("code") or "")
-                        category = (
-                            "rate_limited"
-                            if "rate_limit" in code
-                            else "provider_error"
-                        )
-                        raise failure(
-                            category, "event:error", **_error_fields(error)
-                        )
-            except providers.ProviderFailure as e:
-                # Failures raised by helpers that do not know the response
-                # (e.g. invalid_response from sse_events or _usage) still get
-                # the response's identifiers.
-                if not e.diagnostics:
-                    e.diagnostics = {"where": "stream", **stream_info}
-                if e.provider_request_id is None:
-                    e.provider_request_id = provider_request_id
-                raise
+                    yield _usage(final, context.provider_request_id)
+                    return
+                elif kind == "response.failed":
+                    final = event.get("response") or {}
+                    error = final.get("error")
+                    if _is_account_error(error):
+                        raise rejected("event:response.failed", error)
+                    raise context.failure(
+                        "provider_error",
+                        "event:response.failed",
+                        response_status=http_streaming.safe(
+                            final.get("status")
+                        ),
+                        **_error_fields(error),
+                    )
+                elif kind == "error":
+                    error = _error_event_details(event)
+                    if _is_account_error(error):
+                        raise rejected("event:error", error)
+                    code = str(error.get("code") or "")
+                    category = (
+                        "rate_limited"
+                        if "rate_limit" in code
+                        else "provider_error"
+                    )
+                    raise context.failure(
+                        category, "event:error", **_error_fields(error)
+                    )

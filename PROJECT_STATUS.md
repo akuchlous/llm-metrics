@@ -1,8 +1,10 @@
 # Project status
 
-_Last updated: Step 016 — 2026-11-01_
+_Last updated: Step 017 — 2026-11-01_
 
 ## Current state
+
+**Step 017 implemented (pending review): codebase simplification and reuse.** A behavior-preserving cleanup. LiteLLM was evaluated against the Step 016 contract and not adopted (D065): it fetches a price map over the network on import, records zero usage when a provider reports none, routes Gemini and xAI through different endpoints than our request profiles, and had compromised PyPI releases in March 2026. The four direct adapters now share `http_streaming.status_failure`, `checked_usage` and `StreamContext` instead of four copies. `real_smoke` delegates to `real_benchmark.run`, and the test fakes live in `tests/fakes.py`. SQLAlchemy Core + Alembic are recommended for the Google Cloud persistence step, not adopted now (D066). Package Python fell from 5,737 to about 5,590 lines; dependencies, wire requests, profiles, stored facts, pages and API are unchanged.
 
 **Step 016 implemented (pending review): four-provider benchmark adapters.** One real target per provider, each defined by a versioned request profile in `llm_metrics/targets.py` and stored with every attempt (`requests.request_profile_id`, schema v7): OpenAI `gpt-6-luna` (`openai.gpt-6-luna.v1`), Anthropic `claude-haiku-5-5` (`anthropic.claude-haiku-5-5.v1`), Google `gemini-3.5-flash-lite` (`google.gemini-3.5-flash-lite.v1`), xAI `grok-4.20-0309-non-reasoning` (`xai.grok-4.20-0309-non-reasoning.v1`). New standard-library adapters (`anthropic_provider`, `google_provider`, `xai_provider`) share `http_streaming` helpers with the refactored OpenAI adapter; every adapter builds its body from its profile, and `benchmark.run_attempt` refuses a provider whose model or cache policy disagrees with its registered profile. Costs price provider-reported cached input at the cached rate, and each attempt stores the cached rate (`requests.cached_input_price_per_1m`). `python -m llm_metrics.real_benchmark --provider <name> --real [--workload ID]` is the explicit one-request pilot path. Model ids, endpoints, streaming, usage, reasoning, cache controls and prices were verified against official documentation on 2026-11-01 (D062–D064, `prompts/016-output.md`). No paid or network call was made; `interactive-chat-v1` is unchanged; pages and API responses are byte-identical to Step 015.
 
@@ -35,7 +37,7 @@ Working:
 - Pages are labelled TEST / SIMULATED DATA or REAL PROVIDER DATA; `/requests?data=simulated|real` switches population.
 - JSON API (`/api/v1/metrics?metric=&window=`, same values and defaults as the aggregate page): `api_version`, `population` (`data: "simulated"`, provider, model), `metric` (name, unit), `window` (name, ISO start/end), `samples` (successful observations: count, first/latest time, latest value, p50/p95/p99, `null` when none), `reliability` (all attempts: counts, rates `null` when none, failures by category). 400/404/405/500 under `/api/` are JSON errors that never echo input. Field meanings and types are the v1 compatibility contract (README, D060).
 - `python -m llm_metrics --workload <id>` runs any catalogue workload against the simulated provider; an unknown id is refused (exit 2, valid ids listed, input not echoed) before anything is measured.
-- 342 `unittest` tests (pass on Python 3.13 in the project venv); none reach external networks (two web tests serve on 127.0.0.1). Web routes are tested with Flask's test client; page tests render the real templates.
+- 347 `unittest` tests (pass on Python 3.13 in the project venv); none reach external networks (two web tests serve on 127.0.0.1). Web routes are tested with Flask's test client; page tests render the real templates.
 - One runtime dependency, Flask (with its libraries), used only by `web.py`. Provider network access and secrets are used only by `real_smoke` and `real_benchmark`.
 - All Python follows the Google Python Style Guide (D055): `pyink` formatting, isort `google` import order, and Google's `pylintrc` report no findings. These tools are optional development tools, not dependencies.
 
@@ -67,7 +69,7 @@ llm_metrics/
   outcomes.py      outcome/failure categories + success_rate
   providers.py     provider interface (text chunks + final Usage, ProviderFailure); DummyProvider with simulated tokenizer, output cap, deterministic failures
   targets.py       benchmark targets: versioned RequestProfile per provider/model (settings, reasoning, cache policy, key variable); imports nothing from llm_metrics
-  http_streaming.py  shared adapter HTTP behavior: one request without retry, error mapping, SSE parsing, sanitizing, RequestRejected base
+  http_streaming.py  shared adapter HTTP behavior: one request without retry, status mapping, usage validation, StreamContext (failure identification, read errors), SSE parsing, sanitizing, RequestRejected base
   openai_provider.py  OpenAI Responses API adapter (urllib, SSE → chunks + Usage, error mapping)
   anthropic_provider.py  Anthropic Messages API adapter
   google_provider.py  Gemini Interactions API adapter
@@ -75,7 +77,7 @@ llm_metrics/
   workloads.py     versioned benchmark workload catalogue (Workload, get_workload, list_workloads); deterministic synthetic prompts; imports nothing from llm_metrics
   benchmark.py     run_attempt(provider, workload, ...) (profile/price checks, measure, save) + print_summary, shared by CLI, real_smoke and real_benchmark
   real_benchmark.py  explicit one-paid-request pilot command for one chosen benchmark target
-  real_smoke.py    explicit one-paid-request OpenAI connectivity check
+  real_smoke.py    explicit one-paid-request OpenAI connectivity check (real_benchmark.run with the smoke workload)
   latency.py       METRICS catalogue (label, unit); measure_request: outcome + token facts + metrics in one pass
   pricing.py       all prices (USD per 1M tokens) + PRICE_PROVENANCE + request_cost
   storage.py       SQLite init + transactional versioned upgrade; save_request; time-window reads; request reads; count_outcomes; spend_by_model
@@ -110,6 +112,7 @@ A unique index on observations (`recorded_at`, `environment`, `provider`, `model
 - Real providers: four adapters exist, but only OpenAI has been exercised live (one successful smoke sample). The Anthropic, Google and xAI adapters are verified only against documentation and mocked fixtures; their first live requests are Step 016a. No benchmark workload has been sent to a real provider; no scheduling or repeated runs.
 - Comparability (D062): the four targets share workload content, version, cap, origin and known request settings, not capability, tokenizer, reasoning or caching implementation, or infrastructure. Reasoning controls differ (Gemini Flash-Lite cannot turn thinking fully off); only OpenAI's request disables caching, so other providers may report cached input on repeated runs (recorded and priced at the cached rate, never inferred).
 - Provider-protocol assumptions not yet confirmed live: Gemini Interactions `total_output_tokens` excludes thought tokens (output is stored as output + thought, per Google's billing description); Gemini "incomplete" has no reason field, so it counts as a cap stop only when reported output reached the cap; Anthropic and Gemini spend/quota-cap 429s are indistinguishable from rate limits and are recorded as `rate_limited`; Gemini and xAI request ids come from the stream body, so failures before the first event have none. The Google adapter uses the `v1beta` Interactions endpoint shown in Google's examples.
+- Provider adapters remain our own code (about 1,300 lines over four providers): LiteLLM failed the measurement contract (D065), so provider API changes must be tracked by hand against official docs.
 - Long-context price tiers and Anthropic cache-write rates are not modelled (all catalogue workloads stay within the standard tiers; no `cache_control` is sent).
 - Workloads (D061): candidate hypotheses, not validated by user research. Input sizes are estimated at 4 characters per token, not measured with any provider's tokenizer, and will differ per provider. Generated material is repetitive by design (templated records), which may let providers' caches or models behave differently than on natural text. Answers are not checked; `agent-tool-v1` asks for a tool choice in plain text (no native tool calling). The provider request shape (e.g. OpenAI `reasoning.effort`) is fixed per provider and is not part of the workload id, except for the legacy smoke id. Existing aggregate views and `/api/v1/metrics` do not filter by workload, so simulated runs of different workloads share one population.
 - The four early `provider_error` rows remain as validation history; their cause was not captured (presumed account credit, unconfirmed). They lower the observed real success rate (1 of 5).
@@ -146,6 +149,6 @@ A unique index on observations (`recorded_at`, `environment`, `provider`, `model
 
 To be defined by the next numbered prompt after review.
 
-Next intended milestone: Step 016a — small paid four-provider pilot (manual, one request per provider), then a marketing checkpoint.
+Next intended milestones: the Google Cloud persistence step (SQLAlchemy Core + Alembic recommended, D066) and Step 016a — small paid four-provider pilot (manual, one request per provider), then a marketing checkpoint.
 
 Do not yet add more models, a scheduler, repeated benchmark runs, Docker, cloud deployment, PostgreSQL, authentication, price scraping/history, or workload matrices without a numbered prompt.

@@ -43,7 +43,7 @@ def run_attempt(
     stored measurement names the exact provider, model and request settings
     it was made under; a provider whose name, model or cache policy disagrees
     with its registered profile is refused, so populations cannot silently mix
-    settings. The provider's declared cache policy is stored as-is.
+    settings. The cache policy stored is the profile's.
 
     The price is looked up before the provider is called, so a missing price
     never wastes a paid request. Cost uses the provider-reported cached input
@@ -67,22 +67,16 @@ def run_attempt(
         ValueError: If `workload` is not the catalogue's definition of its id
             (so a stored id could not be trusted to mean that content); the
             provider has no registered request profile, or its name, model or
-            cache policy differs from the profile's; it declares cache policy
-            "unknown" or a value outside `providers.CACHE_POLICIES`; or the
-            workload is not well within the price's prompt-size tier. Nothing
-            is called or saved.
+            cache policy differs from the profile's; or the workload is not
+            well within the price's prompt-size tier. Nothing is called or
+            saved.
         KeyError: If no price is defined for the provider/model.
     """
     if workloads.get_workload(workload.workload_id) != workload:
         raise ValueError("Workload is not the catalogue definition of its id.")
-    if (
-        provider.cache_policy not in providers.CACHE_POLICIES
-        or provider.cache_policy == "unknown"
-    ):
-        raise ValueError(
-            "Provider cache_policy must be one of"
-            f" {providers.CACHE_POLICIES[:3]}."
-        )
+    # Registered profiles only declare valid, known cache policies (tested in
+    # tests/test_targets.py), so matching the profile also rules out
+    # "unknown" or invented policies.
     profile = provider.request_profile
     if profile is None or targets.get_profile(profile.profile_id) != profile:
         raise ValueError("Provider has no registered request profile.")

@@ -520,6 +520,10 @@ Nothing here runs automatically: each paid request needs an explicit command.
   xAI 1.25 / 2.50 / 0.20 (prompts under 200K). Each attempt stores the rates
   its cost used.
 
+The adapters are small standard-library HTTP clients, one per provider.
+LiteLLM was evaluated as a replacement and not adopted because it would change
+measured facts (D065).
+
 Run **one** request to **one** provider (the pilot path):
 
 ```bash
