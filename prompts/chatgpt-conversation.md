@@ -264,3 +264,10 @@ Step 018c is complete. All 359 tests pass; `./run.sh` verified. PostgreSQL integ
 New tests: `GetDatabaseUrlTest` (7 tests, URL selection, scheme validation, credential redaction), `DialectAndSchemaParityTest` (4 dialect-compilation tests). Two `test_web.py` assertions updated to expect a URL string instead of a `pathlib.Path` in `app.config[DB_PATH_KEY]`.
 
 **What is NOT done:** no Cloud SQL provisioning, no Cloud Run deployment, no GCP resources, no paid calls. Production migration management (running `alembic upgrade head` before traffic) is the operator's responsibility and is documented in `prompts/018c-output.md` and D066.
+
+
+## Step 018c review and narrower 018d scope (2026-11-03)
+
+Following Step 018c's implementation, Claude reported 359 passing offline tests, `./run.sh` success and all four role-specific `design-questions/018c/` files. GitHub code inspection confirmed dialect selection and PostgreSQL SQL compilation tests but **no real PostgreSQL integration execution**. Two review issues remain important before cloud spending: `storage._ensure_schema` silently stamps unmanaged PostgreSQL tables as the latest Alembic revision without proving they match, and passing credential-bearing SQLAlchemy URLs through migration configuration needs verified secret-safe behavior (including percent characters in passwords).
+
+Accordingly, ChatGPT wrote `prompts/018d-postgresql-integration-and-migration-safety.md`. This narrowly scoped offline step requires a disposable local PostgreSQL integration test of the v7 facts/migrations, fail-closed behavior for unmanaged PostgreSQL schemas, and sanitized Alembic/driver errors; no Cloud SQL or Cloud Run resource creation and no paid provider calls. This supersedes the earlier proposed order of provisioning Cloud SQL immediately after 018c: the reason is to test actual PostgreSQL transaction/constraint behavior and migration safety before incurring infrastructure cost. The existing Google Cloud project `llm-metrics-513617` remains the intended deployment target in a future reviewed step, not authorization to provision. All prior history above is intentionally preserved.
