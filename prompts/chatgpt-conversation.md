@@ -217,3 +217,9 @@ Rules for future updates:
 - Contradictions over time are valuable history because they show how the architecture/product thinking evolved.
 - Current-state documents such as `PROJECT_STATUS.md` and `DECISIONS.md` may summarize the latest truth; this conversation file should preserve the path taken to get there.
 - When ChatGPT creates or materially revises a numbered prompt, append the new context here rather than replacing prior history.
+
+## Step 018c direction — PostgreSQL readiness before cloud provisioning (2026-11-03)
+
+After reviewing `prompts/018b-output.md` and the actual Step 018b `storage.py`, the next task was intentionally narrowed. Step 018b adopted SQLAlchemy Core and Alembic, and its offline SQLite tests passed; however, that did **not** yet demonstrate PostgreSQL compatibility. The connection factory still constructed a SQLite URL from a filesystem path, schema checks used SQLite `PRAGMA`, and seeded-observation deduplication used SQLite-only `insert`. SQLAlchemy table metadata lacked the observation-to-request foreign key present in the Alembic baseline.
+
+This is why the earlier 018a suggestion of combining Cloud SQL provisioning with a first Cloud Run deployment in 018c was superseded: deploy only after the storage boundary is demonstrably ready for a PostgreSQL connection. The new `prompts/018c-postgresql-storage-readiness.md` asks Claude for an explicit PostgreSQL URL/driver, dialect-safe schema lifecycle and inserts, preserved local SQLite behavior, tests with honest compile-only versus integration labels, and no cloud resources or paid provider calls. This is another example of the user's preference for small, reviewed increments. Older plans remain above as history; this paragraph records the change, not a retroactive rewrite.
