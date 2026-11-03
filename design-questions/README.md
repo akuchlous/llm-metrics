@@ -61,3 +61,5 @@ Each file has:
 | [15](15/) | Versioned benchmark workloads | `prompts/015-versioned-benchmark-workloads.md` |
 | [16](16/) | Four-provider benchmark adapters | `prompts/016-four-provider-benchmark-adapters.md` |
 | [17](17/) | Codebase simplification and reuse | `prompts/017-codebase-simplification-and-reuse.md` |
+| [018a](018a/) | OpenAI vertical-slice gap analysis and architecture | `prompts/018a-openai-vertical-slice-gap-analysis.md` |
+| [018b](018b/) | SQLAlchemy Core + Alembic migration | `prompts/018b-sqlalchemy-alembic-persistence.md` |
