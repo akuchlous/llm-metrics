@@ -235,3 +235,8 @@ To prevent requirements being lost as chats and prompts evolve, ChatGPT added `p
 ## Root ChatGPT prompt-writing guidelines established (2026-11-03)
 
 To make the standing instructions easier to discover and consistently apply, the user proposed keeping a dedicated `chatgpt-guidelines.md` file, read whenever ChatGPT writes a Claude prompt. ChatGPT created the file at the repository root as an always-read entry point linking `prompts/PROMPT_WRITING_CONTRACT.md`, `prompts/DESIGN_QUESTIONS.md`, `CODING_GUIDELINES.md`, current status/decisions, and this append-only history. It explicitly requires small reviewable steps, four role-specific design-question artifacts for implemented steps, step output, tests, marketing checkpoint, privacy/cost safeguards, and a stop-for-review boundary. The old conversation material above is preserved unchanged.
+
+
+## Prompt-writing guidance consolidated (2026-11-03)
+
+The user asked to compact `chatgpt-guidelines.md` and `prompts/PROMPT_WRITING_CONTRACT.md` and remove duplicated instructions. The root `chatgpt-guidelines.md` is now a brief mandatory entry point; the contract is the single authoritative detailed checklist. Existing requirements for role-specific design questions, step reports, tests, cost/security safeguards, marketing checkpoints, and append-only history are retained. This change affects prompt-authoring guidance only, not Claude's active implementation prompt. Earlier history remains intact.
