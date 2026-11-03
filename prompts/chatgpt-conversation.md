@@ -185,3 +185,16 @@ Do not execute that entire sequence as one step. Use small lettered prompts and 
 - exactly one recommended next implementation micro-step.
 
 018a must not implement persistence, deploy cloud resources, add scheduling, change provider semantics, onboard another provider, or make paid calls. After 018a is committed, ChatGPT reviews the actual repository/output before writing 018b.
+
+## Conversation-history policy
+
+`prompts/chatgpt-conversation.md` is an **append-only record of how the user's thinking and the project evolved over time**. It is not a cleaned-up current-state summary.
+
+Rules for future updates:
+
+- Never delete older conversation-history entries merely because the project direction changed.
+- Never rewrite older entries to make past thinking look consistent with the current plan.
+- Record changes incrementally: preserve the earlier idea/decision, then append the later change and why it changed.
+- Contradictions over time are valuable history because they show how the architecture/product thinking evolved.
+- Current-state documents such as `PROJECT_STATUS.md` and `DECISIONS.md` may summarize the latest truth; this conversation file should preserve the path taken to get there.
+- When ChatGPT creates or materially revises a numbered prompt, append the new context here rather than replacing prior history.
