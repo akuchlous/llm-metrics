@@ -27,7 +27,7 @@ def run_attempt(
     provider: providers.LLMProvider,
     workload: workloads.Workload,
     environment: str,
-    db_path: pathlib.Path,
+    db_ref: pathlib.Path | str,
     *,
     origin: tuple[str, str],
 ) -> tuple[dict, list[dict], str]:
@@ -54,7 +54,8 @@ def run_attempt(
         workload: A catalogue workload (`workloads.get_workload`). Its prompt
             is never stored or printed.
         environment: "test" (simulated data) or "prod" (real-provider data).
-        db_path: SQLite database to write to.
+        db_ref: Database to write to: a pathlib.Path for a local SQLite file,
+            or a SQLAlchemy URL string (e.g. 'postgresql://host/db').
         origin: (origin_cloud, origin_region) of this runner; see
             `config.get_origin`.
 
@@ -121,15 +122,30 @@ def run_attempt(
         "cached_input_price_per_1m": price.cached_input_per_1m,
         **cost,
     }
-    request_id = storage.save_request(db_path, request, results, environment)
+    request_id = storage.save_request(db_ref, request, results, environment)
     return request, results, request_id
+
+
+def _db_display(db_ref: pathlib.Path | str) -> str:
+    """Returns a credential-safe, human-readable label for a database ref."""
+    if isinstance(db_ref, pathlib.Path):
+        return os.path.relpath(db_ref)
+    s = str(db_ref)
+    if s.startswith("sqlite:///"):
+        return os.path.relpath(s[len("sqlite:///"):])
+    at = s.find("@")
+    if at >= 0:
+        scheme_end = s.find("://")
+        if scheme_end >= 0:
+            return s[: scheme_end + 3] + s[at + 1 :]
+    return s
 
 
 def print_summary(
     request: dict,
     results: list[dict],
     request_id: str,
-    db_path: pathlib.Path,
+    db_ref: pathlib.Path | str,
     simulated: bool,
 ) -> None:
     """Prints a human-readable summary of one saved attempt to stdout.
@@ -138,7 +154,7 @@ def print_summary(
         request: Request facts as returned by `run_attempt`.
         results: Metric observations as returned by `run_attempt`.
         request_id: The saved request's id.
-        db_path: Database the attempt was saved to (shown relative).
+        db_ref: Database the attempt was saved to (shown without credentials).
         simulated: Whether to mark token counts, costs and rates as simulated.
     """
     note = " (simulated)" if simulated else ""
@@ -193,5 +209,5 @@ def print_summary(
         )
     print(
         f"Saved attempt {request_id} with {len(results)} observations "
-        f"to {os.path.relpath(db_path)}"
+        f"to {_db_display(db_ref)}"
     )

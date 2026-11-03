@@ -145,7 +145,7 @@ def run(
         print("Warning: the price for this model is not yet verified.")
     print()
 
-    db_path = config.get_db_path()
+    db_path = config.get_database_url()
     try:
         request, results, request_id = benchmark.run_attempt(
             provider, workload, ENVIRONMENT, db_path, origin=origin

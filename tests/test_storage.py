@@ -940,5 +940,50 @@ class SchemaUpgradeTest(unittest.TestCase):
             storage.connect(self.db_path)
 
 
+class DialectAndSchemaParityTest(unittest.TestCase):
+    """Dialect compilation and schema-metadata parity tests.
+
+    These run without a PostgreSQL server: they verify SQL compilation only.
+    PostgreSQL integration not yet verified — no live server available.
+    """
+
+    def test_observations_request_id_has_foreign_key_matching_baseline(self):
+        """_observations.request_id FK matches the Alembic baseline definition."""
+        fks = storage._observations.c.request_id.foreign_keys
+        self.assertTrue(fks, "request_id has no FK in Table metadata")
+        fk = next(iter(fks))
+        self.assertEqual(str(fk.column), "requests.id")
+
+    def test_postgresql_ddl_compiles_for_both_tables(self):
+        """requests and observations can be expressed as valid PostgreSQL DDL."""
+        from sqlalchemy.dialects import postgresql as pg
+        from sqlalchemy.schema import CreateTable
+
+        for table in (storage._requests, storage._observations):
+            with self.subTest(table=table.name):
+                ddl = str(CreateTable(table).compile(dialect=pg.dialect()))
+                self.assertIn("CREATE TABLE", ddl)
+                self.assertIn(table.name, ddl)
+
+    def test_postgresql_insert_on_conflict_compiles(self):
+        """PostgreSQL dialect INSERT ... ON CONFLICT DO NOTHING compiles."""
+        from sqlalchemy.dialects import postgresql as pg
+        from sqlalchemy.dialects.postgresql import insert as pg_insert
+
+        stmt = pg_insert(storage._observations).on_conflict_do_nothing()
+        compiled = str(stmt.compile(dialect=pg.dialect()))
+        self.assertIn("INSERT", compiled.upper())
+        self.assertIn("ON CONFLICT", compiled.upper())
+
+    def test_sqlite_insert_on_conflict_still_compiles(self):
+        """SQLite dialect INSERT OR IGNORE still compiles correctly."""
+        from sqlalchemy.dialects import sqlite as sq
+        from sqlalchemy.dialects.sqlite import insert as sq_insert
+
+        stmt = sq_insert(storage._observations).on_conflict_do_nothing()
+        compiled = str(stmt.compile(dialect=sq.dialect()))
+        self.assertIn("INSERT", compiled.upper())
+
+
 if __name__ == "__main__":
     unittest.main()

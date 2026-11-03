@@ -94,6 +94,37 @@ def get_db_path(environ: Mapping[str, str] | None = None) -> pathlib.Path:
     return pathlib.Path(environ.get("LLM_METRICS_DB_PATH") or DEFAULT_DB_PATH)
 
 
+DATABASE_URL_VARIABLE = "LLM_METRICS_DATABASE_URL"
+# Accepted schemes for LLM_METRICS_DATABASE_URL.
+_VALID_DB_SCHEMES = frozenset({"sqlite", "postgresql", "postgresql+psycopg2"})
+
+
+def get_database_url(environ: Mapping[str, str] | None = None) -> str:
+    """Returns a SQLAlchemy-compatible database URL.
+
+    `LLM_METRICS_DATABASE_URL` takes precedence and must start with sqlite://
+    or postgresql://. Falls back to sqlite:///<get_db_path()>. Scheme must be
+    sqlite, postgresql, or postgresql+psycopg2. Never echoes credential values
+    in error messages. Tests must pass an explicit environ, never os.environ.
+
+    Raises:
+        ConfigError: If LLM_METRICS_DATABASE_URL is set with an unsupported
+            scheme.
+    """
+    if environ is None:
+        environ = os.environ
+    url = environ.get(DATABASE_URL_VARIABLE)
+    if url:
+        scheme = url.split("://")[0] if "://" in url else ""
+        if scheme not in _VALID_DB_SCHEMES:
+            raise ConfigError(
+                f"Invalid {DATABASE_URL_VARIABLE}: unsupported scheme."
+                " Expected sqlite or postgresql."
+            )
+        return url
+    return f"sqlite:///{get_db_path(environ)}"
+
+
 def get_port(environ: Mapping[str, str] | None = None) -> int:
     """Returns the dashboard port from `LLM_METRICS_PORT` (default 8000).
 

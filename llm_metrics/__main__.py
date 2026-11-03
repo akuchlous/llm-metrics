@@ -58,7 +58,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Error: {e}", file=sys.stderr)
         return 2
 
-    db_path = config.get_db_path()
+    db_path = config.get_database_url()
     request, results, request_id = benchmark.run_attempt(
         provider, workload, app_env, db_path, origin=origin
     )

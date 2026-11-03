@@ -245,3 +245,22 @@ The user asked to compact `chatgpt-guidelines.md` and `prompts/PROMPT_WRITING_CO
 ## Design questions for Steps 018a and 018b backfilled (2026-11-03)
 
 The user asked to fill the missing design-question learning artifacts while Claude was separately implementing 018c. ChatGPT created four role-specific questions, grounded answers, and critiques for both completed Steps 018a (architecture/gap-analysis decisions) and 018b (SQLAlchemy Core/Alembic migration), under `design-questions/018a/` and `design-questions/018b/`, and added both entries to `design-questions/README.md`. The 018b principal-engineer question explicitly distinguishes tested SQLite behavior from PostgreSQL portability not yet proven. Original 018a/018b prompts and reports were not rewritten. Claude remains responsible for 018c's own design questions when it completes 018c; it may pull these additive commits and merge with its work.
+
+
+## Step 018c implementation — PostgreSQL-ready storage (2026-11-03)
+
+Step 018c is complete. All 359 tests pass; `./run.sh` verified. PostgreSQL integration not yet verified (no live server).
+
+**What changed:**
+
+`config.get_database_url(environ)` is the new unified URL accessor. It checks `LLM_METRICS_DATABASE_URL` first (sqlite or postgresql scheme only; never echoes the URL in errors), falls back to `sqlite:///{get_db_path()}`. All top-level callers (`__main__`, `real_benchmark`, `seed_history`, `web.create_app()`) now use it.
+
+`storage.connect(db_ref)` accepts both `pathlib.Path` (SQLite, directory created) and URL strings (SQLite string or PostgreSQL). Engine cache keyed by URL string, bounded by number of distinct databases. `_ensure_schema()` branches on `engine.dialect.name`: PostgreSQL skips `PRAGMA user_version` and the legacy v0–v7 bridge entirely; fresh PostgreSQL databases use `alembic upgrade head`. `save_new_observations()` dispatches to `_pg_insert` or `_sqlite_insert` based on dialect.
+
+`_observations.request_id` now carries `ForeignKey("requests.id")` in the Table metadata, matching the Alembic baseline definition.
+
+`psycopg2-binary==2.9.10` added to `requirements.txt` with the Linux x86_64 cp313 sha256 hash. Installed from the pip HTTP cache (no network required after first install).
+
+New tests: `GetDatabaseUrlTest` (7 tests, URL selection, scheme validation, credential redaction), `DialectAndSchemaParityTest` (4 dialect-compilation tests). Two `test_web.py` assertions updated to expect a URL string instead of a `pathlib.Path` in `app.config[DB_PATH_KEY]`.
+
+**What is NOT done:** no Cloud SQL provisioning, no Cloud Run deployment, no GCP resources, no paid calls. Production migration management (running `alembic upgrade head` before traffic) is the operator's responsibility and is documented in `prompts/018c-output.md` and D066.

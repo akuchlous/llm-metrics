@@ -79,7 +79,7 @@ def main() -> int:
         )
         return 2
 
-    db_path = config.get_db_path()
+    db_path = config.get_database_url()
     history = simulated_ttft_history()
     inserted = storage.save_new_observations(db_path, history, "test")
     first, last = history[0][0], history[-1][0]
@@ -88,7 +88,18 @@ def main() -> int:
         f" {len(history) - inserted} already present"
         f" ({first:%Y-%m-%d %H:%M} to {last:%Y-%m-%d %H:%M} UTC, hourly)"
     )
-    print(f"Database: {os.path.relpath(db_path)}")
+    if db_path.startswith("sqlite:///"):
+        _db_label = os.path.relpath(db_path[len("sqlite:///") :])
+    else:
+        _at = db_path.find("@")
+        if _at >= 0:
+            _sse = db_path.find("://")
+            _db_label = (
+                db_path[: _sse + 3] + db_path[_at + 1 :] if _sse >= 0 else "<database>"
+            )
+        else:
+            _db_label = db_path
+    print(f"Database: {_db_label}")
     return 0
 
 

@@ -83,7 +83,7 @@ def create_app(db_path: pathlib.Path | None = None) -> flask.Flask:
     app.jinja_env.trim_blocks = True
     app.jinja_env.lstrip_blocks = True
     app.config[DB_PATH_KEY] = (
-        config.get_db_path() if db_path is None else db_path
+        config.get_database_url() if db_path is None else db_path
     )
     app.add_url_rule("/", "aggregate", _aggregate_page, methods=["GET"])
     app.add_url_rule("/requests", "requests", _requests_page, methods=["GET"])
@@ -96,7 +96,7 @@ def create_app(db_path: pathlib.Path | None = None) -> flask.Flask:
     return app
 
 
-def _db_path() -> pathlib.Path:
+def _db_path() -> pathlib.Path | str:
     return flask.current_app.config[DB_PATH_KEY]
 
 

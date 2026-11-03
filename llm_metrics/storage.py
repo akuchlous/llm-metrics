@@ -58,6 +58,7 @@ from sqlalchemy import (
     CheckConstraint,
     Column,
     Float,
+    ForeignKey,
     Integer,
     MetaData,
     Table,
@@ -68,6 +69,7 @@ from sqlalchemy import (
     select,
     text,
 )
+from sqlalchemy.dialects.postgresql import insert as _pg_insert
 from sqlalchemy.dialects.sqlite import insert as _sqlite_insert
 from sqlalchemy.engine import Connection, Engine
 import sqlalchemy.exc
@@ -274,43 +276,57 @@ _observations = Table(
     Column("model", Text, nullable=False),
     Column("metric", Text, nullable=False),
     Column("value", Float, nullable=False),
-    Column("request_id", Text),
+    Column("request_id", Text, ForeignKey("requests.id")),
     CheckConstraint(
         "environment IN ('test', 'prod')", name="ck_observations_environment"
     ),
 )
 
-# Module-level engine cache keyed by resolved absolute db_path.
+# Module-level engine cache keyed by database URL string.
 # Engines are long-lived; the same engine is reused for all calls to the
 # same database. This avoids pool-teardown overhead on every function call.
-_engines: dict[pathlib.Path, Engine] = {}
+_engines: dict[str, Engine] = {}
 
 
-def connect(db_path: pathlib.Path) -> Engine:
-    """Returns a SQLAlchemy Engine for db_path, creating/migrating as needed.
+def connect(db_ref: pathlib.Path | str) -> Engine:
+    """Returns a SQLAlchemy Engine for db_ref, creating/migrating as needed.
 
-    The first call for a given path creates the engine, creates the parent
-    directory, and ensures the schema is at the current version (fresh
-    databases via Alembic; pre-Alembic databases via the legacy bridge then
-    Alembic stamp). Subsequent calls with the same path return the cached
-    engine without re-running migrations.
+    The first call for a given database creates the engine and ensures the
+    schema is at the current version. Subsequent calls return the cached engine
+    without re-running migrations. For SQLite paths the parent directory is
+    created if needed; for URL strings no filesystem operations are performed.
+
+    Args:
+        db_ref: A pathlib.Path for a local SQLite file, or a SQLAlchemy URL
+            string ('sqlite:///...' or 'postgresql://...'). Paths are resolved
+            to absolute form.
 
     Returns:
         A shared Engine. Callers must not call engine.dispose().
 
     Raises:
-        RuntimeError: If the database schema is newer than this code.
+        RuntimeError: If the SQLite schema version is newer than this code.
     """
-    resolved = db_path.resolve()
-    if resolved not in _engines:
+    if isinstance(db_ref, pathlib.Path):
+        resolved = db_ref.resolve()
         resolved.parent.mkdir(parents=True, exist_ok=True)
-        engine = create_engine(
-            f"sqlite:///{resolved}",
-            connect_args={"check_same_thread": False},
-        )
+        url = f"sqlite:///{resolved}"
+    else:
+        url = str(db_ref)
+        if url.startswith("sqlite:///"):
+            pathlib.Path(url[len("sqlite:///") :]).parent.mkdir(
+                parents=True, exist_ok=True
+            )
+    if url not in _engines:
+        if url.startswith("sqlite:///"):
+            engine = create_engine(
+                url, connect_args={"check_same_thread": False}
+            )
+        else:
+            engine = create_engine(url)
         _ensure_schema(engine)
-        _engines[resolved] = engine
-    return _engines[resolved]
+        _engines[url] = engine
+    return _engines[url]
 
 
 def _columns_of(conn: Connection, table: str) -> set[str]:
@@ -481,29 +497,39 @@ def _legacy_upgrade(engine: Engine) -> None:
 def _ensure_schema(engine: Engine) -> None:
     """Creates or migrates the schema to the current version.
 
-    For a fresh database: runs Alembic upgrade to create all tables.
-    For a pre-Alembic database: runs the legacy upgrade to v7 if needed,
-    then stamps the Alembic head revision without re-running DDL.
-    For an Alembic-managed database: runs any pending revisions.
+    For SQLite:
+        Fresh database: Alembic creates all tables and sets PRAGMA user_version.
+        Pre-Alembic database (v0–v7): legacy upgrade bridge then Alembic stamp.
+        Alembic-managed: applies any pending revisions.
+    For PostgreSQL:
+        Fresh database: Alembic creates all tables.
+        Tables without alembic_version: stamp as head (operator-managed schema).
+        Alembic-managed: applies any pending revisions.
 
     Raises:
-        RuntimeError: If the database schema is newer than this code.
+        RuntimeError: If the SQLite schema version is newer than this code.
     """
     from alembic import command
     from alembic.config import Config
     from alembic.runtime.migration import MigrationContext
 
+    dialect = engine.dialect.name
     with engine.connect() as conn:
-        version = conn.execute(text("PRAGMA user_version")).scalar() or 0
-        if version > SCHEMA_VERSION:
-            raise RuntimeError(
-                f"Database schema version {version} is newer than this code"
-                f" supports ({SCHEMA_VERSION}). Update llm-metrics."
-            )
+        if dialect == "sqlite":
+            version = conn.execute(text("PRAGMA user_version")).scalar() or 0
+            if version > SCHEMA_VERSION:
+                raise RuntimeError(
+                    f"Database schema version {version} is newer than this code"
+                    f" supports ({SCHEMA_VERSION}). Update llm-metrics."
+                )
+        else:
+            version = 0
         from sqlalchemy import inspect as _sa_inspect
 
         insp = _sa_inspect(conn)
-        has_any_table = insp.has_table("requests") or insp.has_table("observations")
+        has_any_table = insp.has_table("requests") or insp.has_table(
+            "observations"
+        )
         context = MigrationContext.configure(conn)
         current_rev = context.get_current_revision()
 
@@ -513,16 +539,21 @@ def _ensure_schema(engine: Engine) -> None:
 
     if current_rev is None:
         if has_any_table:
-            # Pre-Alembic database: upgrade legacy schema if needed, then stamp.
-            if version < SCHEMA_VERSION:
+            # Pre-Alembic SQLite: run legacy upgrade if needed, then stamp.
+            # PostgreSQL with tables but no alembic_version: stamp as head
+            # (assumes operator-managed compatible schema).
+            if dialect == "sqlite" and version < SCHEMA_VERSION:
                 _legacy_upgrade(engine)
             command.stamp(alembic_cfg, "head")
         else:
             # Fresh database: let Alembic create all tables.
             command.upgrade(alembic_cfg, "head")
-            # Keep PRAGMA user_version in sync so legacy readers still work.
-            with engine.begin() as conn:
-                conn.execute(text(f"PRAGMA user_version = {SCHEMA_VERSION}"))
+            if dialect == "sqlite":
+                # Keep PRAGMA user_version in sync so legacy readers still work.
+                with engine.begin() as conn:
+                    conn.execute(
+                        text(f"PRAGMA user_version = {SCHEMA_VERSION}")
+                    )
     else:
         # Already Alembic-managed: apply any pending revisions.
         command.upgrade(alembic_cfg, "head")
@@ -550,7 +581,7 @@ def _observation_values(
 
 
 def save_request(
-    db_path: pathlib.Path, request: dict, results: list[dict], environment: str
+    db_path: pathlib.Path | str, request: dict, results: list[dict], environment: str
 ) -> str:
     """Saves one benchmark attempt and its metric observations atomically.
 
@@ -606,7 +637,7 @@ def save_request(
 
 
 def save_new_observations(
-    db_path: pathlib.Path,
+    db_path: pathlib.Path | str,
     observations: Iterable[tuple[datetime.datetime, dict]],
     environment: str,
 ) -> int:
@@ -631,16 +662,19 @@ def save_new_observations(
         for recorded_at, result in observations
     ]
     engine = connect(db_path)
-    # INSERT OR IGNORE: duplicate (recorded_at, environment, provider, model,
-    # metric) rows are silently skipped, making seeding idempotent.
-    stmt = _sqlite_insert(_observations).on_conflict_do_nothing()
+    # on_conflict_do_nothing: duplicate (recorded_at, environment, provider,
+    # model, metric) rows are silently skipped, making seeding idempotent.
+    if engine.dialect.name == "postgresql":
+        stmt = _pg_insert(_observations).on_conflict_do_nothing()
+    else:
+        stmt = _sqlite_insert(_observations).on_conflict_do_nothing()
     with engine.begin() as conn:
         result = conn.execute(stmt, rows)
         return result.rowcount
 
 
 def load_observations(
-    db_path: pathlib.Path,
+    db_path: pathlib.Path | str,
     environment: str,
     provider: str,
     model: str,
@@ -731,7 +765,7 @@ def _request_dicts(conn: Connection, where_clause) -> list[dict]:
     return list(requests.values())
 
 
-def load_request(db_path: pathlib.Path, request_id: str) -> dict | None:
+def load_request(db_path: pathlib.Path | str, request_id: str) -> dict | None:
     """Returns one request with its metrics (see `_request_dicts`), or None."""
     engine = connect(db_path)
     with engine.connect() as conn:
@@ -740,7 +774,7 @@ def load_request(db_path: pathlib.Path, request_id: str) -> dict | None:
 
 
 def load_recent_requests(
-    db_path: pathlib.Path, environment: str, limit: int
+    db_path: pathlib.Path | str, environment: str, limit: int
 ) -> list[dict]:
     """Returns the `limit` most recent requests in `environment`, newest first.
 
@@ -759,7 +793,7 @@ def load_recent_requests(
 
 
 def count_outcomes(
-    db_path: pathlib.Path,
+    db_path: pathlib.Path | str,
     environment: str,
     provider: str,
     model: str,
@@ -794,7 +828,7 @@ def count_outcomes(
 
 
 def spend_by_model(
-    db_path: pathlib.Path,
+    db_path: pathlib.Path | str,
     environment: str,
     *,
     start: datetime.datetime,

@@ -126,5 +126,64 @@ class GetOriginTest(unittest.TestCase):
                     self.assertNotIn(bad, str(ctx.exception))
 
 
+class GetDatabaseUrlTest(unittest.TestCase):
+
+    def test_fallback_to_sqlite_url_when_not_set(self):
+        url = config.get_database_url({})
+        self.assertTrue(url.startswith("sqlite:///"), url)
+        self.assertIn(str(config.DEFAULT_DB_PATH), url)
+
+    def test_db_path_override_is_reflected_in_url(self):
+        url = config.get_database_url({"LLM_METRICS_DB_PATH": "/tmp/custom.db"})
+        self.assertEqual(url, "sqlite:////tmp/custom.db")
+
+    def test_explicit_sqlite_url_passes_through(self):
+        explicit = "sqlite:////tmp/explicit.db"
+        url = config.get_database_url(
+            {config.DATABASE_URL_VARIABLE: explicit}
+        )
+        self.assertEqual(url, explicit)
+
+    def test_postgresql_url_passes_through(self):
+        pg_url = "postgresql://user:pass@host:5432/db"
+        url = config.get_database_url(
+            {config.DATABASE_URL_VARIABLE: pg_url}
+        )
+        self.assertEqual(url, pg_url)
+
+    def test_postgresql_plus_psycopg2_is_valid(self):
+        pg_url = "postgresql+psycopg2://host/db"
+        url = config.get_database_url(
+            {config.DATABASE_URL_VARIABLE: pg_url}
+        )
+        self.assertEqual(url, pg_url)
+
+    def test_invalid_scheme_fails_without_echoing_credentials(self):
+        bad_url = "mysql://user:secret@host/db"
+        with self.assertRaisesRegex(
+            config.ConfigError, f"Invalid {config.DATABASE_URL_VARIABLE}"
+        ) as ctx:
+            config.get_database_url({config.DATABASE_URL_VARIABLE: bad_url})
+        error_text = str(ctx.exception)
+        self.assertNotIn("mysql://", error_text)
+        self.assertNotIn("secret", error_text)
+
+    def test_database_url_takes_precedence_over_db_path(self):
+        pg_url = "postgresql://host/db"
+        url = config.get_database_url(
+            {
+                config.DATABASE_URL_VARIABLE: pg_url,
+                "LLM_METRICS_DB_PATH": "/tmp/ignored.db",
+            }
+        )
+        self.assertEqual(url, pg_url)
+
+    def test_explicit_environ_not_os_environ(self):
+        """get_database_url accepts explicit environ; tests must never rely on os.environ."""
+        url = config.get_database_url({})
+        self.assertIsInstance(url, str)
+        self.assertTrue(url.startswith("sqlite:///"))
+
+
 if __name__ == "__main__":
     unittest.main()

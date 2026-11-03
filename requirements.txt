@@ -4,6 +4,10 @@
 # Versions were chosen at least two weeks after release. To change a
 # version, update it and all of its file hashes from PyPI together.
 
+# PostgreSQL driver (D066). Linux x86_64 cp313 wheel only.
+psycopg2-binary==2.9.10 \
+    --hash=sha256:8608c078134f0b3cbd9f89b34bd60a943b23fd33cc5f065e8d5f840061bd0673
+
 # SQLAlchemy Core: portable database abstraction layer (D066).
 # Linux x86_64 cp313 wheel only; add hashes for other platforms as needed.
 SQLAlchemy==2.0.36 \

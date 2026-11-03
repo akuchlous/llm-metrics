@@ -374,12 +374,12 @@ class AppFactoryTest(unittest.TestCase):
                 os.environ, {"LLM_METRICS_DB_PATH": str(db_path)}
             ):
                 app = web.create_app()
-            self.assertEqual(app.config[web.DB_PATH_KEY], db_path)
+            self.assertEqual(app.config[web.DB_PATH_KEY], f"sqlite:///{db_path}")
         with mock.patch.dict(os.environ, {}, clear=False):
             os.environ.pop("LLM_METRICS_DB_PATH", None)
             self.assertEqual(
                 web.create_app().config[web.DB_PATH_KEY],
-                config.DEFAULT_DB_PATH,
+                f"sqlite:///{config.DEFAULT_DB_PATH}",
             )
 
     def test_debug_mode_is_never_enabled(self):

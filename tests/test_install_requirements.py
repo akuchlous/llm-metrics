@@ -187,6 +187,8 @@ class RequirementsFileTest(unittest.TestCase):
                 "alembic",
                 "mako",
                 "typing_extensions",
+                # Step 018c: PostgreSQL driver for Cloud SQL compatibility
+                "psycopg2-binary",
             },
         )
 
