@@ -147,8 +147,6 @@ A unique index on observations (`recorded_at`, `environment`, `provider`, `model
 
 ## Next step
 
-To be defined by the next numbered prompt after review.
-
-Next intended milestones: the Google Cloud persistence step (SQLAlchemy Core + Alembic recommended, D066) and Step 016a — small paid four-provider pilot (manual, one request per provider), then a marketing checkpoint.
+**Step 018 in progress (2026-11-03):** OpenAI end-to-end vertical slice. Sequencing changed: Anthropic, Google, and xAI live onboarding are deferred until the complete operational path (persistence, unattended scheduler, real-data analytics, deployment) is proven with OpenAI. OpenAI is live-validated (one `interactive-chat-v1` request, attempt `9453a857…`, recorded in `prompts/018-output.md`). Gap analysis complete (`prompts/018a-output.md`). Next: Phase F (extend analytics/API/dashboard for real OpenAI data) — awaiting approval.
 
 Do not yet add more models, a scheduler, repeated benchmark runs, Docker, cloud deployment, PostgreSQL, authentication, price scraping/history, or workload matrices without a numbered prompt.
