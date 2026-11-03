@@ -240,3 +240,8 @@ To make the standing instructions easier to discover and consistently apply, the
 ## Prompt-writing guidance consolidated (2026-11-03)
 
 The user asked to compact `chatgpt-guidelines.md` and `prompts/PROMPT_WRITING_CONTRACT.md` and remove duplicated instructions. The root `chatgpt-guidelines.md` is now a brief mandatory entry point; the contract is the single authoritative detailed checklist. Existing requirements for role-specific design questions, step reports, tests, cost/security safeguards, marketing checkpoints, and append-only history are retained. This change affects prompt-authoring guidance only, not Claude's active implementation prompt. Earlier history remains intact.
+
+
+## Design questions for Steps 018a and 018b backfilled (2026-11-03)
+
+The user asked to fill the missing design-question learning artifacts while Claude was separately implementing 018c. ChatGPT created four role-specific questions, grounded answers, and critiques for both completed Steps 018a (architecture/gap-analysis decisions) and 018b (SQLAlchemy Core/Alembic migration), under `design-questions/018a/` and `design-questions/018b/`, and added both entries to `design-questions/README.md`. The 018b principal-engineer question explicitly distinguishes tested SQLite behavior from PostgreSQL portability not yet proven. Original 018a/018b prompts and reports were not rewritten. Claude remains responsible for 018c's own design questions when it completes 018c; it may pull these additive commits and merge with its work.
