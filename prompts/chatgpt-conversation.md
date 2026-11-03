@@ -2,7 +2,7 @@
 
 Concise context not captured by `PROJECT_STATUS.md` or `DECISIONS.md`. Keep only decisions and learning that affect future work; this is not a conversation transcript.
 
-_Last updated: 2026-11-01_
+_Last updated: 2026-11-03_
 
 ## Product direction
 
@@ -51,6 +51,7 @@ OpenRouter is a useful product reference: its provider/analytics surfaces emphas
 - Whenever ChatGPT creates or materially revises a pending numbered prompt, update this file in the same workflow.
 - `CODING_GUIDELINES.md` is the standing code-quality contract for all new/modified code. Follow Google Python style where appropriate, with correctness/security/readability ahead of mechanical style. Code and nearby comments/docstrings must be understandable to both human engineers and AI coding agents: descriptive names, explicit responsibilities/invariants, comments that explain non-obvious **why**, no chat-dependent commentary, no stale comments, and no unnecessary narration of obvious syntax. Future numbered prompts should require a coding-guideline review before commit.
 - Before implementing commodity functionality, search for a mature, widely adopted library/service. Prefer reuse unless it compromises measurement correctness, security, cost, or an important learning objective.
+- Prefer very small implementation increments. When one planned step spans multiple independent concerns, split it into lettered micro-steps (`018a`, `018b`, ...), have Claude complete and commit exactly one micro-step, and have ChatGPT review the actual repo before creating the next prompt.
 
 ## Implementation progression
 
@@ -68,7 +69,9 @@ OpenRouter is a useful product reference: its provider/analytics surfaces emphas
 - Step 014 — production-web refactor, intentionally split into small reviewable substeps. 014a Flask boundary: complete/reviewed. 014b Jinja/static presentation extraction: complete/reviewed. 014c analytics-versus-presentation separation: complete/reviewed; 242 tests reported passing. 014d implemented/reviewed: one small versioned read-only JSON aggregate endpoint consumes the same analytics facts as the HTML dashboard; 262 tests reported passing.
 - Step 015 — implemented, pending review (283 tests passing, no paid or network call): `llm_metrics/workloads.py` defines the six candidate workloads plus the `smoke.short_text.v2` connectivity check; `benchmark.run_attempt` takes a catalogue workload and refuses non-canonical ones; `python -m llm_metrics --workload <id>`; content pinned by SHA-256 tests. Originally defined as: create a small versioned deterministic workload catalogue (`interactive-chat-v1`, `coding-v1`, `rag-v1`, `summarization-v1`, `extraction-v1`, `agent-tool-v1`) and integrate canonical workload selection into benchmark orchestration. These are candidate benchmark hypotheses subject to user-research refinement, not validated demand. Fairness means reproducible equivalent content/semantics across providers, not forced identical token counts; provider-authoritative token usage remains the observed fact. Material workload changes require a new workload version. No provider expansion or paid comparison calls in this step.
 - Step 016 — implemented, pending review (342 tests passing, no paid or network call): one real target per provider with a versioned request profile stored per attempt (schema v7): OpenAI `gpt-6-luna`, Anthropic `claude-haiku-5-5` (thinking disabled), Google `gemini-3.5-flash-lite` (Interactions API, thinking minimal), xAI `grok-4.20-0309-non-reasoning`; standard-library adapters sharing `http_streaming`; cached input priced at the reported cached rate; `python -m llm_metrics.real_benchmark --provider <name> --real` as the one-request pilot path. Originally defined as: four correct real-provider adapters + one explicit benchmark target/profile per provider, preparing the Step 016a paid pilot; no scheduling, experiment orchestration, or paid calls.
-- Step 017 — implemented, pending review (347 tests passing, no paid or network call): behavior-preserving cleanup. LiteLLM evaluated and not adopted (import-time network fetch, zero-filled unreported usage, different Gemini/xAI endpoints than the request profiles, March 2026 PyPI compromise); duplicated adapter behavior moved into `http_streaming` (`status_failure`, `checked_usage`, `StreamContext`); `real_smoke` delegates to `real_benchmark.run`; shared test fakes; SQLAlchemy Core + Alembic recommended for the Google Cloud persistence step. Originally defined as: audit duplicate code, evaluate LiteLLM against the exact Step 016 measurement contract, replace custom provider transport only where fidelity is preserved, assess SQLAlchemy/Alembic, remove obsolete code, report before/after LOC/dependencies.
+- Step 017 — implemented and reviewed (347 tests passing, no paid or network call): behavior-preserving cleanup. LiteLLM evaluated and not adopted (import-time network fetch, zero-filled unreported usage, different Gemini/xAI endpoints than the request profiles, March 2026 PyPI compromise); duplicated adapter behavior moved into `http_streaming` (`status_failure`, `checked_usage`, `StreamContext`); `real_smoke` delegates to `real_benchmark.run`; shared test fakes; SQLAlchemy Core + Alembic recommended for the Google Cloud persistence step.
+- Step 018 sequencing changed before implementation: do **not** live-onboard all four providers first. Prove the whole operational measurement product with the already validated OpenAI path, then add Anthropic/Google/xAI one at a time. The previous oversized Step 018 prompt was removed before implementation because it bundled persistence, runner, cloud runtime, scheduling, analytics, and a multi-day experiment.
+- Step 018a — current pending micro-step: OpenAI vertical-slice gap analysis and architecture decision only. Inspect the actual repo, establish what already exists, identify gaps for an unattended multi-day OpenAI experiment, recommend the smallest production architecture/persistence/runtime direction, and choose exactly one next implementation micro-step. No substantive implementation, deployment, scheduling, provider onboarding, or paid calls in 018a. Claude must write `prompts/018a-output.md` and stop for ChatGPT review before 018b is created.
 
 The aggregate dashboard should answer: **How is this provider/model performing, under what workload/origin/cache conditions, and is performance changing?** The individual-call view should answer: **What exactly happened on this benchmark request, how much work did it do, how long did it take, what did it cost, was cached input reused, and did it succeed?** Simulated data must always be clearly labeled.
 
@@ -150,3 +153,35 @@ As implemented: `llm_metrics/targets.py` holds the four profiles plus the simula
 ## Step 017 direction
 
 Step 017 is a behavior-preserving cleanup, not a feature milestone. It first audits duplicate code, then evaluates LiteLLM against the exact Step 016 benchmark contract. Reuse provider infrastructure only where TTFT, authoritative usage, cache facts, request IDs, request profiles, failure semantics, privacy, one-request behavior, zero retries/fallbacks/routing, and exact model selection remain intact. It also assesses SQLAlchemy/Alembic for the upcoming Google Cloud persistence phase without forcing a large database rewrite into the cleanup step. Measure before/after LOC and dependencies, remove obsolete or unnecessary code, and keep workloads, pricing provenance, API/dashboard behavior, and all measurement semantics stable. No paid calls or deployment work.
+
+## Step 018 direction
+
+The earlier Step 018 plan was deliberately split before implementation because it bundled too many independent concerns. The current strategy is **OpenAI first, complete vertical slice first, then add other providers one at a time**.
+
+Do not require Anthropic, Google, or xAI credentials before productionizing the OpenAI measurement flow. The four adapters remain valid preparation, but the next proof point is an operational product path:
+
+```text
+OpenAI exact benchmark path
+→ durable production persistence
+→ unattended runner
+→ cloud runtime/secrets
+→ bounded scheduler and cost controls
+→ real-data analytics/API/dashboard
+→ bounded multi-day OpenAI collection
+→ data-quality review
+→ then next provider
+```
+
+Do not execute that entire sequence as one step. Use small lettered prompts and review each committed increment before creating the next one.
+
+### Step 018a — current
+
+`prompts/018a-openai-vertical-slice-gap-analysis.md` is the current pending prompt. It is intentionally analysis/design only. Claude must inspect the current repository and produce `prompts/018a-output.md` covering:
+
+- which OpenAI vertical-slice pieces already exist;
+- what is actually missing for an unattended multi-day OpenAI experiment;
+- the smallest sensible production architecture from scheduled execution through durable storage and product surfaces;
+- the simplest justified persistence/runtime direction;
+- exactly one recommended next implementation micro-step.
+
+018a must not implement persistence, deploy cloud resources, add scheduling, change provider semantics, onboard another provider, or make paid calls. After 018a is committed, ChatGPT reviews the actual repository/output before writing 018b.
