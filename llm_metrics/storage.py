@@ -288,6 +288,17 @@ _observations = Table(
 _engines: dict[str, Engine] = {}
 
 
+def _redact_db_url(url: str) -> str:
+    """Returns url with user:password@ stripped, for safe display and errors."""
+    at = url.find("@")
+    if at < 0:
+        return url
+    scheme_end = url.find("://")
+    if scheme_end < 0:
+        return url
+    return url[: scheme_end + 3] + url[at + 1 :]
+
+
 def connect(db_ref: pathlib.Path | str) -> Engine:
     """Returns a SQLAlchemy Engine for db_ref, creating/migrating as needed.
 
@@ -305,7 +316,9 @@ def connect(db_ref: pathlib.Path | str) -> Engine:
         A shared Engine. Callers must not call engine.dispose().
 
     Raises:
-        RuntimeError: If the SQLite schema version is newer than this code.
+        RuntimeError: If the SQLite schema version is newer than this code,
+            or if a PostgreSQL database has application tables but no Alembic
+            revision record (fail-closed on unknown schema state).
     """
     if isinstance(db_ref, pathlib.Path):
         resolved = db_ref.resolve()
@@ -324,7 +337,11 @@ def connect(db_ref: pathlib.Path | str) -> Engine:
             )
         else:
             engine = create_engine(url)
-        _ensure_schema(engine)
+        try:
+            _ensure_schema(engine)
+        except Exception:
+            engine.dispose()
+            raise
         _engines[url] = engine
     return _engines[url]
 
@@ -503,11 +520,17 @@ def _ensure_schema(engine: Engine) -> None:
         Alembic-managed: applies any pending revisions.
     For PostgreSQL:
         Fresh database: Alembic creates all tables.
-        Tables without alembic_version: stamp as head (operator-managed schema).
+        Tables with no alembic_version row: raises RuntimeError (fail-closed).
         Alembic-managed: applies any pending revisions.
 
+    The Alembic connection is passed via config.attributes["connection"] so
+    the database URL is never serialised into a config string or log line.
+    This prevents credential exposure and avoids ConfigParser interpolation
+    errors on percent-encoded characters in passwords.
+
     Raises:
-        RuntimeError: If the SQLite schema version is newer than this code.
+        RuntimeError: If the SQLite schema version is newer than this code,
+            or if PostgreSQL has application tables but no Alembic revision.
     """
     from alembic import command
     from alembic.config import Config
@@ -533,21 +556,36 @@ def _ensure_schema(engine: Engine) -> None:
         context = MigrationContext.configure(conn)
         current_rev = context.get_current_revision()
 
+    # Build Alembic config without setting sqlalchemy.url as a config string.
+    # Credentials are kept out of config interpolation and log output by
+    # passing a live connection via config.attributes["connection"] instead.
     alembic_cfg = Config(str(_REPO_ROOT / "alembic.ini"))
-    alembic_cfg.set_main_option("sqlalchemy.url", str(engine.url))
     alembic_cfg.set_main_option("script_location", str(_MIGRATIONS_DIR))
 
     if current_rev is None:
         if has_any_table:
-            # Pre-Alembic SQLite: run legacy upgrade if needed, then stamp.
-            # PostgreSQL with tables but no alembic_version: stamp as head
-            # (assumes operator-managed compatible schema).
-            if dialect == "sqlite" and version < SCHEMA_VERSION:
-                _legacy_upgrade(engine)
-            command.stamp(alembic_cfg, "head")
+            if dialect == "sqlite":
+                # Pre-Alembic SQLite: run legacy upgrade if needed, then stamp.
+                if version < SCHEMA_VERSION:
+                    _legacy_upgrade(engine)
+                with engine.connect() as conn:
+                    alembic_cfg.attributes["connection"] = conn
+                    command.stamp(alembic_cfg, "head")
+            else:
+                # Fail closed: PostgreSQL with application tables but no
+                # Alembic revision. Silently stamping would trust an unknown
+                # schema; require manual inspection and stamping instead.
+                raise RuntimeError(
+                    "PostgreSQL database has existing tables but no Alembic"
+                    " revision record. Cannot safely assume the schema matches"
+                    " the current version. Inspect the schema and run"
+                    " 'alembic stamp <revision>' manually if it is correct."
+                )
         else:
             # Fresh database: let Alembic create all tables.
-            command.upgrade(alembic_cfg, "head")
+            with engine.connect() as conn:
+                alembic_cfg.attributes["connection"] = conn
+                command.upgrade(alembic_cfg, "head")
             if dialect == "sqlite":
                 # Keep PRAGMA user_version in sync so legacy readers still work.
                 with engine.begin() as conn:
@@ -556,7 +594,9 @@ def _ensure_schema(engine: Engine) -> None:
                     )
     else:
         # Already Alembic-managed: apply any pending revisions.
-        command.upgrade(alembic_cfg, "head")
+        with engine.connect() as conn:
+            alembic_cfg.attributes["connection"] = conn
+            command.upgrade(alembic_cfg, "head")
 
 
 def format_timestamp(moment: datetime.datetime) -> str:
@@ -873,7 +913,9 @@ def spend_by_model(
         )
         .group_by(r.c.provider, r.c.model)
         .order_by(
-            r.c.total_cost.is_(None),
+            func.sum(
+                case((is_success, r.c.total_cost), else_=None)
+            ).is_(None),
             func.sum(
                 case((is_success, r.c.total_cost), else_=None)
             ).desc(),

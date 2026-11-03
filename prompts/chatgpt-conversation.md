@@ -271,3 +271,20 @@ New tests: `GetDatabaseUrlTest` (7 tests, URL selection, scheme validation, cred
 Following Step 018c's implementation, Claude reported 359 passing offline tests, `./run.sh` success and all four role-specific `design-questions/018c/` files. GitHub code inspection confirmed dialect selection and PostgreSQL SQL compilation tests but **no real PostgreSQL integration execution**. Two review issues remain important before cloud spending: `storage._ensure_schema` silently stamps unmanaged PostgreSQL tables as the latest Alembic revision without proving they match, and passing credential-bearing SQLAlchemy URLs through migration configuration needs verified secret-safe behavior (including percent characters in passwords).
 
 Accordingly, ChatGPT wrote `prompts/018d-postgresql-integration-and-migration-safety.md`. This narrowly scoped offline step requires a disposable local PostgreSQL integration test of the v7 facts/migrations, fail-closed behavior for unmanaged PostgreSQL schemas, and sanitized Alembic/driver errors; no Cloud SQL or Cloud Run resource creation and no paid provider calls. This supersedes the earlier proposed order of provisioning Cloud SQL immediately after 018c: the reason is to test actual PostgreSQL transaction/constraint behavior and migration safety before incurring infrastructure cost. The existing Google Cloud project `llm-metrics-513617` remains the intended deployment target in a future reviewed step, not authorization to provision. All prior history above is intentionally preserved.
+
+
+## Step 018d implementation — PostgreSQL integration proof and migration safety (2026-11-03)
+
+Step 018d is complete. PostgreSQL 17.11 installed locally; disposable database `llm_metrics_018d` used for all integration tests. 13 integration tests pass, 4 `_redact_db_url` unit tests pass; 376 tests total (363 run offline, 13 skipped without `TEST_POSTGRES_URL`); `./run.sh` verified. No GCP resources created; no paid calls.
+
+**Two correctness issues found and fixed:**
+
+`spend_by_model` ORDER BY used `r.c.total_cost.is_(None)` — a bare column reference not in GROUP BY. PostgreSQL's strict GROUP BY mode rejected it with `GroupingError`; SQLite accepted it silently. Fixed by replacing with `func.sum(case((is_success, r.c.total_cost), else_=None)).is_(None)` (the same aggregate expression from the SELECT clause).
+
+`_ensure_schema()` previously called `alembic stamp head` for PostgreSQL with existing tables but no alembic_version row — silently trusting an unknown schema. Now raises `RuntimeError` with an actionable message requiring manual inspection and explicit stamping.
+
+**Credential safety fix:**
+
+`alembic_cfg.set_main_option("sqlalchemy.url", str(engine.url))` replaced by passing a live connection via `config.attributes["connection"]`. This prevents percent-encoded password characters (e.g. `%40`) from triggering Python's `ConfigParser` interpolation and keeps credentials out of Alembic's config logging path. `_redact_db_url()` utility added; `connect()` disposes the engine if `_ensure_schema()` raises.
+
+**What is NOT done:** no Cloud SQL, no Cloud Run, no GCP resources, no paid calls.

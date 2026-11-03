@@ -64,3 +64,4 @@ Each file has:
 | [018a](018a/) | OpenAI vertical-slice gap analysis and architecture | `prompts/018a-openai-vertical-slice-gap-analysis.md` |
 | [018b](018b/) | SQLAlchemy Core + Alembic migration | `prompts/018b-sqlalchemy-alembic-persistence.md` |
 | [018c](018c/) | PostgreSQL-ready storage — dialect-aware connect/schema/insert | `prompts/018c-postgresql-storage-readiness.md` |
+| [018d](018d/) | Real PostgreSQL integration proof and safe migration gate | `prompts/018d-postgresql-integration-and-migration-safety.md` |
