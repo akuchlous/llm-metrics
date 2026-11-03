@@ -1,421 +1,434 @@
-# Step 018 — Guided four-provider live pilot
+# Step 018 — OpenAI end-to-end production metrics vertical slice
 
 ## Status
 
-Pending execution.
+Pending execution. OpenAI live API connectivity has already been validated in earlier work.
+
+## Sequencing decision
+
+We are deliberately changing the order of work.
+
+Do **not** proceed to Anthropic, Google, or xAI live validation yet. The four provider adapters and request profiles from Step 016 remain in the codebase and are not being removed or redesigned. However, before onboarding the remaining providers, finish one complete operational vertical slice using the already live-validated OpenAI target.
+
+The sequence is now:
+
+```text
+OpenAI live-validated request path
+→ durable production persistence
+→ unattended/scheduled benchmark execution
+→ real-data analytics/API/dashboard
+→ deployment/runtime
+→ bounded multi-day OpenAI collection
+→ inspect data quality and operational behavior
+→ then onboard additional providers one at a time
+```
+
+This is a sequencing change, not an architecture change.
+
+The reason is to prove the whole measurement product with one known provider before multiplying provider-specific variables. We want a continuously operating system accumulating trustworthy historical data, not four validated adapters with an unfinished operational path.
+
+Do not assign fixed step numbers to Anthropic/Google/xAI yet. The next step after this vertical slice should be chosen from evidence gathered while operating it.
+
+---
 
 ## Objective
 
-Validate the real provider integrations from Steps 016–017 against live APIs with a very small, explicitly user-driven paid pilot.
+Take the known-working OpenAI benchmark path through the complete operational metrics flow with the smallest simple architecture that can later support the same methodology across multiple providers.
 
-This is **not** a benchmark study and must not produce provider performance conclusions. The purpose is to verify that the live APIs still match our protocol assumptions and that one real request per provider flows correctly through streaming, TTFT, usage normalization, pricing, and persistence.
+Current benchmark target:
 
-Targets:
+- Provider: OpenAI
+- Model: `gpt-6-luna`
+- Request profile: existing registered OpenAI profile; do not silently change it
+- Default workload: `interactive-chat-v1`
 
-- OpenAI — `gpt-6-luna`
-- Anthropic — `claude-haiku-5-5`
-- Google — `gemini-3.5-flash-lite`
-- xAI — `grok-4.20-0309-non-reasoning`
+The end state of Step 018 is a bounded, unattended OpenAI measurement experiment that can run for multiple days and feed durable storage, analytics, the JSON API, and the dashboard with clearly labelled real measurements.
 
-Default workload: `interactive-chat-v1`.
-
----
-
-## REQUIRED OPERATING MODE — GUIDE THE USER ONE STEP AT A TIME
-
-Claude must **not** make paid provider calls itself.
-
-Claude must guide the user interactively, one provider at a time.
-
-For each provider:
-
-1. verify the account/API access prerequisites;
-2. help the user create or verify the developer/API account if needed;
-3. help the user enable billing/credits/model access if required;
-4. help the user create an API key;
-5. tell the user how to store the key safely in the shell using an environment variable;
-6. never ask the user to paste the actual key into chat;
-7. give exactly one live command;
-8. ask the user to paste only the safe command output back;
-9. inspect the result before giving the next provider's instructions;
-10. if a defect is found, stop further paid calls, diagnose it, and make the smallest justified fix/test before retrying.
-
-Do **not** dump all four provider commands at once unless the user explicitly asks.
-
-The normal cadence is:
-
-```text
-account/access setup
-→ create key
-→ export key locally
-→ one paid request
-→ inspect result
-→ next provider
-```
+This is still an engineering/data-quality validation phase. Do **not** publish model-performance conclusions from it.
 
 ---
 
-## Account and API-key setup guidance
+## Product direction — record, do not implement now
 
-Claude should actively help the user obtain working API credentials for each provider.
+Longer term, LLM Metrics / LLM Xchange will expand beyond latency and cost into functional benchmark families such as coding, reasoning, tool use, and agent-security/security-judge performance.
 
-For each provider, explain the current minimum setup path using current official provider documentation/pages where practical:
+Core product principle:
 
-- where to sign in or create the developer/API account;
-- whether a separate developer console/project/workspace is required;
-- how to enable API billing or add credits if required;
-- how to confirm the selected benchmark model is available to the account;
-- where to create a new API key;
-- which local environment variable to use;
-- how to verify that the variable is set **without printing the secret**.
+> **Functional benchmarks can become the intelligence behind routing.**
 
-Provider environment variables:
-
-- OpenAI: `OPENAI_API_KEY`
-- Anthropic: `ANTHROPIC_API_KEY`
-- Google: `GEMINI_API_KEY`
-- xAI: `XAI_API_KEY`
-
-Show placeholders only, e.g.:
-
-```bash
-export OPENAI_API_KEY='YOUR_KEY_HERE'
-```
-
-Safe verification example:
-
-```bash
-python - <<'PY'
-import os
-print('set' if os.environ.get('OPENAI_API_KEY') else 'missing')
-PY
-```
-
-Never ask the user to paste:
-
-- API keys;
-- passwords;
-- MFA codes;
-- billing/card details;
-- recovery codes;
-- session cookies;
-- account tokens.
-
-The user must personally handle login, MFA, payment details, acceptance of provider terms, and copying the key into their own shell.
-
-If a provider requires browser/UI actions, Claude should give the exact current navigation steps and then wait for the user to complete them.
+Public benchmark comparisons should generally use current/latest models when practical so results are relevant and useful. This is later work. Do not expand Step 018 into functional benchmarking, routing, or model comparison.
 
 ---
 
-## Required reading before the first live call
+## Required operating mode
 
-Read:
+Work incrementally. Before implementation, inspect the current repository and identify what already exists versus what is actually missing for the OpenAI vertical slice.
+
+Prefer the smallest next step. Do not build the whole deployment/scheduling system in one change.
+
+For each implementation increment:
+
+1. explain the narrow objective;
+2. identify the existing code being reused;
+3. state any design decision that materially affects benchmark semantics or operations;
+4. implement the smallest justified change;
+5. add focused tests;
+6. run the full offline test suite;
+7. update project status/decision documentation;
+8. stop and report before moving to the next substantial increment when user input or an operational decision is useful.
+
+Do not perform unrelated cleanup/refactoring.
+
+---
+
+## Required reading
+
+Before changing code, read at least:
 
 - `CODING_GUIDELINES.md`
 - `DECISIONS.md`
 - `PROJECT_STATUS.md`
 - `prompts/016-output.md`
 - `prompts/017-output.md`
+- the previous OpenAI live-validation evidence available in the repository
 - `llm_metrics/targets.py`
+- `llm_metrics/openai_provider.py`
+- `llm_metrics/http_streaming.py`
 - `llm_metrics/real_benchmark.py`
 - `llm_metrics/benchmark.py`
+- `llm_metrics/workloads.py`
 - `llm_metrics/latency.py`
 - `llm_metrics/pricing.py`
 - `llm_metrics/storage.py`
-- all four provider adapters
-- the relevant provider tests
+- `llm_metrics/analytics.py`
+- `llm_metrics/query.py`
+- `llm_metrics/api.py`
+- `llm_metrics/dashboard.py`
+- `llm_metrics/web.py`
+- relevant tests
 
-Before instructing the user to spend money, confirm:
+Before writing code, report:
 
-- one selected provider only;
-- exactly one request per command;
-- no retries;
-- no fallback;
-- no routing/model substitution;
-- no multi-provider loop;
-- only the selected provider's key is read;
-- exact registered model/profile is used;
-- canonical workload is unchanged;
-- prompts/responses/API keys/raw error bodies are not printed or persisted;
-- real attempts are stored as `prod`;
-- workload hashes and request-profile identities are unchanged.
+1. which parts of the OpenAI vertical slice already exist;
+2. what is still missing for an unattended multi-day OpenAI experiment;
+3. the smallest recommended next implementation step;
+4. the expected end-to-end architecture from scheduled benchmark → storage → analytics/API/dashboard.
 
-If any assumption is false, stop before a live request and fix it first.
+Then wait for approval before the first substantive implementation change.
 
 ---
 
-## Pilot budget and call limits
+## Benchmark invariants
 
-Default:
-
-- 1 initial live request per provider;
-- at most 1–2 additional calls for that provider only when needed to validate a suspicious field or verify a fix;
-- no provider exceeds 3 pilot calls without an explicit documented reason.
-
-The goal is validation, not statistics.
-
-Do not add loops, concurrency, scheduling, retries, batch execution, or an `all providers` command.
-
----
-
-## Recommended provider order
-
-1. OpenAI — known earlier live baseline;
-2. Anthropic;
-3. Google;
-4. xAI.
-
-Claude may change the order if credential/account access makes another order more practical, but document why.
-
----
-
-## Exact paid command shape
-
-Use:
-
-```bash
-python -m llm_metrics.real_benchmark --provider <provider> --real --workload interactive-chat-v1 --debug
-```
-
-Use the repository's existing virtual environment/interpreter conventions if needed.
-
-Do not put an API key on the command line.
-
-Before each call, Claude must tell the user:
-
-- provider;
-- exact model;
-- request-profile id;
-- workload;
-- output cap;
-- that exactly one paid API request will be made.
-
----
-
-# Validate each live result
-
-For every provider, inspect the pasted safe output and relevant saved request facts.
-
-## 1. Request acceptance
-
-Verify:
-
-- correct provider/model/profile/workload;
-- correct output cap;
-- expected reasoning/thinking condition;
-- expected cache policy;
-- provider accepted the request.
-
-Key/account/billing/model-access/setup failures are **not** provider reliability failures.
-
-## 2. Streaming and TTFT
-
-Confirm the stream produced actual generated text before completion and TTFT was triggered only by the first actual generated text, never metadata, role, thought/reasoning, heartbeat, empty, or usage-only events.
-
-Do not persist or print the generated text merely for validation.
-
-If the live event shape differs from fixtures, stop before the next provider and correct the adapter/test first.
-
-## 3. Provider-authoritative usage
-
-Confirm:
-
-- `input_tokens`;
-- `output_tokens`;
-- `cached_input_tokens` when reported;
-- absent/unknown remains `None`/NULL, never fabricated zero.
-
-Different provider token counts for the same text are expected.
-
-Provider-specific checks:
-
-- Anthropic: whole-input accounting remains correct when cache read/create fields are present or absent.
-- Google: live thought-token reporting remains consistent with output-token accounting and pricing assumptions.
-
-## 4. Provider request id
-
-Verify the documented source:
-
-- OpenAI: `x-request-id`;
-- Anthropic: `request-id`;
-- Google: interaction id from the stream;
-- xAI: response id from the stream.
-
-If the live API does not expose one, store NULL honestly.
-
-## 5. Completion/output-cap semantics
-
-Confirm:
-
-- requested max output and actual output stay separate;
-- shorter responses are valid successes;
-- hitting the cap is handled correctly;
-- no continuation or retry occurs.
-
-## 6. Cache facts
-
-Do not infer cache behavior from latency.
+Automation must not weaken the scientific/measurement contract.
 
 Preserve:
 
-- reported `0` = observed zero;
-- absent = unknown/NULL;
-- positive count = provider-reported cached input reuse.
+- EXACT execution: exact provider + exact model/profile;
+- no routing;
+- no fallback;
+- no model substitution;
+- no hidden continuation;
+- no automatic retries unless separately designed, explicitly approved, and represented honestly in measurement semantics;
+- canonical versioned workload identity;
+- canonical versioned request-profile identity;
+- requested output cap separate from actual output;
+- provider-authoritative token usage;
+- unknown remains unknown/NULL, never fabricated zero;
+- cached-input facts only when provider reports them;
+- provider request id when available;
+- real attempts stored as production/real data;
+- simulated and real populations clearly separated;
+- prompts, generated responses, API keys, and raw sensitive provider errors are not persisted merely for metrics;
+- effective pricing/rates used for each request are preserved with the measurement facts.
 
-Do not describe a request as `cold` unless the request semantics actually establish that.
-
-## 7. Pricing and cost
-
-Confirm stored rates match the current verified provider pricing and the cost calculation matches provider-authoritative usage.
-
-If official pricing has materially changed, stop and correct `pricing.py`/provenance before continuing. Do not silently run with stale prices.
-
-## 8. Persistence
-
-Confirm the attempt records:
-
-- environment `prod`;
-- provider/model;
-- workload id;
-- request-profile id;
-- origin cloud/region;
-- cache policy;
-- provider request id if known;
-- requested output cap;
-- input/output/cached token facts;
-- effective rates and cost;
-- outcome;
-- successful TTFT, total latency, and throughput measurements.
-
-Failed attempts must preserve established NULL/unknown semantics.
+If automation requires changing model, endpoint, reasoning, cache controls, workload text, output cap, or another material request setting, stop and explain the methodology impact before changing/versioning it.
 
 ---
 
-# Failure handling
+## Phase A — establish the OpenAI operational baseline
 
-## Setup/account failures
+Use the already validated OpenAI live path rather than repeating provider onboarding work unnecessarily.
 
-Examples:
+Confirm from repository evidence that:
 
-- missing/invalid key;
-- billing disabled/exhausted credits;
-- permission/project problem;
-- selected model unavailable;
-- invalid account configuration.
+- the registered OpenAI request profile is known;
+- exactly one request is issued per existing real benchmark command;
+- there is no retry/fallback/routing/substitution;
+- streaming TTFT behavior was live validated;
+- provider usage and request-id behavior were understood;
+- pricing was verified at the time recorded;
+- successful real measurements persist correctly.
 
-These are not provider benchmark failures.
+If any of those claims are not supported by repository evidence, identify the gap. Do not invent validation.
 
-Explain the minimum account/setup action and wait for the user before retrying.
-
-## Live protocol/integration mismatch
-
-If live evidence shows the adapter fixture is wrong:
-
-1. stop further paid calls;
-2. preserve only sanitized, non-sensitive evidence;
-3. compare against current official provider documentation;
-4. make the smallest implementation correction;
-5. add/update a regression test matching the observed shape;
-6. run the full offline suite;
-7. rerun only that provider once;
-8. document the discrepancy and correction.
-
-Do not weaken unknown-vs-zero, privacy, no-retry, or failure-classification semantics just to make the call pass.
+Before beginning unattended runs, re-check current official OpenAI model availability and pricing if the recorded verification is stale enough to matter. A material provider change requires an explicit methodology/profile/pricing update, not a silent edit.
 
 ---
 
-# Code-change policy
+## Phase B — durable production persistence
 
-Step 018 is primarily live validation.
+The current local SQLite path may be suitable for local development but the multi-day deployed experiment needs durable storage whose lifecycle is independent of a disposable process/container.
 
-Code changes are allowed only when live evidence demonstrates a real integration defect or verified provider change.
+Inspect the existing persistence boundary first. Step 017 recommended SQLAlchemy Core + Alembic for the future Google Cloud persistence step; that was a recommendation, not an instruction to adopt complexity automatically.
 
-Any change must:
+Choose the simplest durable production persistence appropriate for the selected deployment environment while preserving the existing storage semantics and data model.
 
-- be minimal;
-- follow `CODING_GUIDELINES.md`;
-- include a regression test;
-- preserve workload hashes;
-- preserve existing request-profile IDs unless request semantics materially change.
+Requirements:
 
-A change to model, endpoint, reasoning/thinking, cache control, or another material request setting is a methodology change. Do not silently edit an existing profile. Stop and explain the impact before versioning the profile.
+- measurements survive process/container restart;
+- schema evolution is explicit and testable;
+- real and simulated data remain separated;
+- historical raw measurement facts remain queryable;
+- no benchmark prompt/response content needs to be stored;
+- future providers can use the same storage model;
+- avoid premature data-warehouse/NoSQL complexity.
 
-Do not perform unrelated cleanup/refactoring.
+Do not migrate merely for fashion. Explain why the chosen persistence mechanism is necessary for the runtime being selected.
 
 ---
 
-# Evidence to record per provider
+## Phase C — unattended single-provider benchmark runner
 
-Maintain `prompts/018-output.md` with:
+Create the smallest operational mechanism that can execute the existing OpenAI benchmark safely without a person typing the command each time.
 
-- date/time;
-- provider;
-- exact model;
-- request-profile id;
-- workload id;
-- requested output cap;
-- origin;
-- outcome;
-- llm-metrics request id;
-- provider request id if known;
-- input tokens;
-- cached input tokens (`null` if unknown);
-- output tokens;
+The scheduler/runner must preserve EXACT semantics and should be designed so that adding another provider later is configuration/data expansion rather than a new scheduling architecture.
+
+Required properties:
+
+- OpenAI only for Step 018;
+- one canonical workload initially unless explicitly expanded later;
+- explicit bounded cadence;
+- no concurrency initially unless justified;
+- no retry by default;
+- failures recorded according to established semantics;
+- account/configuration errors must not be misrepresented as provider reliability failures;
+- secrets come from the deployment environment/secret mechanism, never source control;
+- logs must not expose API keys, prompts/responses, or sensitive raw provider errors;
+- execution identity/origin should be recorded consistently;
+- each attempt remains independently attributable and auditable.
+
+Do not add an `all providers` loop in this step.
+
+---
+
+## Phase D — cost and experiment guardrails
+
+Before enabling unattended paid calls, define an explicit experiment budget and cadence.
+
+The implementation should make accidental runaway spend difficult.
+
+At minimum establish:
+
+- selected workload;
+- requests per hour/day;
+- expected maximum output cap;
+- approximate expected daily cost using current rates;
+- experiment duration;
+- maximum intended request count;
+- a straightforward way to stop the experiment;
+- observable failure behavior if credentials/billing/provider access fail.
+
+Prefer simple bounded controls over an elaborate billing subsystem.
+
+Do not enable an indefinite paid loop by default.
+
+---
+
+## Phase E — deployment/runtime
+
+Deploy the smallest runtime that can reliably host:
+
+1. scheduled OpenAI benchmark execution;
+2. durable measurement persistence;
+3. analytics/API/dashboard access as appropriate.
+
+Google Cloud has been the expected direction in prior planning, but inspect current project decisions before selecting concrete services. Prefer managed/simple components over unnecessary orchestration.
+
+Do not introduce Kubernetes unless there is a demonstrated need.
+
+Deployment must keep the OpenAI key out of source control and use an appropriate secret/environment mechanism.
+
+Document:
+
+- runtime/service chosen;
+- scheduler chosen;
+- storage chosen;
+- secret handling;
+- deployment command/process;
+- stop/disable procedure;
+- approximate infrastructure cost separate from provider API cost.
+
+---
+
+## Phase F — real-data analytics/API/dashboard
+
+The existing product surfaces were originally built around simulated aggregate data plus real request/spend views. Inspect them rather than assuming they already expose the desired production historical metrics.
+
+For the OpenAI vertical slice, ensure we can inspect real measurements over useful windows without confusing them with simulated data.
+
+At minimum, real OpenAI observations should be usable for:
+
 - TTFT;
 - total latency;
 - output tokens/sec;
-- total cost;
-- effective input/output/cached rates;
-- account/setup issues encountered;
-- whether a code fix was required;
-- any live API difference from Step 016 fixtures;
-- number of paid calls and reason for any call beyond the first.
+- reliability/outcome counts;
+- input/output/cached token facts where available;
+- per-request cost and aggregate spend;
+- workload/profile/origin identity.
 
-Never record prompts, responses, API keys, passwords, MFA codes, payment data, or raw provider error bodies.
+Do not over-design visualization. Correct populations, units, timestamps, and provenance matter more than UI polish.
+
+Keep the API/data model extensible enough that future providers become additional populations rather than bespoke endpoints.
 
 ---
 
-# Completion criteria
+## Phase G — bounded multi-day OpenAI experiment
+
+Only after persistence, unattended execution, cost bounds, deployment, and real-data visibility are verified should the OpenAI experiment run unattended for multiple days.
+
+Start conservatively. The goal is to validate operations and collect a useful historical series, not maximize sample count.
+
+During the run inspect:
+
+- expected attempt cadence versus actual cadence;
+- missing/duplicate executions;
+- failure classification;
+- TTFT/latency/throughput sanity;
+- token/accounting sanity;
+- request-profile/workload consistency;
+- origin consistency;
+- pricing/cost accumulation;
+- storage durability across restart/deploy if exercised;
+- dashboard/API agreement with stored facts;
+- any time-of-day patterns only as observations, not premature causal conclusions.
+
+Do not silently discard outliers or failures. Preserve raw facts and make filtering/aggregation explicit.
+
+---
+
+## Data and future extensibility
+
+Keep measurement facts sufficiently raw and dimensional so later analysis can group by dimensions such as:
+
+- provider/model/request profile;
+- workload;
+- input size;
+- output cap and actual output size;
+- origin cloud/region;
+- time of day;
+- cache facts;
+- future workload/functional dimensions.
+
+Do not create speculative columns for every imaginable future metric if the existing extensible model can represent them cleanly. But do not collapse away facts that will be needed for future cross-provider comparisons and routing intelligence.
+
+The future path is:
+
+```text
+measure
+→ compare
+→ publish
+→ learn which model is best for which workload/constraint
+→ use benchmark intelligence for routing
+```
+
+Routing itself is out of scope for Step 018.
+
+---
+
+## Testing and safety
+
+All normal tests must remain offline and must never require provider credentials.
+
+Any live validation must be explicit and user-controlled unless/until it is running inside the deliberately configured bounded production experiment.
+
+Code changes must:
+
+- follow `CODING_GUIDELINES.md`;
+- include focused regression tests;
+- preserve existing provider adapters/profiles not involved in this step;
+- preserve workload hashes unless an explicit new workload version is created;
+- preserve privacy and unknown-vs-zero semantics;
+- avoid adding provider calls to `./run.sh` or the offline test suite.
+
+---
+
+## Evidence/output
+
+Maintain `prompts/018-output.md` as the implementation and operational record for this vertical slice.
+
+Record, as applicable:
+
+- architecture chosen;
+- persistence choice and rationale;
+- scheduler/runtime choice and rationale;
+- OpenAI model/profile/workload;
+- cadence and experiment duration;
+- maximum intended request count;
+- expected and actual provider spend;
+- infrastructure cost estimate/actual where available;
+- deployment/origin;
+- secret-handling approach (never the secret itself);
+- test results;
+- live operational validation results;
+- failures/issues and fixes;
+- data-quality observations;
+- commit SHAs for meaningful implementation milestones.
+
+Never record API keys, passwords, MFA codes, payment data, prompts/responses, session tokens, or raw sensitive provider error bodies.
+
+---
+
+## Completion criteria
 
 Step 018 is complete when:
 
-- all four providers have at least one understood live result, or a documented external blocker prevents validation;
-- every successful provider has live-validated streaming, usage, request-id behavior where available, cost, and persistence;
-- any integration mismatch has a regression test and is resolved or explicitly blocked;
-- total calls per provider stay within the pilot limit unless documented;
-- full offline tests pass after any code changes;
-- `./run.sh` remains offline;
-- `prompts/018-output.md` contains the complete pilot record.
+- the OpenAI exact benchmark path runs unattended on an explicit bounded schedule;
+- measurements persist durably across the deployed runtime lifecycle;
+- real OpenAI data is clearly queryable/viewable through the product's analytics/API/dashboard surfaces;
+- TTFT, total latency, throughput, usage, cost, outcome, workload/profile, origin, and request identity semantics remain correct;
+- simulated and real data remain clearly separated;
+- provider credentials are handled outside source control;
+- spend and request count are bounded and understood;
+- a multi-day OpenAI run has produced an inspectable historical series, or an external blocker is documented;
+- offline tests pass;
+- operational setup and stop procedure are documented;
+- `prompts/018-output.md` contains the engineering/experiment record;
+- no Anthropic/Google/xAI live onboarding was required to complete the vertical slice.
 
-At completion, do **not** begin Google Cloud deployment or scheduled benchmarking.
+At completion, stop and report:
 
-Stop and report:
+- what is running;
+- where it runs;
+- storage/runtime/scheduler architecture;
+- sample count and experiment duration;
+- total provider API spend and infrastructure cost known so far;
+- data-quality findings;
+- unresolved operational issues;
+- whether the system is ready to add the next provider without redesigning the core measurement pipeline.
 
-- provider-by-provider live validation status;
-- number of paid calls;
-- total pilot API spend;
-- any code changes and commit SHA;
-- any unresolved provider/account blockers;
-- whether the four-provider path is ready for a Google Cloud multi-day experiment.
+Do not automatically start the next provider.
 
 ---
 
-## Marketing checkpoint
+## Publication / marketing checkpoint
 
-After the pilot, explicitly produce a short handoff for the Growth & Marketing workstream containing:
+The OpenAI-only multi-day series can be useful for demonstrating methodology and the product, but it is **not** a cross-provider comparison.
+
+At completion produce a short handoff for the Growth & Marketing workstream containing:
 
 - milestone completed;
-- providers live-validated;
-- sample size;
-- evidence available;
+- what was measured;
+- sample size and duration;
+- methodology that can safely be described publicly;
 - limitations;
-- whether anything is publishable now;
-- suggested next growth/user-research action.
+- what is and is not publishable;
+- what additional provider data is needed before making comparison claims.
 
-A valid conclusion is **do not publish performance comparisons yet** because the sample size is only validation-level.
+The eventual public comparison should use equivalent methodology and current/latest models across providers.
 
 ---
 
 ## Focus
 
-> **Help the user obtain the four API credentials safely, then validate one real request at a time before scaling anything.**
+> **Finish one complete, trustworthy OpenAI measurement vertical slice before onboarding the next provider.**
