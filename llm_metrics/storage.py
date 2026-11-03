@@ -1,8 +1,9 @@
-"""Local SQLite storage for benchmark attempts and metric observations.
+"""SQLAlchemy Core storage for benchmark attempts and metric observations.
 
-Owns the schema, in-place upgrades of older databases, and every read and
-write of benchmark data. It knows nothing about providers, HTTP, or HTML.
-All SQL is constant text; values are always bound as parameters.
+Owns the schema, Alembic-managed migrations, and every read and write of
+benchmark data. It knows nothing about providers, HTTP, or HTML.
+All SQL uses SQLAlchemy Core constructs; values are always bound as
+parameters.
 
 Tables:
 
@@ -40,17 +41,42 @@ observations: one row per metric value.
     - `request_id` links an observation to its attempt; NULL for simulated
       history and observations recorded before attempts were stored, which
       have no attempt facts and are not attempts.
+
+Migration strategy:
+    - Fresh databases: Alembic creates all tables via `upgrade head`.
+    - Pre-Alembic databases (schema v0–v7): the legacy upgrade bridge brings
+      them to v7, then Alembic stamps the head revision without re-running DDL.
+    - Alembic-managed databases: `upgrade head` applies any pending revisions.
 """
 
 from collections.abc import Iterable
-import contextlib
 import datetime
 import pathlib
-import sqlite3
 import uuid
 
-# The current requests table. Also used by the version 3 upgrade to rebuild an
-# older table, which is why upgrades add later columns only if missing.
+from sqlalchemy import (
+    CheckConstraint,
+    Column,
+    Float,
+    Integer,
+    MetaData,
+    Table,
+    Text,
+    case,
+    create_engine,
+    func,
+    select,
+    text,
+)
+from sqlalchemy.dialects.sqlite import insert as _sqlite_insert
+from sqlalchemy.engine import Connection, Engine
+import sqlalchemy.exc
+
+# The current requests table as a SQL string. Kept for:
+#   1. The legacy v0→v7 upgrade bridge (_legacy_upgrade) which uses it to
+#      rebuild the table during the v3 upgrade step.
+#   2. The test that constructs a v6 database by removing the last two columns
+#      from this string (test_version_6_rows_keep_an_unknown_request_profile).
 _REQUESTS_TABLE = """
 CREATE TABLE IF NOT EXISTS requests (
     id                          TEXT    PRIMARY KEY,
@@ -97,38 +123,18 @@ CREATE TABLE IF NOT EXISTS requests (
 );
 """
 
-SCHEMA = _REQUESTS_TABLE + """
-CREATE TABLE IF NOT EXISTS observations (
-    id          INTEGER PRIMARY KEY,
-    recorded_at TEXT    NOT NULL,
-    environment TEXT    NOT NULL CHECK (environment IN ('test', 'prod')),
-    provider    TEXT    NOT NULL,
-    model       TEXT    NOT NULL,
-    metric      TEXT    NOT NULL,
-    value       REAL    NOT NULL,
-    request_id  TEXT    REFERENCES requests (id)
-);
-CREATE UNIQUE INDEX IF NOT EXISTS observations_unique
-    ON observations (recorded_at, environment, provider, model, metric);
-"""
-
-# Schema version stored in SQLite's `PRAGMA user_version`, and what each
-# version added. `_upgrade` applies every later step in order.
+# Schema version stored in SQLite's `PRAGMA user_version` for the legacy
+# upgrade bridge. Alembic takes over from v7 onward.
 #   0: Steps 003-008: observations with a `value_ms` column.
-#   1: Step 009: `value_ms` renamed to `value` (units depend on the metric).
+#   1: Step 009: `value_ms` renamed to `value`.
 #   2: Step 010: `requests` table; observations.request_id.
-#   3: Step 011: requests.outcome and failed_after_ms; token and cost columns
-#      nullable for failed attempts.
+#   3: Step 011: requests.outcome and failed_after_ms; nullable token/cost.
 #   4: Step 012a: requests.provider_request_id.
 #   5: Step 013: requests.workload_id, origin_cloud, origin_region.
 #   6: Step 013: requests.cache_policy and cached_input_tokens.
 #   7: Step 016: requests.request_profile_id and cached_input_price_per_1m.
 SCHEMA_VERSION = 7
 
-_INSERT_OBSERVATION = (
-    "observations (recorded_at, environment, provider, model, metric, value,"
-    " request_id) VALUES (?, ?, ?, ?, ?, ?, ?)"
-)
 _REQUEST_COLUMNS = (
     "id",
     "recorded_at",
@@ -180,138 +186,346 @@ _V2_REQUEST_COLUMNS = (
     "total_cost",
 )
 
+_REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
+_MIGRATIONS_DIR = _REPO_ROOT / "migrations"
 
-def _columns(conn: sqlite3.Connection, table: str) -> set[str]:
-    return {row[1] for row in conn.execute(f"PRAGMA table_info({table})")}
+# SQLAlchemy Core table metadata, used by all read/write operations.
+_metadata = MetaData()
+
+_requests = Table(
+    "requests",
+    _metadata,
+    Column("id", Text, primary_key=True),
+    Column("recorded_at", Text, nullable=False),
+    Column("environment", Text, nullable=False),
+    Column("provider", Text, nullable=False),
+    Column("model", Text, nullable=False),
+    Column("outcome", Text, nullable=False),
+    Column("input_tokens", Integer),
+    Column("requested_max_output_tokens", Integer, nullable=False),
+    Column("output_tokens", Integer),
+    Column("input_price_per_1m", Float, nullable=False),
+    Column("output_price_per_1m", Float, nullable=False),
+    Column("input_cost", Float),
+    Column("output_cost", Float),
+    Column("total_cost", Float),
+    Column("failed_after_ms", Float),
+    Column("provider_request_id", Text),
+    Column("workload_id", Text),
+    Column("origin_cloud", Text),
+    Column("origin_region", Text),
+    Column("cache_policy", Text),
+    Column("cached_input_tokens", Integer),
+    Column("request_profile_id", Text),
+    Column("cached_input_price_per_1m", Float),
+    CheckConstraint(
+        "environment IN ('test', 'prod')", name="ck_requests_environment"
+    ),
+    CheckConstraint(
+        "outcome IN ('success', 'timeout', 'rate_limited', 'provider_error',"
+        " 'transport_error', 'invalid_response')",
+        name="ck_requests_outcome",
+    ),
+    CheckConstraint("input_tokens >= 0", name="ck_requests_input_tokens"),
+    CheckConstraint(
+        "requested_max_output_tokens >= 1",
+        name="ck_requests_requested_max_output_tokens",
+    ),
+    CheckConstraint("output_tokens >= 0", name="ck_requests_output_tokens"),
+    CheckConstraint(
+        "input_price_per_1m >= 0", name="ck_requests_input_price_per_1m"
+    ),
+    CheckConstraint(
+        "output_price_per_1m >= 0", name="ck_requests_output_price_per_1m"
+    ),
+    CheckConstraint("failed_after_ms >= 0", name="ck_requests_failed_after_ms"),
+    CheckConstraint(
+        "cache_policy IN ('disabled', 'enabled', 'provider_default', 'unknown')",
+        name="ck_requests_cache_policy",
+    ),
+    CheckConstraint(
+        "cached_input_tokens >= 0", name="ck_requests_cached_input_tokens"
+    ),
+    CheckConstraint(
+        "cached_input_price_per_1m >= 0",
+        name="ck_requests_cached_input_price_per_1m",
+    ),
+    CheckConstraint(
+        "(outcome = 'success'"
+        " AND input_tokens IS NOT NULL AND output_tokens IS NOT NULL"
+        " AND input_cost IS NOT NULL AND output_cost IS NOT NULL"
+        " AND total_cost IS NOT NULL AND failed_after_ms IS NULL)"
+        " OR"
+        " (outcome <> 'success'"
+        " AND input_tokens IS NULL AND output_tokens IS NULL"
+        " AND input_cost IS NULL AND output_cost IS NULL"
+        " AND total_cost IS NULL AND failed_after_ms IS NOT NULL)",
+        name="ck_requests_outcome_consistency",
+    ),
+)
+
+_observations = Table(
+    "observations",
+    _metadata,
+    Column("id", Integer, primary_key=True),
+    Column("recorded_at", Text, nullable=False),
+    Column("environment", Text, nullable=False),
+    Column("provider", Text, nullable=False),
+    Column("model", Text, nullable=False),
+    Column("metric", Text, nullable=False),
+    Column("value", Float, nullable=False),
+    Column("request_id", Text),
+    CheckConstraint(
+        "environment IN ('test', 'prod')", name="ck_observations_environment"
+    ),
+)
+
+# Module-level engine cache keyed by resolved absolute db_path.
+# Engines are long-lived; the same engine is reused for all calls to the
+# same database. This avoids pool-teardown overhead on every function call.
+_engines: dict[pathlib.Path, Engine] = {}
 
 
-def _upgrade(conn: sqlite3.Connection) -> None:
-    """Brings an existing database up to `SCHEMA_VERSION`, keeping every row.
+def connect(db_path: pathlib.Path) -> Engine:
+    """Returns a SQLAlchemy Engine for db_path, creating/migrating as needed.
 
-    All steps and the version bump run in one IMMEDIATE transaction, so an
-    upgrade is all-or-nothing and concurrent first connections serialize.
-    Facts that were never recorded for older rows stay unknown (NULL or
-    "unknown"); nothing is backfilled or guessed.
+    The first call for a given path creates the engine, creates the parent
+    directory, and ensures the schema is at the current version (fresh
+    databases via Alembic; pre-Alembic databases via the legacy bridge then
+    Alembic stamp). Subsequent calls with the same path return the cached
+    engine without re-running migrations.
+
+    Returns:
+        A shared Engine. Callers must not call engine.dispose().
 
     Raises:
-        RuntimeError: If the database is newer than this code.
+        RuntimeError: If the database schema is newer than this code.
     """
-    if conn.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION:
-        return
-    conn.execute("BEGIN IMMEDIATE")
-    try:
-        # Re-read under the lock: another connection may have upgraded.
-        version = conn.execute("PRAGMA user_version").fetchone()[0]
+    resolved = db_path.resolve()
+    if resolved not in _engines:
+        resolved.parent.mkdir(parents=True, exist_ok=True)
+        engine = create_engine(
+            f"sqlite:///{resolved}",
+            connect_args={"check_same_thread": False},
+        )
+        _ensure_schema(engine)
+        _engines[resolved] = engine
+    return _engines[resolved]
+
+
+def _columns_of(conn: Connection, table: str) -> set[str]:
+    rows = conn.execute(text(f"PRAGMA table_info({table})")).fetchall()
+    return {row[1] for row in rows}
+
+
+def _legacy_upgrade(engine: Engine) -> None:
+    """Brings a pre-Alembic SQLite database up to SCHEMA_VERSION.
+
+    Equivalent to the former _upgrade() function, but uses SQLAlchemy Core
+    text() constructs. Runs entirely in one transaction so an upgrade is
+    all-or-nothing. After this call, the database has the v7 schema but no
+    Alembic alembic_version row; the caller must stamp it.
+
+    Facts that were never recorded for older rows stay unknown (NULL or
+    "unknown"); nothing is backfilled or guessed.
+    """
+    with engine.begin() as conn:
+        version = conn.execute(text("PRAGMA user_version")).scalar() or 0
+        if version == SCHEMA_VERSION:
+            return
+
+        if version < 1:
+            cols = _columns_of(conn, "observations")
+            if "value_ms" in cols:
+                conn.execute(
+                    text(
+                        "ALTER TABLE observations RENAME COLUMN value_ms TO value"
+                    )
+                )
+        if version < 2:
+            if "request_id" not in _columns_of(conn, "observations"):
+                conn.execute(
+                    text(
+                        "ALTER TABLE observations ADD COLUMN request_id TEXT"
+                        " REFERENCES requests (id)"
+                    )
+                )
+            conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS observations_request"
+                    " ON observations (request_id)"
+                )
+            )
+        if version < 3:
+            existing_requests_cols = _columns_of(conn, "requests")
+            if not existing_requests_cols:
+                # No requests table yet (v0/v1 databases): create the full
+                # current schema directly; subsequent ADD COLUMN steps are
+                # no-ops because all columns already exist.
+                conn.execute(text(_REQUESTS_TABLE))
+                # Ensure the unique index exists (normally created with the
+                # observations table; idempotent via IF NOT EXISTS).
+                conn.execute(
+                    text(
+                        "CREATE UNIQUE INDEX IF NOT EXISTS observations_unique"
+                        " ON observations"
+                        " (recorded_at, environment, provider, model, metric)"
+                    )
+                )
+            elif "outcome" not in existing_requests_cols:
+                # v2 requests table (NOT NULL token/cost, no outcome column):
+                # rebuild with outcome. Version-2 rows were all successful.
+                conn.execute(
+                    text(
+                        _REQUESTS_TABLE.replace(
+                            "IF NOT EXISTS requests", "requests_v3"
+                        )
+                    )
+                )
+                columns = ", ".join(_V2_REQUEST_COLUMNS)
+                conn.execute(
+                    text(
+                        f"INSERT INTO requests_v3 ({columns}, outcome,"
+                        f" failed_after_ms)"
+                        f" SELECT {columns}, 'success', NULL FROM requests"
+                    )
+                )
+                conn.execute(text("DROP TABLE requests"))
+                conn.execute(
+                    text("ALTER TABLE requests_v3 RENAME TO requests")
+                )
+        if version < 4 and "provider_request_id" not in _columns_of(
+            conn, "requests"
+        ):
+            conn.execute(
+                text("ALTER TABLE requests ADD COLUMN provider_request_id TEXT")
+            )
+        if version < 5:
+            existing = _columns_of(conn, "requests")
+            for column in ("workload_id", "origin_cloud", "origin_region"):
+                if column not in existing:
+                    conn.execute(
+                        text(f"ALTER TABLE requests ADD COLUMN {column} TEXT")
+                    )
+        if version < 6:
+            if "cache_policy" not in _columns_of(conn, "requests"):
+                conn.execute(
+                    text(
+                        "ALTER TABLE requests ADD COLUMN cache_policy TEXT"
+                        " CHECK (cache_policy IN ("
+                        "'disabled', 'enabled', 'provider_default', 'unknown'))"
+                    )
+                )
+                conn.execute(
+                    text(
+                        "ALTER TABLE requests ADD COLUMN cached_input_tokens"
+                        " INTEGER CHECK (cached_input_tokens >= 0)"
+                    )
+                )
+            conn.execute(
+                text(
+                    "UPDATE requests SET cache_policy = 'unknown'"
+                    " WHERE cache_policy IS NULL"
+                )
+            )
+        if version < 7:
+            existing = _columns_of(conn, "requests")
+            if "request_profile_id" not in existing:
+                conn.execute(
+                    text(
+                        "ALTER TABLE requests ADD COLUMN request_profile_id TEXT"
+                    )
+                )
+            if "cached_input_price_per_1m" not in existing:
+                conn.execute(
+                    text(
+                        "ALTER TABLE requests ADD COLUMN"
+                        " cached_input_price_per_1m REAL"
+                        " CHECK (cached_input_price_per_1m >= 0)"
+                    )
+                )
+        # Ensure the observations table and its indexes exist.  A v3+ database
+        # built without any observations rows may have no observations table.
+        if not _columns_of(conn, "observations"):
+            conn.execute(
+                text(
+                    "CREATE TABLE IF NOT EXISTS observations ("
+                    "id INTEGER PRIMARY KEY,"
+                    " recorded_at TEXT NOT NULL,"
+                    " environment TEXT NOT NULL"
+                    " CHECK (environment IN ('test', 'prod')),"
+                    " provider TEXT NOT NULL,"
+                    " model TEXT NOT NULL,"
+                    " metric TEXT NOT NULL,"
+                    " value REAL NOT NULL,"
+                    " request_id TEXT REFERENCES requests (id)"
+                    ")"
+                )
+            )
+        conn.execute(
+            text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS observations_unique"
+                " ON observations"
+                " (recorded_at, environment, provider, model, metric)"
+            )
+        )
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS observations_request"
+                " ON observations (request_id)"
+            )
+        )
+        conn.execute(text(f"PRAGMA user_version = {SCHEMA_VERSION}"))
+
+
+def _ensure_schema(engine: Engine) -> None:
+    """Creates or migrates the schema to the current version.
+
+    For a fresh database: runs Alembic upgrade to create all tables.
+    For a pre-Alembic database: runs the legacy upgrade to v7 if needed,
+    then stamps the Alembic head revision without re-running DDL.
+    For an Alembic-managed database: runs any pending revisions.
+
+    Raises:
+        RuntimeError: If the database schema is newer than this code.
+    """
+    from alembic import command
+    from alembic.config import Config
+    from alembic.runtime.migration import MigrationContext
+
+    with engine.connect() as conn:
+        version = conn.execute(text("PRAGMA user_version")).scalar() or 0
         if version > SCHEMA_VERSION:
             raise RuntimeError(
                 f"Database schema version {version} is newer than this code"
                 f" supports ({SCHEMA_VERSION}). Update llm-metrics."
             )
-        if version < 1 and "value_ms" in _columns(conn, "observations"):
-            conn.execute(
-                "ALTER TABLE observations RENAME COLUMN value_ms TO value"
-            )
-        if version < 2:
-            if "request_id" not in _columns(conn, "observations"):
-                conn.execute(
-                    "ALTER TABLE observations ADD COLUMN request_id TEXT"
-                    " REFERENCES requests (id)"
-                )
-            conn.execute(
-                "CREATE INDEX IF NOT EXISTS observations_request"
-                " ON observations (request_id)"
-            )
-        if version < 3 and "outcome" not in _columns(conn, "requests"):
-            # SQLite cannot drop NOT NULL, so rebuild the table from the
-            # current definition. Version 2 stored only completed, successful
-            # requests, so each row is copied with outcome 'success'.
-            conn.execute(
-                _REQUESTS_TABLE.replace("IF NOT EXISTS requests", "requests_v3")
-            )
-            columns = ", ".join(_V2_REQUEST_COLUMNS)
-            conn.execute(
-                f"INSERT INTO requests_v3 ({columns}, outcome, failed_after_ms)"
-                f" SELECT {columns}, 'success', NULL FROM requests"
-            )
-            conn.execute("DROP TABLE requests")
-            conn.execute("ALTER TABLE requests_v3 RENAME TO requests")
-        if version < 4 and "provider_request_id" not in _columns(
-            conn, "requests"
-        ):
-            conn.execute(
-                "ALTER TABLE requests ADD COLUMN provider_request_id TEXT"
-            )
-        if version < 5:
-            # Workload and origin stay NULL for older rows: they were never
-            # recorded, and the real workload was not stable over that period,
-            # so any label would be a guess.
-            existing = _columns(conn, "requests")
-            for column in ("workload_id", "origin_cloud", "origin_region"):
-                if column not in existing:
-                    conn.execute(
-                        f"ALTER TABLE requests ADD COLUMN {column} TEXT"
-                    )
-        if version < 6:
-            if "cache_policy" not in _columns(conn, "requests"):
-                conn.execute(
-                    "ALTER TABLE requests ADD COLUMN cache_policy TEXT"
-                    " CHECK (cache_policy IN ("
-                    "'disabled', 'enabled', 'provider_default', 'unknown'))"
-                )
-                conn.execute(
-                    "ALTER TABLE requests ADD COLUMN cached_input_tokens"
-                    " INTEGER CHECK (cached_input_tokens >= 0)"
-                )
-            # Older attempts' policy cannot be established: "unknown" exists
-            # for exactly this. Cached tokens stay NULL, never 0. This also
-            # covers tables rebuilt above, which already have the columns.
-            conn.execute(
-                "UPDATE requests SET cache_policy = 'unknown'"
-                " WHERE cache_policy IS NULL"
-            )
-        if version < 7:
-            # Older attempts' request settings were never recorded: the
-            # profile stays NULL (unknown) rather than a guessed profile, and
-            # so does the cached rate (their costs used standard rates only).
-            existing = _columns(conn, "requests")
-            if "request_profile_id" not in existing:
-                conn.execute(
-                    "ALTER TABLE requests ADD COLUMN request_profile_id TEXT"
-                )
-            if "cached_input_price_per_1m" not in existing:
-                conn.execute(
-                    "ALTER TABLE requests ADD COLUMN cached_input_price_per_1m"
-                    " REAL CHECK (cached_input_price_per_1m >= 0)"
-                )
-        conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
-        conn.commit()
-    except BaseException:
-        conn.rollback()
-        raise
+        from sqlalchemy import inspect as _sa_inspect
 
+        insp = _sa_inspect(conn)
+        has_any_table = insp.has_table("requests") or insp.has_table("observations")
+        context = MigrationContext.configure(conn)
+        current_rev = context.get_current_revision()
 
-def connect(db_path: pathlib.Path) -> sqlite3.Connection:
-    """Opens the database, creating and upgrading it as needed.
+    alembic_cfg = Config(str(_REPO_ROOT / "alembic.ini"))
+    alembic_cfg.set_main_option("sqlalchemy.url", str(engine.url))
+    alembic_cfg.set_main_option("script_location", str(_MIGRATIONS_DIR))
 
-    Creates the parent directory and missing tables, and upgrades an older
-    schema in place. Safe to call repeatedly: existing rows are never changed
-    or lost.
-
-    Returns:
-        An open connection; the caller closes it.
-
-    Raises:
-        RuntimeError: If the database is newer than this code.
-    """
-    db_path.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(db_path)
-    try:
-        conn.executescript(SCHEMA)
-        _upgrade(conn)
-    except BaseException:
-        conn.close()
-        raise
-    return conn
+    if current_rev is None:
+        if has_any_table:
+            # Pre-Alembic database: upgrade legacy schema if needed, then stamp.
+            if version < SCHEMA_VERSION:
+                _legacy_upgrade(engine)
+            command.stamp(alembic_cfg, "head")
+        else:
+            # Fresh database: let Alembic create all tables.
+            command.upgrade(alembic_cfg, "head")
+            # Keep PRAGMA user_version in sync so legacy readers still work.
+            with engine.begin() as conn:
+                conn.execute(text(f"PRAGMA user_version = {SCHEMA_VERSION}"))
+    else:
+        # Already Alembic-managed: apply any pending revisions.
+        command.upgrade(alembic_cfg, "head")
 
 
 def format_timestamp(moment: datetime.datetime) -> str:
@@ -321,18 +535,18 @@ def format_timestamp(moment: datetime.datetime) -> str:
     )
 
 
-def _observation_row(
+def _observation_values(
     recorded_at: str, environment: str, result: dict, request_id: str | None
-) -> tuple:
-    return (
-        recorded_at,
-        environment,
-        result["provider"],
-        result["model"],
-        result["metric"],
-        result["value"],
-        request_id,
-    )
+) -> dict:
+    return {
+        "recorded_at": recorded_at,
+        "environment": environment,
+        "provider": result["provider"],
+        "model": result["model"],
+        "metric": result["metric"],
+        "value": result["value"],
+        "request_id": request_id,
+    }
 
 
 def save_request(
@@ -359,9 +573,8 @@ def save_request(
     Raises:
         ValueError: If a failed attempt has observations, or a required
             condition (workload, origin, cache policy, request profile) is
-            missing or empty.
-            Nothing is written.
-        sqlite3.IntegrityError: If facts violate the table's CHECKs.
+            missing or empty. Nothing is written.
+        sqlalchemy.exc.IntegrityError: If facts violate the table's CHECKs.
     """
     if request["outcome"] != "success" and results:
         raise ValueError("A failed attempt must not have metric observations.")
@@ -379,21 +592,16 @@ def save_request(
         "recorded_at": recorded_at,
         "environment": environment,
     }
-    values = tuple(row[column] for column in _REQUEST_COLUMNS)
+    values = {column: row.get(column) for column in _REQUEST_COLUMNS}
     observations = [
-        _observation_row(recorded_at, environment, result, request_id)
+        _observation_values(recorded_at, environment, result, request_id)
         for result in results
     ]
-    with contextlib.closing(connect(db_path)) as conn:
-        # The connection context manager commits on success and rolls back
-        # on any exception, making the two inserts one transaction.
-        with conn:
-            conn.execute(
-                f"INSERT INTO requests ({', '.join(_REQUEST_COLUMNS)})"
-                f" VALUES ({', '.join('?' for _ in _REQUEST_COLUMNS)})",
-                values,
-            )
-            conn.executemany("INSERT INTO " + _INSERT_OBSERVATION, observations)
+    engine = connect(db_path)
+    with engine.begin() as conn:
+        conn.execute(_requests.insert().values(**values))
+        if observations:
+            conn.execute(_observations.insert(), observations)
     return request_id
 
 
@@ -417,17 +625,18 @@ def save_new_observations(
         The number of rows inserted.
     """
     rows = [
-        _observation_row(
+        _observation_values(
             format_timestamp(recorded_at), environment, result, None
         )
         for recorded_at, result in observations
     ]
-    with contextlib.closing(connect(db_path)) as conn:
-        with conn:
-            cursor = conn.executemany(
-                "INSERT OR IGNORE INTO " + _INSERT_OBSERVATION, rows
-            )
-            return cursor.rowcount
+    engine = connect(db_path)
+    # INSERT OR IGNORE: duplicate (recorded_at, environment, provider, model,
+    # metric) rows are silently skipped, making seeding idempotent.
+    stmt = _sqlite_insert(_observations).on_conflict_do_nothing()
+    with engine.begin() as conn:
+        result = conn.execute(stmt, rows)
+        return result.rowcount
 
 
 def load_observations(
@@ -459,72 +668,74 @@ def load_observations(
         (recorded_at, value) pairs. Window bounds compare as text, which is
         correct because `recorded_at` is fixed-width UTC text.
     """
-    params = [
-        environment,
-        provider,
-        model,
-        metric,
-        format_timestamp(start),
-        format_timestamp(end),
-    ]
-    sql = (
-        "SELECT o.recorded_at, o.value FROM observations o"
-        " WHERE o.environment = ? AND o.provider = ? AND o.model = ?"
-        " AND o.metric = ? AND o.recorded_at >= ? AND o.recorded_at <= ?"
+    o = _observations
+    stmt = (
+        select(o.c.recorded_at, o.c.value)
+        .where(
+            o.c.environment == environment,
+            o.c.provider == provider,
+            o.c.model == model,
+            o.c.metric == metric,
+            o.c.recorded_at >= format_timestamp(start),
+            o.c.recorded_at <= format_timestamp(end),
+        )
+        .order_by(o.c.recorded_at, o.c.id)
     )
     if cache_policy is not None:
-        sql += (
-            " AND o.request_id IN"
-            " (SELECT id FROM requests WHERE cache_policy = ?)"
+        subq = (
+            select(_requests.c.id)
+            .where(_requests.c.cache_policy == cache_policy)
+            .scalar_subquery()
         )
-        params.append(cache_policy)
-    with contextlib.closing(connect(db_path)) as conn:
-        return conn.execute(
-            sql + " ORDER BY o.recorded_at, o.id", params
-        ).fetchall()
+        stmt = stmt.where(o.c.request_id.in_(subq))
+    engine = connect(db_path)
+    with engine.connect() as conn:
+        return [(row.recorded_at, row.value) for row in conn.execute(stmt)]
 
 
-def _request_dicts(
-    conn: sqlite3.Connection, where: str, params: tuple
-) -> list[dict]:
-    """Loads requests matching `where`, newest first, with their metrics.
+def _request_dicts(conn: Connection, where_clause) -> list[dict]:
+    """Loads requests matching `where_clause`, newest first, with their metrics.
 
     Args:
-        conn: Open connection.
-        where: Constant SQL condition on alias `r` (requests); never built
-            from user input.
-        params: Values bound to the placeholders in `where`.
+        conn: Open SQLAlchemy connection.
+        where_clause: A SQLAlchemy column expression filtering on `_requests`.
 
     Returns:
         One dict per request with every `_REQUEST_COLUMNS` key plus "metrics"
         ({metric: value} of its linked observations; empty for failures).
     """
-    columns = ", ".join(f"r.{column}" for column in _REQUEST_COLUMNS)
-    conn.row_factory = sqlite3.Row
-    rows = conn.execute(
-        f"SELECT {columns}, o.metric, o.value FROM requests r"
-        " LEFT JOIN observations o ON o.request_id = r.id"
-        f" WHERE {where} ORDER BY r.recorded_at DESC, r.id, o.id",
-        params,
-    ).fetchall()
+    r = _requests
+    o = _observations
+    stmt = (
+        select(
+            *[r.c[col] for col in _REQUEST_COLUMNS],
+            o.c.metric,
+            o.c.value,
+        )
+        .select_from(r.outerjoin(o, o.c.request_id == r.c.id))
+        .where(where_clause)
+        .order_by(r.c.recorded_at.desc(), r.c.id, o.c.id)
+    )
+    rows = conn.execute(stmt).fetchall()
     requests: dict[str, dict] = {}
     for row in rows:
-        request = requests.setdefault(
-            row["id"],
+        req = requests.setdefault(
+            row.id,
             {
-                **{column: row[column] for column in _REQUEST_COLUMNS},
+                **{col: getattr(row, col) for col in _REQUEST_COLUMNS},
                 "metrics": {},
             },
         )
-        if row["metric"] is not None:
-            request["metrics"][row["metric"]] = row["value"]
+        if row.metric is not None:
+            req["metrics"][row.metric] = row.value
     return list(requests.values())
 
 
 def load_request(db_path: pathlib.Path, request_id: str) -> dict | None:
     """Returns one request with its metrics (see `_request_dicts`), or None."""
-    with contextlib.closing(connect(db_path)) as conn:
-        found = _request_dicts(conn, "r.id = ?", (request_id,))
+    engine = connect(db_path)
+    with engine.connect() as conn:
+        found = _request_dicts(conn, _requests.c.id == request_id)
     return found[0] if found else None
 
 
@@ -535,13 +746,16 @@ def load_recent_requests(
 
     Each request includes its metrics; see `_request_dicts`.
     """
-    with contextlib.closing(connect(db_path)) as conn:
-        return _request_dicts(
-            conn,
-            "r.id IN (SELECT id FROM requests WHERE environment = ?"
-            " ORDER BY recorded_at DESC, id LIMIT ?)",
-            (environment, limit),
-        )
+    subq = (
+        select(_requests.c.id)
+        .where(_requests.c.environment == environment)
+        .order_by(_requests.c.recorded_at.desc(), _requests.c.id)
+        .limit(limit)
+        .scalar_subquery()
+    )
+    engine = connect(db_path)
+    with engine.connect() as conn:
+        return _request_dicts(conn, _requests.c.id.in_(subq))
 
 
 def count_outcomes(
@@ -562,22 +776,21 @@ def count_outcomes(
     Returns:
         {outcome: attempts}; outcomes with no attempts are absent.
     """
-    with contextlib.closing(connect(db_path)) as conn:
-        return dict(
-            conn.execute(
-                "SELECT outcome, COUNT(*) FROM requests"
-                " WHERE environment = ? AND provider = ? AND model = ?"
-                " AND recorded_at >= ? AND recorded_at <= ?"
-                " GROUP BY outcome",
-                (
-                    environment,
-                    provider,
-                    model,
-                    format_timestamp(start),
-                    format_timestamp(end),
-                ),
-            ).fetchall()
+    r = _requests
+    stmt = (
+        select(r.c.outcome, func.count().label("cnt"))
+        .where(
+            r.c.environment == environment,
+            r.c.provider == provider,
+            r.c.model == model,
+            r.c.recorded_at >= format_timestamp(start),
+            r.c.recorded_at <= format_timestamp(end),
         )
+        .group_by(r.c.outcome)
+    )
+    engine = connect(db_path)
+    with engine.connect() as conn:
+        return {row.outcome: row.cnt for row in conn.execute(stmt)}
 
 
 def spend_by_model(
@@ -600,22 +813,40 @@ def spend_by_model(
         "input_tokens", "output_tokens", and "total_cost". "total_cost" is None
         when the group has no successful attempt.
     """
-    with contextlib.closing(connect(db_path)) as conn:
-        conn.row_factory = sqlite3.Row
-        rows = conn.execute(
-            "SELECT provider, model, COUNT(*) AS attempts,"
-            " SUM(outcome = 'success') AS successful_calls,"
-            " SUM(outcome <> 'success') AS failed_attempts,"
-            " SUM(CASE WHEN outcome = 'success' THEN input_tokens END)"
-            " AS input_tokens,"
-            " SUM(CASE WHEN outcome = 'success' THEN output_tokens END)"
-            " AS output_tokens,"
-            " SUM(CASE WHEN outcome = 'success' THEN total_cost END)"
-            " AS total_cost"
-            " FROM requests"
-            " WHERE environment = ? AND recorded_at >= ? AND recorded_at <= ?"
-            " GROUP BY provider, model"
-            " ORDER BY total_cost IS NULL, total_cost DESC, provider, model",
-            (environment, format_timestamp(start), format_timestamp(end)),
-        ).fetchall()
-    return [dict(row) for row in rows]
+    r = _requests
+    is_success = r.c.outcome == "success"
+    stmt = (
+        select(
+            r.c.provider,
+            r.c.model,
+            func.count().label("attempts"),
+            func.sum(case((is_success, 1), else_=0)).label("successful_calls"),
+            func.sum(case((~is_success, 1), else_=0)).label("failed_attempts"),
+            func.sum(
+                case((is_success, r.c.input_tokens), else_=None)
+            ).label("input_tokens"),
+            func.sum(
+                case((is_success, r.c.output_tokens), else_=None)
+            ).label("output_tokens"),
+            func.sum(
+                case((is_success, r.c.total_cost), else_=None)
+            ).label("total_cost"),
+        )
+        .where(
+            r.c.environment == environment,
+            r.c.recorded_at >= format_timestamp(start),
+            r.c.recorded_at <= format_timestamp(end),
+        )
+        .group_by(r.c.provider, r.c.model)
+        .order_by(
+            r.c.total_cost.is_(None),
+            func.sum(
+                case((is_success, r.c.total_cost), else_=None)
+            ).desc(),
+            r.c.provider,
+            r.c.model,
+        )
+    )
+    engine = connect(db_path)
+    with engine.connect() as conn:
+        return [row._asdict() for row in conn.execute(stmt)]

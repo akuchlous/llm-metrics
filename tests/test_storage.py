@@ -18,6 +18,8 @@ import time
 import unittest
 from unittest import mock
 
+import sqlalchemy.exc
+
 from llm_metrics import pricing
 from llm_metrics import storage
 
@@ -66,8 +68,7 @@ RESULTS = [
 
 
 def init(db_path):
-    with contextlib.closing(storage.connect(db_path)):
-        pass
+    storage.connect(db_path)
 
 
 def read_rows(db_path, table="observations"):
@@ -165,9 +166,9 @@ class StorageTest(unittest.TestCase):
         )
 
     def test_cache_policy_must_be_in_the_vocabulary(self):
-        with self.assertRaises(sqlite3.IntegrityError):
+        with self.assertRaises(sqlalchemy.exc.IntegrityError):
             self.save({**REQUEST, "cache_policy": "cold"})
-        with self.assertRaises(sqlite3.IntegrityError):
+        with self.assertRaises(sqlalchemy.exc.IntegrityError):
             self.save({**REQUEST, "cached_input_tokens": -1})
 
     def test_metric_queries_can_filter_by_cache_policy(self):
@@ -230,12 +231,12 @@ class StorageTest(unittest.TestCase):
             *RESULTS[:2],
             {**RESULTS[2], "value": None},
         ]  # NOT NULL
-        with self.assertRaises(sqlite3.IntegrityError):
+        with self.assertRaises(sqlalchemy.exc.IntegrityError):
             self.save(results=bad_observation)
         bad_request = {**REQUEST, "input_tokens": -1}  # CHECK
-        with self.assertRaises(sqlite3.IntegrityError):
+        with self.assertRaises(sqlalchemy.exc.IntegrityError):
             self.save(request=bad_request)
-        with self.assertRaises(sqlite3.IntegrityError):
+        with self.assertRaises(sqlalchemy.exc.IntegrityError):
             self.save(environment="staging")  # CHECK
         self.assertEqual(read_rows(self.db_path), [])
         self.assertEqual(read_rows(self.db_path, "requests"), [])
@@ -324,7 +325,7 @@ class StorageTest(unittest.TestCase):
             unknown_outcome,
         ):
             with self.subTest(bad=bad):
-                with self.assertRaises(sqlite3.IntegrityError):
+                with self.assertRaises(sqlalchemy.exc.IntegrityError):
                     self.save(bad, results=[])
         self.assertEqual(read_rows(self.db_path, "requests"), [])
 

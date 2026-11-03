@@ -147,6 +147,8 @@ A unique index on observations (`recorded_at`, `environment`, `provider`, `model
 
 ## Next step
 
-**Step 018 in progress (2026-11-03):** OpenAI end-to-end vertical slice. Sequencing changed: Anthropic, Google, and xAI live onboarding are deferred until the complete operational path (persistence, unattended scheduler, real-data analytics, deployment) is proven with OpenAI. OpenAI is live-validated (one `interactive-chat-v1` request, attempt `9453a857…`, recorded in `prompts/018-output.md`). Gap analysis complete (`prompts/018a-output.md`). Next: Phase F (extend analytics/API/dashboard for real OpenAI data) — awaiting approval.
+**Step 018b complete (2026-11-03):** SQLAlchemy Core + Alembic persistence portability. `storage.py` rewritten to use SQLAlchemy Core (Table metadata, `engine.begin()`, parameterized statements). Alembic manages forward migrations (baseline revision `f1a2b3c4d5e6` = v7 schema). Legacy v0→v7 bridge preserved for existing local SQLite databases. All 344 offline tests pass; `./run.sh` verified. Next: Phase F (extend analytics/API/dashboard for real OpenAI data) — awaiting ChatGPT approval.
+
+Do not yet add more models, a scheduler, repeated benchmark runs, Docker, cloud deployment, PostgreSQL, authentication, price scraping/history, or workload matrices without a numbered prompt.
 
 Do not yet add more models, a scheduler, repeated benchmark runs, Docker, cloud deployment, PostgreSQL, authentication, price scraping/history, or workload matrices without a numbered prompt.

@@ -2,7 +2,7 @@
 
 Concise context not captured by `PROJECT_STATUS.md` or `DECISIONS.md`. Keep only decisions and learning that affect future work; this is not a conversation transcript.
 
-_Last updated: 2026-11-03_
+_Last updated: 2026-11-03 (018b)_
 
 ## Product direction
 
@@ -185,6 +185,25 @@ Do not execute that entire sequence as one step. Use small lettered prompts and 
 - exactly one recommended next implementation micro-step.
 
 018a must not implement persistence, deploy cloud resources, add scheduling, change provider semantics, onboard another provider, or make paid calls. After 018a is committed, ChatGPT reviews the actual repository/output before writing 018b.
+
+## Step 018b — SQLAlchemy Core + Alembic adopted (2026-11-03)
+
+ChatGPT wrote `prompts/018b-sqlalchemy-alembic-persistence.md` after reviewing 018a's gap analysis. The prompt required behavior-preserving portability: replace `sqlite3` with SQLAlchemy Core + Alembic while keeping all null semantics, CHECK constraints, and the v0→v7 legacy upgrade path.
+
+Implemented in this step:
+- `storage.py` rewritten: `Table` metadata, `engine.begin()` transactions, parameterized `text()` statements, no ORM.
+- `connect(db_path)` now returns a cached `Engine`; callers that were using it as a `sqlite3.Connection` updated.
+- Alembic baseline revision `f1a2b3c4d5e6` = v7 schema; fresh databases run `alembic upgrade head`.
+- Pre-Alembic local SQLite databases stamped without re-running DDL; legacy migration chain preserved.
+- 4 new pinned dependencies: `SQLAlchemy==2.0.36`, `alembic==1.14.1`, `Mako==1.3.10`, `typing_extensions==4.16.0`.
+- 344 offline tests pass; `./run.sh` verified end-to-end.
+
+Non-obvious decisions:
+- SQLAlchemy `inspect(conn).has_table()` used instead of deprecated `engine.dialect.has_table()`.
+- `PRAGMA user_version = 7` is set even for fresh Alembic-managed databases so that `test_fresh_database_is_current_version` (which reads the pragma) continues to pass.
+- v3 databases may have no observations table (no observations ever recorded); `_legacy_upgrade()` creates it if absent.
+
+No cloud resources, no PostgreSQL driver, no paid calls. 018c not started.
 
 ## Conversation-history policy
 

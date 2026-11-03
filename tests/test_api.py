@@ -16,6 +16,8 @@ import tempfile
 import unittest
 from unittest import mock
 
+from sqlalchemy import text as _sa_text
+
 from llm_metrics import analytics
 from llm_metrics import api
 from llm_metrics import query
@@ -295,12 +297,14 @@ class MetricsEndpointTest(unittest.TestCase):
         # Attempts are stamped with the real clock; move them to NOW's frame.
         request_id = storage.save_request(self.db_path, attempt, [], env)
         recorded_at = NOW - datetime.timedelta(hours=hours_ago)
-        with contextlib.closing(storage.connect(self.db_path)) as conn:
-            with conn:  # commits
-                conn.execute(
-                    "UPDATE requests SET recorded_at = ? WHERE id = ?",
-                    (storage.format_timestamp(recorded_at), request_id),
-                )
+        engine = storage.connect(self.db_path)
+        with engine.begin() as conn:
+            conn.execute(
+                _sa_text(
+                    "UPDATE requests SET recorded_at = :ts WHERE id = :id"
+                ),
+                {"ts": storage.format_timestamp(recorded_at), "id": request_id},
+            )
 
     def test_defaults_are_ttft_over_7d(self):
         body = self.get_json("/api/v1/metrics")

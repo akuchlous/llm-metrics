@@ -182,6 +182,11 @@ class RequirementsFileTest(unittest.TestCase):
                 "click",
                 "blinker",
                 "markupsafe",
+                # Step 018b: SQLAlchemy Core + Alembic persistence portability
+                "sqlalchemy",
+                "alembic",
+                "mako",
+                "typing_extensions",
             },
         )
 

@@ -81,9 +81,9 @@ class RunScriptTest(unittest.TestCase):
             # Copy into a temp dir so the real repository's .venv is untouched.
             copy = pathlib.Path(tmp) / "llm-metrics"
             copy.mkdir()
-            for name in ("run.sh", "requirements.txt"):
+            for name in ("run.sh", "requirements.txt", "alembic.ini"):
                 shutil.copy2(REPO_ROOT / name, copy / name)
-            for name in ("llm_metrics", "tests", "scripts"):
+            for name in ("llm_metrics", "tests", "scripts", "migrations"):
                 shutil.copytree(
                     REPO_ROOT / name,
                     copy / name,

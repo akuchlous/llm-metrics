@@ -4,6 +4,20 @@
 # Versions were chosen at least two weeks after release. To change a
 # version, update it and all of its file hashes from PyPI together.
 
+# SQLAlchemy Core: portable database abstraction layer (D066).
+# Linux x86_64 cp313 wheel only; add hashes for other platforms as needed.
+SQLAlchemy==2.0.36 \
+    --hash=sha256:9e46ed38affdfc95d2c958de328d037d87801cfcbea6d421000859e9789e61c2
+# Alembic: schema migration tool backed by SQLAlchemy (D066).
+alembic==1.14.1 \
+    --hash=sha256:1acdd7a3a478e208b0503cd73614d5e4c6efafa4e73518bb60e4f2846a37b1c5
+# Alembic dependency: template rendering for migration scripts.
+Mako==1.3.10 \
+    --hash=sha256:baef24a52fc4fc514a0887ac600f9f1cff3d82c61d4d700a1fa84d597b88db59
+# SQLAlchemy/Alembic dependency: typing backports.
+typing_extensions==4.16.0 \
+    --hash=sha256:481caa481374e813c1b176ada14e97f1f67a4539ce9cfeb3f350d78d6370c2e8
+
 # Web framework for the dashboard (D056).
 Flask==3.1.3 \
     --hash=sha256:0ef0e52b8a9cd932855379197dd8f94047b359ca0a78695144304cb45f87c9eb \
