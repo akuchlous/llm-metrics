@@ -63,3 +63,4 @@ Each file has:
 | [17](17/) | Codebase simplification and reuse | `prompts/017-codebase-simplification-and-reuse.md` |
 | [018a](018a/) | OpenAI vertical-slice gap analysis and architecture | `prompts/018a-openai-vertical-slice-gap-analysis.md` |
 | [018b](018b/) | SQLAlchemy Core + Alembic migration | `prompts/018b-sqlalchemy-alembic-persistence.md` |
+| [018c](018c/) | PostgreSQL-ready storage — dialect-aware connect/schema/insert | `prompts/018c-postgresql-storage-readiness.md` |
