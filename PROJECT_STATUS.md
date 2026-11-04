@@ -1,8 +1,10 @@
 # Project status
 
-_Last updated: Step 018e — 2026-11-04_
+_Last updated: Step 018f Stage A — 2026-11-03_
 
 ## Current state
+
+**Step 018f Stage A complete (pending review): first controlled OpenAI measurement on Google Cloud — gated readiness.** `.dockerignore` build-context bug fixed: `scripts/` exclusion now has a `!scripts/install_requirements.py` negation, so the Dockerfile installer reaches the build context. Mako upgraded from 1.3.10 to 1.3.12 for CVEs GHSA-v92g-xgxw-vvmm and GHSA-2h4p-vjrc-8xpq. `tests/test_container_config.py` added (5 offline Dockerfile/.dockerignore consistency tests). OSV advisory scan performed; Mako was the only finding; all other packages clean. Docker build: **unverified** (Docker not available). GCP read-only inspection: **blocked** (gcloud not available; commands provided for user). Authorization checkpoint produced with resource names, region, cost estimates, and teardown plan (see `prompts/018f-output.md`). **Stage B is blocked pending explicit in-session user authorization.** 392 tests total (379 offline, 13 skipped); `./run.sh` verified. No GCP resources created; $0 incurred.
 
 **Step 018e implemented (pending review): secure Cloud Run deployment readiness (code only).** `Dockerfile` added: Python 3.13-slim, non-root `appuser`, Gunicorn (`--workers 1 --timeout 120`), `0.0.0.0:${PORT}` binding for Cloud Run. `.dockerignore` excludes `.git`, secrets, `data/`, `.venv/`, tests, and dev files. `gunicorn==23.0.0` and `packaging==24.2` added to `requirements.txt` with sha256 hashes. `web.py HOST` reads `LLM_METRICS_HOST` env var (default `127.0.0.1`; `./run.sh` unaffected). `real_benchmark.run()` pre-flight DB check before the paid call: `storage.connect()` failure returns exit 2 with a redacted URL. `test_postgres_integration.py` strengthened with database-name disposability check (`_SAFE_DBNAME_RE`) guarding against SSH tunnels to production over localhost. `.gitignore` expanded with `.env.*`, key/cert patterns. 387 tests total (374 run offline, 13 skipped); `./run.sh` verified. Container build: **unverified** (Docker not available). Advisory scan: **not scanned**. No GCP resources created; no paid calls.
 
@@ -155,8 +157,6 @@ A unique index on observations (`recorded_at`, `environment`, `provider`, `model
 
 ## Next step
 
-**Step 018b complete (2026-11-03):** SQLAlchemy Core + Alembic persistence portability. `storage.py` rewritten to use SQLAlchemy Core (Table metadata, `engine.begin()`, parameterized statements). Alembic manages forward migrations (baseline revision `f1a2b3c4d5e6` = v7 schema). Legacy v0→v7 bridge preserved for existing local SQLite databases. All 344 offline tests pass; `./run.sh` verified. Next: Phase F (extend analytics/API/dashboard for real OpenAI data) — awaiting ChatGPT approval.
+**Step 018f Stage A complete (2026-11-03):** Docker build-context bug fixed; Mako upgraded for CVEs; container consistency tests added; OSV advisory scan run; GCP cost research completed; authorization checkpoint produced. 392 tests (379 offline); `./run.sh` verified. Stage B blocked pending explicit user authorization of cloud resource provisioning. Next: await user authorization for Stage B (Cloud SQL, Artifact Registry, Cloud Run Job, one OpenAI request).
 
-Do not yet add more models, a scheduler, repeated benchmark runs, Docker, cloud deployment, PostgreSQL, authentication, price scraping/history, or workload matrices without a numbered prompt.
-
-Do not yet add more models, a scheduler, repeated benchmark runs, Docker, cloud deployment, PostgreSQL, authentication, price scraping/history, or workload matrices without a numbered prompt.
+Do not yet add more models, a scheduler, repeated benchmark runs, authentication, price scraping/history, or workload matrices without a numbered prompt. Do not provision GCP resources, build/push images, or make paid API calls without explicit bounded user authorization in this session.

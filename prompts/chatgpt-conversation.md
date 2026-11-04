@@ -321,3 +321,24 @@ MARKETING CHECKPOINT: not publishable yet. No live cloud data, no periodic bench
 After reviewing 018e's committed implementation, ChatGPT identified a concrete unverified Docker build blocker: `.dockerignore` excludes `scripts/` even though the Dockerfile copies `scripts/install_requirements.py`. The user also decided to publish LLM Metrics using static HTML/charts/versioned JSON behind CDN rather than a public continuously running Flask service; Router/Xchange can consume cached JSON snapshots. Consequently the next cloud milestone is **one Cloud Run Job OpenAI request persisted in PostgreSQL**, not a Cloud Run web service.
 
 ChatGPT authored `prompts/018f-first-openai-cloud-measurement.md`. Its free readiness stage fixes and verifies the container, tests, checks dependencies, performs read-only GCP inspection and verifies current official cost estimates. Creating/enabling GCP services, provisioning databases, uploading secrets and making paid provider calls are **strictly forbidden** until the user explicitly approves a named and bounded plan in Claude's session; invocation of the prompt is not authorization. If approval is absent, Claude must report a truthful blocked checkpoint, commit the output, and stop. With bounded approval, the scope is exactly one OpenAI-only single-task benchmark on Cloud Run Job with no automatic retry, no schedule, no public site. Previously completed prompts and historical log entries remain unchanged.
+
+
+## Step 018f Stage A implementation — gated first OpenAI Cloud measurement readiness (2026-11-03)
+
+Step 018f Stage A is complete. 392 tests total (379 run offline, 13 skipped without `TEST_POSTGRES_URL`); `./run.sh` verified. No GCP resources created; no paid provider calls made; $0 incurred. Stage B is blocked pending explicit in-session user authorization.
+
+**What changed:**
+
+`.dockerignore` build-context bug fixed: `scripts/` was excluded without a negation, making `scripts/install_requirements.py` absent from the build context. The Dockerfile `RUN python scripts/install_requirements.py` would have silently failed. Fix: added `scripts/` exclusion with a comment and `!scripts/install_requirements.py` negation immediately after. Order is load-bearing: negation must follow exclusion.
+
+Mako upgraded from 1.3.10 to 1.3.12: patches GHSA-v92g-xgxw-vvmm (double-slash path traversal in `TemplateLookup`) and GHSA-2h4p-vjrc-8xpq (backslash URI on Windows). Third CVE (GHSA-5639-2j2p-m4mx, Windows drive-letter, fixed in 1.4.2) is Windows-only and not patched in this Linux container. Advisory scan via OSV API; all other packages clean.
+
+`tests/test_container_config.py` added: 5 offline tests verifying that every Dockerfile `COPY` source is reachable in the build context (not excluded by `.dockerignore`), and that `scripts/install_requirements.py` specifically passes. `@unittest.skipUnless` guard makes the class skip when `Dockerfile`/`.dockerignore` are absent (e.g. in `test_end_to_end_in_a_copy`'s temporary directory copy), fixing a previously failing run.sh copy test.
+
+Architecture decision recorded (D069): public LLM Metrics delivery uses static HTML and versioned JSON snapshots behind CDN, not a continuously running public Flask/Cloud Run service. Flask remains for local/private diagnostics.
+
+**GCP readiness (blocked):** `gcloud` not available; GCP read-only inspection commands provided for user to run. Docker not available; image build unverified. Authorization checkpoint produced in `prompts/018f-output.md` with resource names (project `llm-metrics-513617`, region us-central1), cost estimates (~$10–13/month Cloud SQL, <$0.01 one-time for a single job run), and a one-command teardown plan.
+
+**What is NOT done:** Docker image build (unverified); GCP inspection (gcloud unavailable); Stage B (billable): Cloud SQL, Artifact Registry, Secret Manager, Cloud Run Job — all blocked pending explicit authorization.
+
+MARKETING CHECKPOINT: not publishable yet. No live cloud data; no periodic real benchmark runs; Stage B not authorized.

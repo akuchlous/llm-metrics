@@ -27,7 +27,10 @@ pyproject.toml
 # Development and project management files
 prompts/
 design-questions/
+# scripts/ is excluded except for the dependency installer used in the Dockerfile RUN step.
+# The negation must follow the exclusion pattern to take effect.
 scripts/
+!scripts/install_requirements.py
 run.sh
 DECISIONS.md
 PROJECT_STATUS.md
