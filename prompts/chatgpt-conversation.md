@@ -288,3 +288,8 @@ Step 018d is complete. PostgreSQL 17.11 installed locally; disposable database `
 `alembic_cfg.set_main_option("sqlalchemy.url", str(engine.url))` replaced by passing a live connection via `config.attributes["connection"]`. This prevents percent-encoded password characters (e.g. `%40`) from triggering Python's `ConfigParser` interpolation and keeps credentials out of Alembic's config logging path. `_redact_db_url()` utility added; `connect()` disposes the engine if `_ensure_schema()` raises.
 
 **What is NOT done:** no Cloud SQL, no Cloud Run, no GCP resources, no paid calls.
+
+
+## Step 018e security and cloud deployability gate (2026-11-04)
+
+After Step 018d's local PostgreSQL proof, the user requested a security-focused Step 018e that prepares the code to deploy to cloud, with actual Google Cloud deployment as the next step. ChatGPT reviewed the security gaps (unauthenticated local dashboard, cloud runtime readiness, secrets and engine-cache handling, paid-call database preflight, destructive local PostgreSQL test guard, dependencies and explicit execution bounds) and created `prompts/018e-secure-cloud-deployment-readiness.md`. This step adds secure, reproducible Cloud Run web and one-shot job container readiness and targeted safety fixes, but explicitly **does not** create Google Cloud resources or call paid providers. The following separately reviewed step is intended to deploy in existing project `llm-metrics-513617`. The root prompt-authoring contract, four role-specific design questions, testing, output report, marketing checkpoint and stop-for-review requirement remain mandatory; older conversation history is preserved.
