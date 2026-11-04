@@ -314,3 +314,10 @@ Pre-flight DB check: `real_benchmark.run()` calls `storage.connect(db_path)` bef
 **What is NOT done:** Docker image build (Docker unavailable — marked unverified); pip-audit scan (not available — marked not scanned); no Cloud SQL, Cloud Run, Artifact Registry, IAM, or Secret Manager resources created. Cloud Run deployment checklist written as a non-executed artifact in `prompts/018e-output.md`.
 
 MARKETING CHECKPOINT: not publishable yet. No live cloud data, no periodic benchmark runs.
+
+
+## Step 018f prompt — gated first OpenAI-only Google Cloud measurement (2026-11-04)
+
+After reviewing 018e's committed implementation, ChatGPT identified a concrete unverified Docker build blocker: `.dockerignore` excludes `scripts/` even though the Dockerfile copies `scripts/install_requirements.py`. The user also decided to publish LLM Metrics using static HTML/charts/versioned JSON behind CDN rather than a public continuously running Flask service; Router/Xchange can consume cached JSON snapshots. Consequently the next cloud milestone is **one Cloud Run Job OpenAI request persisted in PostgreSQL**, not a Cloud Run web service.
+
+ChatGPT authored `prompts/018f-first-openai-cloud-measurement.md`. Its free readiness stage fixes and verifies the container, tests, checks dependencies, performs read-only GCP inspection and verifies current official cost estimates. Creating/enabling GCP services, provisioning databases, uploading secrets and making paid provider calls are **strictly forbidden** until the user explicitly approves a named and bounded plan in Claude's session; invocation of the prompt is not authorization. If approval is absent, Claude must report a truthful blocked checkpoint, commit the output, and stop. With bounded approval, the scope is exactly one OpenAI-only single-task benchmark on Cloud Run Job with no automatic retry, no schedule, no public site. Previously completed prompts and historical log entries remain unchanged.
