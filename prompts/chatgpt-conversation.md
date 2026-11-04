@@ -364,3 +364,8 @@ Step 018f Stage B is complete. One `gpt-6-luna` / `interactive-chat-v1` request 
 **Ongoing GCP cost:** ~$0.14/month (one secret version + negligible storage). Budget alert: $100/month, notifications at $50/$90/$100.
 
 MARKETING CHECKPOINT: not publishable yet. n=1, single provider, single region. Next step: periodic scheduled runs and/or multi-provider comparison to build a meaningful dataset.
+
+
+## Step 018g prompt — post-pilot security cleanup and durable baseline (2026-11-04)
+
+Following successful 018f Cloud Run OpenAI pilot and immediate Cloud SQL teardown, the user requested Step 018g and explicitly required all five remaining findings to be addressed: remove unused default compute service account `roles/editor` after dependency inspection; eliminate the stale database URL secret safely; retire a duplicate OpenAI secret version without breaking job references; preserve the one-request/four-observation CSV export in verified private durable storage outside Cloud Shell; and remove only verified orphaned Cloud Build source archives. ChatGPT created `prompts/018g-post-pilot-cleanup-and-backup.md` as a narrowly scoped, approval-gated cloud hygiene and data-preservation step. It explicitly defers scheduling, another paid benchmark, provider onboarding and static public publishing. Claude must present a read-only inspection and precise resource mutation plan, gain explicit scoped user approval, verify each mutation and commit a full report plus four role-specific design Q&A files, and stop for review. Prior history is unchanged.
