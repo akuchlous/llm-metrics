@@ -342,3 +342,25 @@ Architecture decision recorded (D069): public LLM Metrics delivery uses static H
 **What is NOT done:** Docker image build (unverified); GCP inspection (gcloud unavailable); Stage B (billable): Cloud SQL, Artifact Registry, Secret Manager, Cloud Run Job — all blocked pending explicit authorization.
 
 MARKETING CHECKPOINT: not publishable yet. No live cloud data; no periodic real benchmark runs; Stage B not authorized.
+
+
+## Step 018f Stage B implementation — first real OpenAI Cloud Run measurement (2026-11-04)
+
+Step 018f Stage B is complete. One `gpt-6-luna` / `interactive-chat-v1` request executed via Cloud Run Job in gcp/us-central1; stored in Cloud SQL; Cloud SQL immediately deleted post-run. Total spend: under $0.05. No GCP resources created from local machine; all cloud work executed in Google Cloud Shell (D070).
+
+**New architecture decision (D070):** Google Cloud Shell is the preferred environment for all GCP deployment and infrastructure management. Local dev (Python, tests, run.sh) and GitHub (source of truth) are unchanged.
+
+**Measurement result:**
+- TTFT: 2013ms | Total latency: 4428ms | Throughput: 128 tokens/s
+- Tokens: 1795 input (0 cached) / 300 output (hit cap)
+- Cost: $0.00033 | Outcome: success | Environment: prod
+
+**What was provisioned and torn down:** Cloud SQL `llm-metrics-postgres` (db-f1-micro, Enterprise, PG17, us-central1); schema migrated via `storage.connect()`; Cloud Run Job executed once; Cloud SQL deleted. Artifact Registry image `app:sha-9cf8ac9` (~67 MB, free tier), `llm-metrics-job` service account, and budget alert remain.
+
+**Deviations from plan:** Cloud Build used instead of local `docker push` (Cloud Shell Docker daemon cannot reach Artifact Registry — D071); `llm-metrics-build` service account created with minimum permissions; migration via `storage.connect()` rather than `alembic` CLI.
+
+**Data:** measurement row exported to `~/llm-metrics-018f-result/requests.csv` and `observations.csv` in Cloud Shell persistent home (only copy; Cloud SQL deleted). Key fields documented in `prompts/018f-output.md`.
+
+**Ongoing GCP cost:** ~$0.14/month (one secret version + negligible storage). Budget alert: $100/month, notifications at $50/$90/$100.
+
+MARKETING CHECKPOINT: not publishable yet. n=1, single provider, single region. Next step: periodic scheduled runs and/or multi-provider comparison to build a meaningful dataset.
