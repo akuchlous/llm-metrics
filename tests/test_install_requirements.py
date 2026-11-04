@@ -189,6 +189,9 @@ class RequirementsFileTest(unittest.TestCase):
                 "typing_extensions",
                 # Step 018c: PostgreSQL driver for Cloud SQL compatibility
                 "psycopg2-binary",
+                # Step 018e: production WSGI server for Cloud Run
+                "gunicorn",
+                "packaging",
             },
         )
 

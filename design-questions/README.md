@@ -65,3 +65,4 @@ Each file has:
 | [018b](018b/) | SQLAlchemy Core + Alembic migration | `prompts/018b-sqlalchemy-alembic-persistence.md` |
 | [018c](018c/) | PostgreSQL-ready storage — dialect-aware connect/schema/insert | `prompts/018c-postgresql-storage-readiness.md` |
 | [018d](018d/) | Real PostgreSQL integration proof and safe migration gate | `prompts/018d-postgresql-integration-and-migration-safety.md` |
+| [018e](018e/) | Secure Cloud Run deployment readiness (code only) | `prompts/018e-secure-cloud-deployment-readiness.md` |

@@ -1,0 +1,39 @@
+# Version control — never bake git history into an image layer
+.git/
+.gitignore
+
+# Secrets and local configuration
+.env
+.env.*
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+service-account*.json
+*-credentials.json
+
+# Local runtime data (SQLite databases, local benchmark output)
+data/
+
+# Virtual environment (the image installs its own dependencies)
+.venv/
+
+# Tests and test configuration (not needed at runtime)
+tests/
+.pylintrc
+pyproject.toml
+
+# Development and project management files
+prompts/
+design-questions/
+scripts/
+run.sh
+DECISIONS.md
+PROJECT_STATUS.md
+*.md
+
+# Python byte-code
+__pycache__/
+*.pyc
+*.pyo

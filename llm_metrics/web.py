@@ -36,6 +36,7 @@ styles, and nothing external: only the stylesheet served from this app.
 
 import datetime
 import json
+import os
 import pathlib
 import socket
 import sys
@@ -49,7 +50,9 @@ from llm_metrics import config
 from llm_metrics import dashboard
 from llm_metrics import query
 
-HOST = "127.0.0.1"
+# Default: localhost-only for local dev (./run.sh). Set LLM_METRICS_HOST=0.0.0.0
+# when running behind a production WSGI server (e.g. Gunicorn on Cloud Run).
+HOST = os.environ.get("LLM_METRICS_HOST", "127.0.0.1")
 # The pages have no scripts and load only /static/dashboard.css, so the policy
 # blocks everything else, including inline styles and scripts.
 CONTENT_SECURITY_POLICY = "default-src 'none'; style-src 'self'"

@@ -1,8 +1,10 @@
 # Project status
 
-_Last updated: Step 018d — 2026-11-03_
+_Last updated: Step 018e — 2026-11-04_
 
 ## Current state
+
+**Step 018e implemented (pending review): secure Cloud Run deployment readiness (code only).** `Dockerfile` added: Python 3.13-slim, non-root `appuser`, Gunicorn (`--workers 1 --timeout 120`), `0.0.0.0:${PORT}` binding for Cloud Run. `.dockerignore` excludes `.git`, secrets, `data/`, `.venv/`, tests, and dev files. `gunicorn==23.0.0` and `packaging==24.2` added to `requirements.txt` with sha256 hashes. `web.py HOST` reads `LLM_METRICS_HOST` env var (default `127.0.0.1`; `./run.sh` unaffected). `real_benchmark.run()` pre-flight DB check before the paid call: `storage.connect()` failure returns exit 2 with a redacted URL. `test_postgres_integration.py` strengthened with database-name disposability check (`_SAFE_DBNAME_RE`) guarding against SSH tunnels to production over localhost. `.gitignore` expanded with `.env.*`, key/cert patterns. 387 tests total (374 run offline, 13 skipped); `./run.sh` verified. Container build: **unverified** (Docker not available). Advisory scan: **not scanned**. No GCP resources created; no paid calls.
 
 **Step 018d implemented (pending review): real PostgreSQL integration proof and safe migration gate.** 13 integration tests run against PostgreSQL 17 (local, disposable `llm_metrics_018d` database): v7 schema creation, FK/index presence, revision row, request/observation round-trip, failed-request NULL semantics, CHECK and FK constraint enforcement, atomic rollback, environment isolation, cache-policy filtering, spend aggregation, seeding idempotency, reconnect durability, and timestamp ordering all pass. Fail-closed: PostgreSQL with existing tables but no Alembic revision now raises `RuntimeError` instead of silently stamping. Credentials kept out of Alembic config strings (connection passed via `config.attributes["connection"]`); `_redact_db_url()` utility strips `user:pass@` from URL strings. `spend_by_model` ORDER BY fixed for PostgreSQL strict GROUP BY (`r.c.total_cost.is_(None)` → aggregate expression). 376 tests total (363 run offline; 13 integration skipped without `TEST_POSTGRES_URL`); `./run.sh` verified. No GCP resources created.
 

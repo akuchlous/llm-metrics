@@ -35,6 +35,7 @@ from llm_metrics import google_provider
 from llm_metrics import http_streaming
 from llm_metrics import openai_provider
 from llm_metrics import pricing
+from llm_metrics import storage
 from llm_metrics import targets
 from llm_metrics import workloads
 from llm_metrics import xai_provider
@@ -120,6 +121,22 @@ def run(
         )
         return 2
 
+    db_path = config.get_database_url()
+    # Pre-flight: verify DB is reachable and schema is ready before making a
+    # paid API call. A storage failure after the call would orphan a billed
+    # attempt. This runs before the announcement so "No request was made" is
+    # always accurate.
+    try:
+        storage.connect(db_path)
+    except Exception:  # pylint: disable=broad-except
+        print(
+            "Error: cannot connect to the database before making a paid"
+            f" request ({storage._redact_db_url(str(db_path))})."
+            " Check DB availability. No request was made.",
+            file=sys.stderr,
+        )
+        return 2
+
     provider = ADAPTERS[target.provider](api_key)
     source, verified_on = pricing.PRICE_PROVENANCE[
         (target.provider, target.model)
@@ -145,7 +162,6 @@ def run(
         print("Warning: the price for this model is not yet verified.")
     print()
 
-    db_path = config.get_database_url()
     try:
         request, results, request_id = benchmark.run_attempt(
             provider, workload, ENVIRONMENT, db_path, origin=origin

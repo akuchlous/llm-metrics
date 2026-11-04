@@ -14,11 +14,19 @@ The test database must already exist and the user must have full privileges on
 it. Each test class drops and recreates the application tables in setUp so
 every test starts with a clean schema; no data from other tests or runs survives.
 
+Security note: the hostname check (localhost/127.0.0.1) is necessary but not
+sufficient. An SSH port-forwarding tunnel (e.g. `ssh -L 5432:prod-db:5432`)
+makes a production database appear at localhost. The database name must also
+contain a recognizable disposable marker (test, dev, bench, tmp, temp, or a
+step suffix like 018d) as a second guard. Neither check is a guarantee: treat
+TEST_POSTGRES_URL as a destructive-operation credential.
+
 Never set TEST_POSTGRES_URL to a shared or production database.
 """
 
 import datetime
 import os
+import re
 import unittest
 from urllib.parse import urlparse
 
@@ -28,6 +36,10 @@ from sqlalchemy import create_engine, inspect as sa_inspect, text
 from llm_metrics import storage
 
 _URL_VAR = "TEST_POSTGRES_URL"
+# Pattern that marks a database name as intentionally disposable.
+_SAFE_DBNAME_RE = re.compile(
+    r"(test|dev|bench|tmp|temp|\d{3,}[a-z])", re.IGNORECASE
+)
 
 # Synthetic test fixtures — identical to test_storage.py constants so the
 # same semantics are exercised on PostgreSQL.
@@ -105,6 +117,18 @@ class PostgresIntegrationTest(unittest.TestCase):
             raise unittest.SkipTest(
                 f"{_URL_VAR} must point to localhost or 127.0.0.1"
                 " — never use a shared or cloud database for these tests."
+            )
+        # SSH tunnels forward a production database to localhost, bypassing the
+        # hostname check above. Require a database name that signals disposable
+        # intent as a second guard. See module docstring.
+        dbname = parsed.path.lstrip("/")
+        if not _SAFE_DBNAME_RE.search(dbname):
+            raise unittest.SkipTest(
+                f"{_URL_VAR} database name {dbname!r} lacks a recognizable"
+                " disposable marker (test, dev, bench, tmp, temp, or a step"
+                " suffix like 018d). Rename the target database or use a"
+                " different one — this guard exists because SSH tunnels can"
+                " make a production database appear at localhost."
             )
         cls.pg_url = url
 

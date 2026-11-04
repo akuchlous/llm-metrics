@@ -293,3 +293,24 @@ Step 018d is complete. PostgreSQL 17.11 installed locally; disposable database `
 ## Step 018e security and cloud deployability gate (2026-11-04)
 
 After Step 018d's local PostgreSQL proof, the user requested a security-focused Step 018e that prepares the code to deploy to cloud, with actual Google Cloud deployment as the next step. ChatGPT reviewed the security gaps (unauthenticated local dashboard, cloud runtime readiness, secrets and engine-cache handling, paid-call database preflight, destructive local PostgreSQL test guard, dependencies and explicit execution bounds) and created `prompts/018e-secure-cloud-deployment-readiness.md`. This step adds secure, reproducible Cloud Run web and one-shot job container readiness and targeted safety fixes, but explicitly **does not** create Google Cloud resources or call paid providers. The following separately reviewed step is intended to deploy in existing project `llm-metrics-513617`. The root prompt-authoring contract, four role-specific design questions, testing, output report, marketing checkpoint and stop-for-review requirement remain mandatory; older conversation history is preserved.
+
+
+## Step 018e implementation — Secure Cloud Run deployment readiness (2026-11-04)
+
+Step 018e is complete. 387 tests total (374 run offline, 13 skipped without `TEST_POSTGRES_URL`); `./run.sh` verified. No GCP resources created; no paid provider calls made.
+
+**What changed:**
+
+`Dockerfile` added: `python:3.13-slim` base, `appuser` non-root identity, hash-pinned dependencies installed via `scripts/install_requirements.py`, `0.0.0.0:${PORT}` via Gunicorn (`--workers 1 --timeout 120`). Two container modes documented in CMD comments: default web service (never makes paid calls) and one-shot job (`python -m llm_metrics.real_benchmark --provider openai --real [--workload ...]` as CMD override). `.dockerignore` excludes `.git`, secrets, `data/`, `.venv/`, tests, and dev-only files.
+
+`gunicorn==23.0.0` and `packaging==24.2` added to `requirements.txt` with sha256 hashes (D057). `web.py HOST` reads `LLM_METRICS_HOST` env var (default `127.0.0.1`); local `./run.sh` behavior unchanged.
+
+Pre-flight DB check: `real_benchmark.run()` calls `storage.connect(db_path)` before announcing the paid call or making any network request. A storage failure (bad credentials, missing database, schema migration conflict) returns exit 2 with the redacted URL and "No request was made". 10 regression tests added in `tests/test_preflight_db_check.py`.
+
+`test_postgres_integration.py` strengthened: `_SAFE_DBNAME_RE` module constant; `setUpClass` refuses database names that lack a recognizable disposable marker (test, dev, bench, tmp, temp, or step suffix like 018d). Module docstring explicitly notes that SSH port-forwarding tunnels make a production database appear at localhost, bypassing the hostname check alone.
+
+`.gitignore` expanded: `.env.*`, key/cert file patterns (`*.pem`, `*.key`, `*.crt`, `*.p12`, `*.pfx`, `service-account*.json`, `*-credentials.json`).
+
+**What is NOT done:** Docker image build (Docker unavailable — marked unverified); pip-audit scan (not available — marked not scanned); no Cloud SQL, Cloud Run, Artifact Registry, IAM, or Secret Manager resources created. Cloud Run deployment checklist written as a non-executed artifact in `prompts/018e-output.md`.
+
+MARKETING CHECKPOINT: not publishable yet. No live cloud data, no periodic benchmark runs.
