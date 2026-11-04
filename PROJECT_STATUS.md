@@ -1,6 +1,6 @@
 # Project status
 
-_Last updated: Step 018f Stage A — 2026-11-03_
+_Last updated: Step 018f Stage A + Cloud Shell decision — 2026-11-03_
 
 ## Current state
 
