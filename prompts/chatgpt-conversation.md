@@ -369,3 +369,18 @@ MARKETING CHECKPOINT: not publishable yet. n=1, single provider, single region. 
 ## Step 018g prompt — post-pilot security cleanup and durable baseline (2026-11-04)
 
 Following successful 018f Cloud Run OpenAI pilot and immediate Cloud SQL teardown, the user requested Step 018g and explicitly required all five remaining findings to be addressed: remove unused default compute service account `roles/editor` after dependency inspection; eliminate the stale database URL secret safely; retire a duplicate OpenAI secret version without breaking job references; preserve the one-request/four-observation CSV export in verified private durable storage outside Cloud Shell; and remove only verified orphaned Cloud Build source archives. ChatGPT created `prompts/018g-post-pilot-cleanup-and-backup.md` as a narrowly scoped, approval-gated cloud hygiene and data-preservation step. It explicitly defers scheduling, another paid benchmark, provider onboarding and static public publishing. Claude must present a read-only inspection and precise resource mutation plan, gain explicit scoped user approval, verify each mutation and commit a full report plus four role-specific design Q&A files, and stop for review. Prior history is unchanged.
+
+
+## Step 018g implementation — post-pilot security cleanup and durable backup (2026-11-04)
+
+Step 018g is complete. Claude ran Phase A read-only inspection in Google Cloud Shell, presented an exact five-action plan with SHA-256 checksums, and the user approved all actions in-session ("aproved for all actions"). Each mutation was independently verified.
+
+1. **HIGH — resolved:** project `roles/editor` removed from the default compute SA. Evidence: the job runs as `llm-metrics-job@`, the only build ran as `llm-metrics-build@`, no Cloud Run services, empty SA-level IAM. Post-check: compute SA has no project roles.
+2. **MEDIUM — resolved:** job's `LLM_METRICS_DATABASE_URL` secret reference and Cloud SQL attachment removed; secret deleted (0 Cloud SQL instances). Re-configuration steps recorded.
+3. **MEDIUM — resolved:** `OPENAI_API_KEY` v1 disabled, not destroyed; v2 enabled and resolved by the job's `latest` reference. No payloads read.
+4. **MEDIUM — resolved (D072):** CSVs backed up to private, versioned `gs://llm-metrics-513617-pilot-backups/snapshots/018f/2026-11-04/` with `SHA256SUMS`; independent download checksums matched; 1 request / 4 observation rows.
+5. **LOW — resolved:** three orphaned Cloud Build source tarballs deleted; image `app:sha-9cf8ac9` retained.
+
+**Residual risk found:** with the DB URL removed, the job falls back to container SQLite, so a manual execution would make one ~$0.0003 paid call and lose the result. Proposed fail-closed guard for 018h; do not execute the job meanwhile. `Bash(gcloud *)` Claude setting recommended for narrowing, not changed. No code changes; tests not re-run. Ongoing cost ~$0.13/month.
+
+MARKETING CHECKPOINT: not publishable yet. Stopping for ChatGPT review; Step 018h not started.

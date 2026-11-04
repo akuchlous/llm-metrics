@@ -1,8 +1,10 @@
 # Project status
 
-_Last updated: Step 018f complete — 2026-11-04_
+_Last updated: Step 018g complete — 2026-11-04_
 
 ## Current state
+
+**Step 018g complete: post-pilot security cleanup and durable backup.** All five 018f findings resolved in Cloud Shell after explicit approval: (1) project `roles/editor` removed from the default compute service account (unused by the job, build or any service); (2) Cloud Run Job's `LLM_METRICS_DATABASE_URL` reference and Cloud SQL attachment removed, secret deleted; (3) `OPENAI_API_KEY` v1 disabled (v2 enabled, job uses `latest`); (4) pilot CSVs (1 request, 4 observations) backed up to private, versioned `gs://llm-metrics-513617-pilot-backups/snapshots/018f/2026-11-04/` with a `SHA256SUMS` manifest, verified by independent download (D072); (5) three orphaned Cloud Build source tarballs deleted; image `app:sha-9cf8ac9` retained. Residual risk: without a DB URL the job falls back to container SQLite, so a manual execution would spend ~$0.0003 and lose the result; do not execute the job until a fail-closed guard (proposed 018h) or a database exists. Remaining GCP resources: idle Cloud Run Job, `OPENAI_API_KEY` secret, Artifact Registry image, backup bucket, empty Cloud Build bucket, service accounts, budget alert. Ongoing cost ~$0.13/month. No code changes; tests not re-run (inherited 018e result). Full evidence in `prompts/018g-output.md`.
 
 **Step 018f complete: first real OpenAI Cloud Run measurement verified.** One `gpt-6-luna` / `interactive-chat-v1` request executed from a Cloud Run Job in gcp/us-central1; stored in Cloud SQL; Cloud SQL immediately deleted post-run. TTFT 2013ms, total latency 4428ms, 128 tokens/s, 1795 input / 300 output tokens (hit cap), $0.00033. Total Stage B spend: under $0.05. Full evidence in `prompts/018f-output.md`. GCP resources still running: Artifact Registry image (free tier), Cloud Run Job (free idle), `OPENAI_API_KEY` secret (~$0.06/month), `llm-metrics-job` and `llm-metrics-build` service accounts (free), budget alert. Ongoing cost: ~$0.14/month. Data CSV preserved at `~/llm-metrics-018f-result/` in Cloud Shell persistent home. Docker build verified in Cloud Shell (Cloud Build path; local daemon cannot push to Artifact Registry — D071).
 
