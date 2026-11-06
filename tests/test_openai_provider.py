@@ -886,8 +886,11 @@ class RealSmokeCommandTest(unittest.TestCase):
             for p in patches:
                 stack.enter_context(p)
             # Drop any Compose-injected PostgreSQL URL so the test uses the
-            # temp SQLite path set above.  patch.dict restores it on exit.
-            os.environ.pop("LLM_METRICS_DATABASE_URL", None)
+            # temp SQLite path set above — but only when this test hasn't
+            # explicitly supplied a DATABASE_URL for the cloud-guard check.
+            # patch.dict restores it on exit.
+            if "LLM_METRICS_DATABASE_URL" not in env:
+                os.environ.pop("LLM_METRICS_DATABASE_URL", None)
             stack.enter_context(contextlib.redirect_stdout(out))
             stack.enter_context(contextlib.redirect_stderr(err))
             code = real_smoke.main(self.argv)

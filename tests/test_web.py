@@ -380,6 +380,7 @@ class AppFactoryTest(unittest.TestCase):
             self.assertEqual(app.config[web.DB_PATH_KEY], f"sqlite:///{db_path}")
         with mock.patch.dict(os.environ, {}, clear=False):
             os.environ.pop("LLM_METRICS_DB_PATH", None)
+            os.environ.pop("LLM_METRICS_DATABASE_URL", None)
             self.assertEqual(
                 web.create_app().config[web.DB_PATH_KEY],
                 f"sqlite:///{config.DEFAULT_DB_PATH}",

@@ -189,6 +189,9 @@ class CLITest(unittest.TestCase):
         ), contextlib.redirect_stdout(
             out
         ):
+            # Drop any Compose-injected PostgreSQL URL so the in-process CLI
+            # uses the temp SQLite path set above.  patch.dict restores it.
+            os.environ.pop("LLM_METRICS_DATABASE_URL", None)
             self.assertEqual(
                 cli.main([]), 0
             )  # a failed attempt is a recorded result
