@@ -457,3 +457,8 @@ Step 019.1 adds `./setup.sh` as a one-time Docker installation helper.
 **Verification:** `./setup.sh --check` verified locally on Debian (Docker absent): detects apt platform, describes install, exits 1 without changes. Full install path (apt repo + GPG key download) UNVERIFIED (requires sudo + network). Cloud Shell commands in `prompts/019.1-output.md`.
 
 MARKETING CHECKPOINT: not publishable yet. Stopping for ChatGPT review.
+
+
+## Step 020 authored after Docker verification (2026-11-06)
+
+ChatGPT reviewed the latest GitHub main through commit 71bd99f and the 019.2 report. Step 019/019.2 records two real Docker Compose test cycles, each 444 tests / 5 skips / no failures, PostgreSQL integration executed and dashboard HTTP 200; the independent actual Docker bootstrap installation remains unverified. The 018h cloud-origin fail-closed guard is implemented in source but not yet present in the deployed Cloud Run Job image. The user asked for the next numbered milestone to be Step 020. New pending prompt `prompts/020-guarded-second-openai-cloud-pilot.md` uses separate explicit Approval A for immutable guard deployment and a safe negative test with the provider credential reference removed, and Approval B for exactly one OpenAI paid measurement with temporary PostgreSQL, independent private backup and cost-controlled teardown. No scheduler, new provider, static site implementation or recurring collection in Step 020; future pipeline should emphasize repeatable durable multi-day metrics.
