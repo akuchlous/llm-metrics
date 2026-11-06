@@ -18,8 +18,10 @@ COPY migrations/ ./migrations/
 COPY llm_metrics/ ./llm_metrics/
 COPY tests/ ./tests/
 COPY docker/ ./docker/
+# run.sh and setup.sh are needed by tests/test_run_script.py inside the container.
+COPY run.sh setup.sh ./
 
-RUN chmod +x /app/docker/entrypoint.sh
+RUN chmod +x /app/docker/entrypoint.sh /app/run.sh /app/setup.sh
 
 USER appuser
 

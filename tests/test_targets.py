@@ -355,6 +355,9 @@ class RealBenchmarkCommandTest(unittest.TestCase):
             for target in targets.BENCHMARK_TARGETS:
                 if target.api_key_variable not in (env or {}):
                     os.environ.pop(target.api_key_variable, None)
+            # Drop any Compose-injected PostgreSQL URL so the test uses the
+            # temp SQLite path set above.  patch.dict restores it on exit.
+            os.environ.pop("LLM_METRICS_DATABASE_URL", None)
             if opener is not None:
                 adapters = {
                     name: (lambda key, cls=cls: cls(key, opener=opener))

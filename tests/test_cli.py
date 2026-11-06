@@ -38,7 +38,11 @@ class CLITest(unittest.TestCase):
         env = {
             k: v
             for k, v in os.environ.items()
-            if k != "APP_ENV" and not k.startswith("LLM_METRICS_ORIGIN_")
+            if k != "APP_ENV"
+            and not k.startswith("LLM_METRICS_ORIGIN_")
+            # Drop LLM_METRICS_DATABASE_URL so the subprocess uses the temp
+            # SQLite path set below, not a Compose-injected PostgreSQL URL.
+            and k != "LLM_METRICS_DATABASE_URL"
         }
         env["LLM_METRICS_DB_PATH"] = str(self.db_path)
         env.update(self.extra_env)

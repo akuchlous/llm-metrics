@@ -164,7 +164,10 @@ class SeedCommandTest(unittest.TestCase):
         self.db_path = pathlib.Path(tmp.name) / "observations.db"
 
     def run_seed(self, app_env="test"):
-        env = {k: v for k, v in os.environ.items() if k != "APP_ENV"}
+        env = {
+            k: v for k, v in os.environ.items()
+            if k != "APP_ENV" and k != "LLM_METRICS_DATABASE_URL"
+        }
         env["APP_ENV"] = app_env
         env["LLM_METRICS_DB_PATH"] = str(self.db_path)
         return subprocess.run(

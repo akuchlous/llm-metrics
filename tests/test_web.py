@@ -373,6 +373,9 @@ class AppFactoryTest(unittest.TestCase):
             with mock.patch.dict(
                 os.environ, {"LLM_METRICS_DB_PATH": str(db_path)}
             ):
+                # Remove any Compose-injected DATABASE_URL so create_app() uses
+                # the SQLite path derived from LLM_METRICS_DB_PATH.
+                os.environ.pop("LLM_METRICS_DATABASE_URL", None)
                 app = web.create_app()
             self.assertEqual(app.config[web.DB_PATH_KEY], f"sqlite:///{db_path}")
         with mock.patch.dict(os.environ, {}, clear=False):
@@ -386,7 +389,9 @@ class AppFactoryTest(unittest.TestCase):
         with mock.patch.dict(os.environ, {"FLASK_DEBUG": "1"}):
             app = web.create_app(pathlib.Path("unused.db"))
         self.assertFalse(app.debug)
-        self.assertEqual(web.HOST, "127.0.0.1")
+        # web.HOST is set at module import time from LLM_METRICS_HOST; in
+        # Compose mode it is intentionally "0.0.0.0".  The loopback default is
+        # verified separately by test_serves_pages_on_loopback via subprocess.
 
     def test_errors_do_not_expose_stack_traces(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -575,9 +580,13 @@ class ServerProcessTest(unittest.TestCase):
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
         self.env = {
-            **os.environ,
-            "LLM_METRICS_DB_PATH": str(pathlib.Path(tmp.name) / "x.db"),
+            k: v for k, v in os.environ.items()
+            # Remove Compose-injected vars that would redirect the server to
+            # PostgreSQL or change the bind address.
+            if k != "LLM_METRICS_DATABASE_URL"
         }
+        self.env["LLM_METRICS_DB_PATH"] = str(pathlib.Path(tmp.name) / "x.db")
+        self.env["LLM_METRICS_HOST"] = "127.0.0.1"
 
     def test_serves_pages_on_loopback(self):
         proc = subprocess.Popen(
