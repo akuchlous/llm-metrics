@@ -37,7 +37,7 @@ run gcloud run services list --project="${PROJECT}" --region="${REGION}"
 
 section "Artifact Registry images (tags and digests)"
 run gcloud artifacts docker images list "${REGION}-docker.pkg.dev/${PROJECT}/${REPO}/app" \
-  --project="${PROJECT}" --include-tags --format='table(digest,tags,createTime,updateTime)'
+  --project="${PROJECT}" --include-tags --format='table(version,tags,createTime,updateTime)'
 
 section "Cloud SQL (expected: none)"
 run gcloud sql instances list --project="${PROJECT}"
