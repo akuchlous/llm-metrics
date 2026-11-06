@@ -1,8 +1,28 @@
 # Project status
 
-_Last updated: Step 022 complete — 2026-11-06_
+_Last updated: Step 023 PARTIAL (pilot active) — 2026-11-06_
 
 ## Current state
+
+**Step 023 PARTIAL — bounded 15-minute OpenAI collector deployed and ACTIVE; 24-hour results pending.**
+- **Code:**
+  - New `llm_metrics.scheduled_collector`. It takes no arguments and has a fixed scope: `openai.gpt-6-luna.v1` / `interactive-chat-v1` / gcp / GCS.
+  - **Policy:** from the job env, a UTC quarter-hour start and exactly 24 h, so exactly 96 slots.
+  - **Per-slot gate:** an atomic create-only GCS claim per slot, read back and checked against GCS server time; a 7-minute late limit; expiry rechecked before the call. Duplicates skip, ambiguous claims refuse, a claimed slot is never retried, and the claim's attempt id is the record id.
+  - **Other:** a dry-run mode; structured sanitized events; a read-only `llm_metrics.collector_audit`.
+  - The one-off GCS and SQL paths and the 018h guard are unchanged.
+  - Docker `./run.sh test`: 533 tests, 5 skipped, 0 failures.
+- **Cloud (Approval A, then Approval B):**
+  - Dedicated job `llm-metrics-collector` @ `sha256:5fb1a383…` (SA `llm-metrics-collector@`, the only account able to read `OPENAI_API_KEY`; `llm-metrics-job@` lost that access).
+  - Scheduler `llm-metrics-collector-15m` (`*/15`, Etc/UTC, retry 0); its SA has `run.invoker` on that job only.
+  - A preflight-only 7-day lifecycle rule.
+  - Email alerts: collector ERROR / failed task, scheduler failure, and missed runs (33 min).
+  - Phase A dry runs passed; one late-start refusal was a correct gate action.
+- **Pilot window:** **2026-11-06T18:00Z → 2026-11-07T18:00Z** (≤ 96 paid requests, ≤ about $0.30/day).
+- **First scheduled slot:** verified: `prod` record `f2a304348de94d86a4afdf4e76ed6271` (TTFT 2087 ms, latency 4941 ms, $0.0003295), audit clean.
+- **Credential state:** the OpenAI key reference is attached to the collector job and stays attached after expiry until `scripts/gcp/023_collector.sh stop` is run. The code refuses after expiry regardless.
+- **Post-window:** run `audit 2026-11-06T18:00:00Z`, then `stop`.
+- **Evidence:** `prompts/023-output.md`. MARKETING: not publishable.
 
 **Step 022 complete: first live GCS-backed OpenAI measurement.**
 - **Code:**

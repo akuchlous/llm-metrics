@@ -73,3 +73,4 @@ Each file has:
 | [020](020/) | Guarded second OpenAI cloud pilot: digest deploy, negative proof, one paid run, verified backup | `prompts/020-guarded-second-openai-cloud-pilot.md` |
 | [021](021/) | Immutable append-only per-attempt GCS records (offline) | `prompts/021-durable-append-only-gcs-results.md` |
 | [022](022/) | First live GCS-backed OpenAI pilot: GCS mode, storage preflight, no-key smoke, one paid run | `prompts/022-first-live-gcs-backed-openai-pilot.md` |
+| [023](023/) | Bounded 15-minute OpenAI collector: atomic slot claims, 96-slot policy, alerts, audit | `prompts/023-15-minute-openai-collector.md` |

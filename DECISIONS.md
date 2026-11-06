@@ -96,6 +96,34 @@ Every step must preserve `./run.sh`, keep secrets/runtime artifacts out of Git, 
   `real_smoke` now delegates to `real_benchmark.run` (the OpenAI target with the smoke workload), so both paid commands share one refusal, announce, attempt and report path. `OpenAIProvider` lost its unused `model` override (the profile fixes the model), and `run_attempt` lost a cache-policy check that profile matching already covers. Test fakes (`sse`, `FakeResponse`, `FakeOpener`, `no_network`) live in `tests/fakes.py`.
 
   Kept separate on purpose, because each provider has its own contract: event dispatch, usage field extraction, request-id source, error-code tables, and request bodies. The OpenAI and xAI Responses parsers stay separate despite similar shapes, because their account errors, ids and documented fields differ. Wire requests, profiles, stored facts, outcomes and output are unchanged, except that the `real_smoke` pre-request announcement now uses `real_benchmark`'s multi-line format.
+- **D080 — Bounded scheduled collection: atomic per-slot GCS claims, a fixed 96-slot policy, and a dedicated credentialed job (Step 023).**
+  - **Command:** `llm_metrics.scheduled_collector` takes no arguments and has a fixed scope: `openai.gpt-6-luna.v1`, `interactive-chat-v1`, origin gcp, GCS backend. It is a separate path from the one-off commands.
+  - **Slots:** UTC quarter-hours derived from the process clock.
+  - **Policy** (job env `LLM_METRICS_COLLECTOR_START`/`_EXPIRES`):
+    - The start is quarter-hour aligned and the expiry exactly +24 h, which is exactly 96 slots. Anything else is refused.
+    - Outside the window every delivery is a no-op with no I/O, so expiry doesn't depend on pausing the scheduler.
+  - **Gate per slot, in order:**
+    1. a 0–7 minute late limit
+    2. the D079 storage preflight
+    3. a create-only claim object `…/v1/claims/<mode>/<profile>/<workload>/<cloud>-<region>/<date>/<HHMM>.json` carrying the attempt id and policy, read back unchanged, with its GCS creation time within 120 s of the local clock
+    4. expiry and the late limit rechecked immediately before the request
+  - **Claim outcomes:**
+    - An existing claim means a duplicate: skip with no call. A failed or ambiguous claim means refusal (exit 4).
+    - A claimed slot is consumed whatever happens next and is never retried.
+    - The record uses the claim's attempt id. Exit 3 means the record was not persisted.
+  - **Dry-run mode:** claims under `claims/dryrun/`, simulated provider, `test` records, refused if any provider key is set.
+  - **Events:** one sanitized JSON event per outcome with a Cloud Logging `severity`.
+  - **Audit:** `llm_metrics.collector_audit` (read-only, local mirror or GCS) classifies every begun slot as recorded_success / recorded_failure / claim_without_record / missing.
+  - **Access model:**
+    - Dedicated job `llm-metrics-collector` with SA `llm-metrics-collector@`, which has bucket objectCreator + objectViewer and is the only accessor of `OPENAI_API_KEY`. The manual job's SA lost secret access.
+    - Scheduler `llm-metrics-collector-15m` (`*/15 * * * *`, Etc/UTC, retry 0) authenticates as `llm-metrics-scheduler@`, which has `roles/run.invoker` on that job only (`run.jobs.run`, no overrides).
+  - **Monitoring:** log-match alerts for collector ERROR and scheduler errors, plus a log-metric absence alert for missed runs (enabled only while a policy is active), sent to an email channel.
+  - **Lifecycle:** a rule deletes only `attempts/v1/preflight/` objects older than 7 days.
+  - **First window:** 2026-11-06T18:00Z–2026-11-07T18:00Z.
+  - **Not covered:**
+    - project owners bypassing the gate (job update, claim deletion, other code)
+    - total GCP spend (budgets alert only)
+    - the crash window after a paid response
 - **D079 — Explicit GCS results backend for the paid OpenAI command, with a real storage preflight and no-key smoke (Step 022).**
   - **Backend selection:** `LLM_METRICS_RESULTS_BACKEND` selects `sql` (default when unset or empty; unchanged SQL storage and the 018h PostgreSQL guard) or `gcs`. Any other value is refused. The GCS bucket/prefix variables alone never select GCS, and a `gs://` URL is never a database URL.
   - **GCS mode in `real_benchmark`** is limited to `LLM_METRICS_ORIGIN_CLOUD=gcp` and profile `openai.gpt-6-luna.v1`, and needs the explicit bucket/prefix (D078). Order of operations:

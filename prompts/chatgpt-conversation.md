@@ -526,3 +526,31 @@ Claude implemented `prompts/022-first-live-gcs-backed-openai-pilot.md`.
 Rationale: prove database-free durable collection end to end before scheduling.
 
 MARKETING: not publishable (n = 3). Stopping for ChatGPT review; Step 023 not started.
+
+
+## Step 023 implementation — bounded 15-minute OpenAI collector activated (2026-11-06)
+
+Claude implemented `prompts/023-15-minute-openai-collector.md`. This combines the earlier 023/024 plan and goes straight to 15-minute cadence.
+
+**Phase 0:**
+- `scheduled_collector`: atomic per-slot GCS claims, an exactly-96-slot 24 h policy, a late limit, a GCS server-time clock check, expiry rechecked before the call, no retries, dry-run mode, structured events
+- `collector_audit`
+- 22 tests (including exactly 96 calls over a full minute-by-minute window, and 8-way concurrency giving 1 call)
+- Docker suite: 533 tests, 5 skipped
+
+**Phase A ("Approve A"):**
+- dedicated collector job and service accounts; scheduler created paused; invoker scoped to the job; key access removed from the manual job's SA; a preflight-only lifecycle rule; email alerts
+- dry runs as the real identity:
+  - 17:23: refused as `late_start`, a correct gate action
+  - 17:30 slot: claim, duplicate refused, test record
+  - expired-policy no-op; an extra one was launched by an interrupted command
+  - alert-test ERROR
+- The user asked mid-phase about a 1-minute test cadence. After the options were explained (the 15-minute slot gate would turn it into skips and refusals), the user chose to skip it.
+
+**Phase B ("Approve B"):**
+- activated 18:00Z → next day 18:00Z (≤ 96 paid requests)
+- the first scheduled slot was verified: claim and record agree; TTFT 2087 ms, latency 4941 ms, $0.0003295; audit clean
+
+**Status:** PARTIAL. The 24 h results are not yet observed. The key reference stays attached to the collector job until `stop` is run after the window (the code refuses after expiry).
+
+MARKETING: not publishable. Stopping for ChatGPT review; no further step started.
