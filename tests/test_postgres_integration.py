@@ -132,6 +132,43 @@ class PostgresIntegrationTest(unittest.TestCase):
             )
         cls.pg_url = url
 
+    @classmethod
+    def tearDownClass(cls) -> None:
+        """Drop the test database after the full test run.
+
+        Prevents orphaned databases from accumulating between test sessions.
+        Connects to the postgres maintenance database (same credentials) so
+        the test database can be dropped. AUTOCOMMIT is required; DROP DATABASE
+        cannot run inside a transaction.
+        """
+        if not cls.pg_url:
+            return
+        # Dispose any engine still in the cache for the test database before
+        # dropping it; active connections prevent DROP DATABASE from succeeding.
+        engine = storage._engines.pop(cls.pg_url, None)
+        if engine is not None:
+            engine.dispose()
+        dbname = urlparse(cls.pg_url).path.lstrip("/")
+        # Replace the database name in the URL with the postgres maintenance DB.
+        maint_url = cls.pg_url[: cls.pg_url.rfind("/")] + "/postgres"
+        maint_engine = create_engine(maint_url, isolation_level="AUTOCOMMIT")
+        try:
+            with maint_engine.connect() as conn:
+                # Terminate any remaining connections to the test database so
+                # DROP DATABASE can proceed without a "database is being used"
+                # error.
+                conn.execute(
+                    text(
+                        "SELECT pg_terminate_backend(pid)"
+                        " FROM pg_stat_activity"
+                        " WHERE datname = :name AND pid <> pg_backend_pid()"
+                    ),
+                    {"name": dbname},
+                )
+                conn.execute(text(f'DROP DATABASE IF EXISTS "{dbname}"'))
+        finally:
+            maint_engine.dispose()
+
     def setUp(self) -> None:
         _drop_all(self.pg_url)
         storage._engines.pop(self.pg_url, None)
