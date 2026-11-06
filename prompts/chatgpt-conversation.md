@@ -477,3 +477,24 @@ The user installed `gcloud` locally and asked Claude to run the cloud phases its
 ## Step 021: inexpensive immutable GCS result records (2026-11-06)
 
 After Step 020 successfully deployed/verified the paid-run guard and backed up a second OpenAI cloud measurement, the user requested Step 021 to make progress toward 15-minute OpenAI-only recurring collection. ChatGPT authored `prompts/021-durable-append-only-gcs-results.md` for an offline-only, GCS-ready atomic single-document result writer/reader (one attempt with observations, immutable create-only key and retry/idempotency semantics). Deliberately do not integrate it with `real_benchmark.run` or weaken the PostgreSQL fail-closed guard in 021: first test data integrity, failure behavior and privacy; separately review/authorize live GCS-backed execution in Step 022 and scheduling thereafter. This reduces the risk of replacing the proven SQL storage path with an untested alternative and avoids per-run Cloud SQL provisioning in the eventual collector. Target 15-minute cadence (96 samples/day/model) once the durable pipeline is proven. No new cloud resources or paid calls under 021.
+
+
+## Step 021 implementation — immutable per-attempt GCS records, offline (2026-11-06)
+
+Claude implemented `prompts/021-durable-append-only-gcs-results.md`. The point was to remove per-run Cloud SQL from future collection without endangering the 018h guard. Step 021 therefore proves a durable storage contract in isolation before any paid-path integration.
+
+**What was built:** `llm_metrics/object_results.py`:
+- a canonical, versioned single-JSON record per attempt (`llm-metrics.attempt.v1`), identical in facts to the SQL row
+- a create-only GCS writer: `ifGenerationMatch=0` plus MD5, bounded retries, byte-compare reconciliation of lost acknowledgements and conflicts, no overwrite
+- a validated reader and an exact SQL-row mapping
+- `google-cloud-storage` 3.17.1 added with its full hash-pinned closure
+
+**Tests and checks:**
+- 43 offline tests, using fakes and the real client over a fake HTTP session.
+- The Step 020 measurement round-trips exactly.
+- Docker `./run.sh test` passed twice: 487 tests, 5 skipped, 0 failures.
+- The production image smoke still shows the guard (exit 2).
+
+**Not done:** no paid-path integration, cloud changes or paid calls. The post-response failure window remains; Step 022 mitigations are proposed in the report.
+
+MARKETING: not publishable (n = 2). Stopping for ChatGPT review; Step 022 not started.

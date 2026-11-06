@@ -1,8 +1,20 @@
 # Project status
 
-_Last updated: Step 020 complete — 2026-11-06_
+_Last updated: Step 021 complete — 2026-11-06_
 
 ## Current state
+
+**Step 021 complete (offline only): immutable per-attempt GCS records.**
+- **What it adds:** `llm_metrics/object_results.py` defines schema `llm-metrics.attempt.v1`, one canonical JSON object per attempt.
+  - **Contents:** the 20 non-identity request facts plus the observations; unknown values are `null`, never 0. Prompts, responses, diagnostics and secrets are excluded by construction.
+  - **Object name:** `<prefix>/v1/requests/<env>/<UTC date>/<attempt_id>.json`.
+  - **Writer:** create-only GCS writes (`ifGenerationMatch=0` plus content MD5, client retries off). An identical replay succeeds; a conflicting payload is refused, never overwritten. A lost acknowledgement is reconciled by byte comparison. Storage retries are bounded (3 attempts).
+  - **Read path:** a validated reader, plus an exact mapping to and from the SQL rows.
+- **Dependencies:** `google-cloud-storage` 3.17.1 plus its 19 transitive dependencies were added hash-pinned. The production image grows by about 69 MB; it was not deployed.
+- **Untouched:** the module is **not** wired into `run_attempt`, `real_benchmark` or the 018h guard (a test enforces this). Cloud collection still requires PostgreSQL.
+- **Tests:** 43 new offline tests (fake store, plus the real GCS client over a fake HTTP session). Docker `./run.sh test` passed twice: 487 tests, 5 skipped, 0 failures, PostgreSQL integration executed.
+- **Cloud:** no GCP changes and no paid calls. The cloud job is still idle and credential-less.
+- **Evidence:** full details in `prompts/021-output.md`. MARKETING: not publishable (n = 2).
 
 **Step 020 complete: guarded second OpenAI cloud pilot.** Two in-session approvals. **Phase A:** the `OPENAI_API_KEY` reference was detached from Cloud Run Job `llm-metrics-benchmark` first; the production image was built by Cloud Build (new `cloudbuild.yaml`, least-privilege `llm-metrics-build` SA) from `0ce36df` (application code = validated `644870c`) and deployed **by digest** `sha256:1b67b96f…a575` (1 task, 0 retries, 180 s, explicit `--workload interactive-chat-v1`); one negative execution (`q9nlr`) exited 2 with the 018h guard message "…require an explicit PostgreSQL… No request was made." **Phase B:** temporary `llm-metrics-pg-020` (PG17 Enterprise `db-f1-micro`, zonal, no backups, zero authorized networks) migrated to Alembic head with 0 rows; one paid execution (`4mwqz`) succeeded: attempt `13caf417…`, provider request `req_d382c497…`, TTFT 2469.9 ms, total latency 5343.4 ms, 105.3 tokens/s, 1795 input / 0 cached / 300 output (cap), $0.0003295, 4 observations. Exported to `gs://llm-metrics-513617-pilot-backups/snapshots/020/2026-11-06-llm-metrics-benchmark-4mwqz/` (CSV + manifest + SHA256SUMS), independently re-downloaded and verified, and test-restored into local PostgreSQL. Then key/DB refs removed from the job, instance (no backups) and DB secret deleted. **Current cloud state:** job on guarded digest with no credentials/DB/schedule; no Cloud SQL; secret `OPENAI_API_KEY` only; ongoing cost ≈ $0/month; Step 020 spend < $0.01. Cloud commands ran from the local machine via a newly installed `gcloud` (not Cloud Shell; D077). Docker `./run.sh test`: 444 tests, 5 skipped, 0 failures. Full evidence in `prompts/020-output.md`. MARKETING: not publishable (n = 2).
 

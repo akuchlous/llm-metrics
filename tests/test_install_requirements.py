@@ -192,6 +192,29 @@ class RequirementsFileTest(unittest.TestCase):
                 # Step 018e: production WSGI server for Cloud Run
                 "gunicorn",
                 "packaging",
+                # Step 021: GCS client for immutable result objects, with
+                # its complete transitive closure (verified by pip
+                # --require-hashes install + pip check).
+                "google-cloud-storage",
+                "google-cloud-core",
+                "google-api-core",
+                "google-auth",
+                "google-resumable-media",
+                "google-crc32c",
+                "googleapis-common-protos",
+                "protobuf",
+                "proto-plus",
+                "opentelemetry-api",
+                "requests",
+                "urllib3",
+                "certifi",
+                "charset-normalizer",
+                "idna",
+                "cryptography",
+                "cffi",
+                "pycparser",
+                "pyasn1",
+                "pyasn1_modules",
             },
         )
 
