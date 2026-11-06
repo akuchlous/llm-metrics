@@ -409,3 +409,8 @@ MARKETING CHECKPOINT: not publishable yet. Stopping for ChatGPT review; Step 018
 ## Step 018i prompt — second controlled OpenAI cloud pilot (2026-11-06)
 
 After Claude completed 018h's cloud-origin fail-closed database guard and comparison of storage options, ChatGPT authored `prompts/018i-second-controlled-openai-cloud-pilot.md`. The step requires separate explicit approvals for first deploying the corrected immutable container and verifying a negative no-database refusal, then provisioning temporary PostgreSQL and executing exactly one OpenAI request. It requires independent private backup verification before teardown, no scheduler or other providers, and a stop-for-review checkpoint. The previously deployed image remains unsafe until replaced; recurring storage design remains a separate decision.
+
+
+## Step 019 replaces pending 018i (2026-11-06)
+
+The user chose to defer the second OpenAI cloud pilot and instead make the local Docker workflow the next milestone. The unstarted 018i cloud prompt was deleted from main (its history remains in Git). ChatGPT authored `prompts/019-disposable-docker-local-workflow.md`: an opt-in Docker Compose integration path with isolated PostgreSQL, genuine migration/tests, simulated dashboard smoke, project-scoped teardown, and two reproducible clean runs. Native `./run.sh` remains supported because Docker is not installed on the developer machine. Step 019 must audit the latest test-database teardown patch for unsafe database deletion. No GCP changes or paid model requests are included. Review and stop before any cloud pilot.
