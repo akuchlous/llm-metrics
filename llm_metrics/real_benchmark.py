@@ -172,12 +172,13 @@ def _now() -> str:
     )
 
 
-def _announce(
+def announce(
     target: targets.RequestProfile,
     workload: workloads.Workload,
     origin: tuple[str, str],
     price: pricing.Price,
 ) -> None:
+    """Prints the safe pre-request announcement (no key, prompt or URL)."""
     source, verified_on = pricing.PRICE_PROVENANCE[
         (target.provider, target.model)
     ]
@@ -306,7 +307,7 @@ def run(
         return 2
 
     provider = ADAPTERS[target.provider](api_key)
-    _announce(target, workload, origin, price)
+    announce(target, workload, origin, price)
     print()
 
     try:
@@ -365,7 +366,7 @@ def _run_gcs(
     # Fixed before the request, so a billed attempt whose record cannot be
     # written is still identifiable in the job output.
     attempt_id = uuid.uuid4().hex
-    _announce(target, workload, origin, price)
+    announce(target, workload, origin, price)
     print(f"  Attempt id: {attempt_id}")
     print(f"  Results: {location} (GCS, create-only; preflight {probe})")
     print()
@@ -415,9 +416,7 @@ def _run_gcs(
         f"gs://{results_target.bucket}/{written.name}",
         simulated=False,
     )
-    state = (
-        "created" if written.created else "identical object already present"
-    )
+    state = "created" if written.created else "identical object already present"
     print(f"Record sha256: {written.sha256} ({state})")
     if debug and request["outcome"] != "success":
         _print_diagnostics(request.get("diagnostics", {}))

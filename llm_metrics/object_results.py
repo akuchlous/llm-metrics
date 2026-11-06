@@ -819,6 +819,26 @@ class GcsObjectStore:
                 return None
             raise translated from None
 
+    def created_time(self, bucket: str, name: str) -> datetime.datetime | None:
+        """Server-recorded creation time of an object, or None if absent."""
+        try:
+            blob = self._client.bucket(bucket).get_blob(name, retry=None)
+        except Exception as error:  # pylint: disable=broad-exception-caught
+            raise _translate(error) from None
+        return None if blob is None else blob.time_created
+
+    def list_names(self, bucket: str, prefix: str) -> list[str]:
+        """Names of all objects under `prefix` (read-only listing)."""
+        try:
+            return [
+                blob.name
+                for blob in self._client.list_blobs(
+                    bucket, prefix=prefix, retry=None
+                )
+            ]
+        except Exception as error:  # pylint: disable=broad-exception-caught
+            raise _translate(error) from None
+
 
 class _NotFound(ResultStoreError):
     """Internal: the object does not exist (404)."""

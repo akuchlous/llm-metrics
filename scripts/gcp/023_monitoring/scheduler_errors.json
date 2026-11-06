@@ -1,0 +1,21 @@
+{
+  "displayName": "llm-metrics collector: scheduler delivery failed",
+  "documentation": {
+    "content": "Cloud Scheduler job llm-metrics-collector-15m failed to start the collector (no retries are configured, so the slot is missed). Check scheduler logs and the invoker binding; run the collector audit.",
+    "mimeType": "text/markdown"
+  },
+  "combiner": "OR",
+  "conditions": [
+    {
+      "displayName": "scheduler ERROR log entry",
+      "conditionMatchedLog": {
+        "filter": "resource.type=\"cloud_scheduler_job\" AND resource.labels.job_id=\"llm-metrics-collector-15m\" AND severity>=ERROR"
+      }
+    }
+  ],
+  "alertStrategy": {
+    "notificationRateLimit": {"period": "300s"},
+    "autoClose": "1800s"
+  },
+  "enabled": true
+}

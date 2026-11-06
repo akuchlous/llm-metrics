@@ -1,0 +1,22 @@
+{
+  "displayName": "llm-metrics collector: no collector event for 33 minutes (missed slots)",
+  "documentation": {
+    "content": "No llm-metrics-collector log event for more than two scheduled slots' worth of time while the pilot is active: the scheduler is paused/failing or executions do not start. Enabled only during the approved paid window. Run the collector audit.",
+    "mimeType": "text/markdown"
+  },
+  "combiner": "OR",
+  "conditions": [
+    {
+      "displayName": "collector events absent",
+      "conditionAbsent": {
+        "filter": "resource.type=\"cloud_run_job\" AND metric.type=\"logging.googleapis.com/user/llm_metrics_collector_events\"",
+        "duration": "1980s",
+        "aggregations": [
+          {"alignmentPeriod": "300s", "perSeriesAligner": "ALIGN_COUNT"}
+        ]
+      }
+    }
+  ],
+  "alertStrategy": {"autoClose": "1800s"},
+  "enabled": false
+}

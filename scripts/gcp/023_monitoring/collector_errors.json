@@ -1,0 +1,21 @@
+{
+  "displayName": "llm-metrics collector: error event or failed task",
+  "documentation": {
+    "content": "The scheduled OpenAI collector (Cloud Run Job llm-metrics-collector) logged an ERROR event (config_refused, late_start, claim_failed, clock_skew, expired_before_call, provider_rejected, not_persisted) or a task failed. No provider request is ever retried. Check: gcloud logging read for the execution, then run the collector audit (scripts/gcp/023_collector.sh audit). Emergency stop: scripts/gcp/023_collector.sh stop.",
+    "mimeType": "text/markdown"
+  },
+  "combiner": "OR",
+  "conditions": [
+    {
+      "displayName": "collector ERROR log entry",
+      "conditionMatchedLog": {
+        "filter": "resource.type=\"cloud_run_job\" AND resource.labels.job_name=\"llm-metrics-collector\" AND severity>=ERROR"
+      }
+    }
+  ],
+  "alertStrategy": {
+    "notificationRateLimit": {"period": "300s"},
+    "autoClose": "1800s"
+  },
+  "enabled": true
+}
