@@ -20,13 +20,13 @@ cd "$(dirname "$0")"
 # --- Prerequisites ---
 if ! command -v docker &>/dev/null; then
     echo "✗ Docker is required but was not found." >&2
-    echo "  Install Docker: https://docs.docker.com/get-docker/" >&2
+    echo "  Run ./setup.sh to check and install Docker." >&2
     echo "  On Google Cloud Shell: docker is pre-installed." >&2
     exit 1
 fi
 if ! docker compose version &>/dev/null 2>&1; then
     echo "✗ 'docker compose' (Compose v2) is required but was not found." >&2
-    echo "  Update Docker Desktop, or install the Docker Compose plugin." >&2
+    echo "  Run ./setup.sh to check and install the Compose plugin." >&2
     exit 1
 fi
 

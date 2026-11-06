@@ -441,3 +441,19 @@ Step 019 is complete. Code changes only; no GCP resources provisioned or execute
 **a20bf6f tearDownClass:** `tearDownClass` is now a no-op in Compose mode; `compose down -v` handles cleanup. Outside Compose, localhost + dbname guards unchanged (D075). Safety tests added.
 
 MARKETING CHECKPOINT: not publishable yet. Stopping for ChatGPT review; Step 018i (second cloud pilot) not started.
+
+
+## Step 019.1 implementation — Docker bootstrap script setup.sh (2026-11-06)
+
+Step 019.1 adds `./setup.sh` as a one-time Docker installation helper.
+
+**What changed:**
+- `setup.sh` (new): detects OS (Debian/Ubuntu → apt, RHEL/Fedora → dnf, macOS → brew, WSL2 → instructions, other → manual). Checks docker binary, `docker compose version`, daemon access. `--check`: report only, no changes. Interactive mode: shows exact commands, asks Y/N before every sudo operation. Never uses curl-pipe-shell. Never installs PostgreSQL/Python/app services.
+- `run.sh`: Docker-missing error now says "Run ./setup.sh" instead of a bare URL
+- `tests/test_run_script.py`: added `SetupScriptTest` (5 tests) + `test_no_docker_mentions_setup_sh`
+
+**Test counts:** 440 total, 13 skipped, 0 failures.
+
+**Verification:** `./setup.sh --check` verified locally on Debian (Docker absent): detects apt platform, describes install, exits 1 without changes. Full install path (apt repo + GPG key download) UNVERIFIED (requires sudo + network). Cloud Shell commands in `prompts/019.1-output.md`.
+
+MARKETING CHECKPOINT: not publishable yet. Stopping for ChatGPT review.
