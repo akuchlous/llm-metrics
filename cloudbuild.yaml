@@ -1,0 +1,24 @@
+# Cloud Build config for the production image (D071).
+#
+# Submitted from a clean checkout of a reviewed commit, e.g.:
+#   gcloud builds submit --project=llm-metrics-513617 --region=us-central1 \
+#     --config=cloudbuild.yaml \
+#     --service-account=projects/llm-metrics-513617/serviceAccounts/llm-metrics-build@llm-metrics-513617.iam.gserviceaccount.com \
+#     --substitutions=_IMAGE_TAG=sha-$(git rev-parse --short=7 HEAD)
+#
+# The build runs as the least-privilege llm-metrics-build service account, so
+# logs must go to Cloud Logging only (it has no write access to a logs bucket).
+# Deploy the resulting image by digest, never by a mutable tag.
+steps:
+  - name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - -f
+      - Dockerfile
+      - -t
+      - us-central1-docker.pkg.dev/$PROJECT_ID/llm-metrics/app:${_IMAGE_TAG}
+      - .
+images:
+  - us-central1-docker.pkg.dev/$PROJECT_ID/llm-metrics/app:${_IMAGE_TAG}
+options:
+  logging: CLOUD_LOGGING_ONLY
