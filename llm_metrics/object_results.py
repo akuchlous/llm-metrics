@@ -5,9 +5,9 @@ facts plus its metric observations), its canonical encoding and validation,
 the object name it is stored under, a create-only writer with bounded storage
 retries and reconciliation, a read/validate path, and the mapping to and from
 the `storage` table rows. It does not run providers, price requests, or decide
-when to write: `benchmark.run_attempt()` and `real_benchmark` still persist
-through `storage` (SQLAlchemy) only, and nothing here is wired into a paid
-execution path.
+when to write: `real_benchmark` does that in its explicitly selected GCS
+mode (`LLM_METRICS_RESULTS_BACKEND=gcs`); `benchmark.run_attempt()` and the
+default SQL mode persist through `storage` (SQLAlchemy) only.
 
 Record format (schema `llm-metrics.attempt.v1`), canonical JSON (UTF-8, keys
 sorted, no insignificant whitespace, no NaN/Infinity)::
@@ -180,6 +180,10 @@ class StoreUnavailableError(ResultStoreError):
 
 class ObjectExistsError(ResultStoreError):
     """Raised by an `ObjectStore` when the create-only precondition fails."""
+
+
+class PermissionDeniedError(ResultStoreError):
+    """The store refused the operation for lack of permission (HTTP 403)."""
 
 
 class TransientStoreError(ResultStoreError):
@@ -621,6 +625,61 @@ def write_record(
     )
 
 
+PREFLIGHT_KIND = "llm-metrics.preflight.v1"
+
+
+def preflight(
+    store: ObjectStore, target: ResultTarget, *, probe_id: str, now: str
+) -> str:
+    """Proves create, read and no-overwrite on `target` with a real probe.
+
+    Creates a small probe object under `<prefix>/v1/preflight/<date>/`
+    (outside the `requests/` record namespace), reads it back, then tries to
+    create the same name with different bytes, which must be refused, and
+    confirms the original bytes survived. Run before a paid request: if any
+    step fails, nothing should be requested. A passed preflight does not
+    guarantee a later write succeeds.
+
+    Args:
+        probe_id: A fresh `uuid.uuid4().hex`.
+        now: `storage.format_timestamp` text, used for the date and content.
+
+    Returns:
+        The probe object's name.
+
+    Raises:
+        InvalidRecordError: If probe_id or now is malformed.
+        RecordIntegrityError: If read-back differs or an overwrite succeeded.
+        ResultStoreError: Any store failure (including transient ones; the
+            preflight does not retry).
+    """
+    if not _ATTEMPT_ID_RE.match(probe_id) or not _RECORDED_AT_RE.match(now):
+        raise InvalidRecordError("Preflight probe id or time is malformed.")
+    name = (
+        f"{target.prefix}/{_LAYOUT_VERSION}/preflight/{now[:10]}/"
+        f"{probe_id}.json"
+    )
+    data = json.dumps(
+        {"kind": PREFLIGHT_KIND, "probe_id": probe_id, "created_at": now},
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    store.create(target.bucket, name, data)
+    if store.read(target.bucket, name) != data:
+        raise RecordIntegrityError(f"Preflight read-back mismatch: {name}")
+    try:
+        store.create(target.bucket, name, data + b" ")
+    except ObjectExistsError:
+        pass
+    else:
+        raise RecordIntegrityError(
+            f"Store allowed an overwrite; create-only is not enforced: {name}"
+        )
+    if store.read(target.bucket, name) != data:
+        raise RecordIntegrityError(f"Preflight object changed: {name}")
+    return name
+
+
 def read_record(store: ObjectStore, target: ResultTarget, name: str) -> dict:
     """Reads and validates one record by object name.
 
@@ -739,7 +798,16 @@ class GcsObjectStore:
                 retry=None,
             )
         except Exception as error:  # pylint: disable=broad-exception-caught
-            raise _translate(error) from None
+            translated = _translate(error)
+        else:
+            return
+        if isinstance(translated, PermissionDeniedError):
+            # A caller allowed to create but not to replace objects may get
+            # 403 instead of 412 for an existing name. Report "exists" only
+            # when the object is really there, so a missing grant still fails.
+            if self.read(bucket, name) is not None:
+                raise ObjectExistsError("Object already exists (HTTP 403).")
+        raise translated
 
     def read(self, bucket: str, name: str) -> bytes | None:
         blob = self._client.bucket(bucket).blob(name)
@@ -768,6 +836,8 @@ def _translate(error: Exception) -> ResultStoreError:
         return ObjectExistsError("Object already exists (HTTP 412).")
     if code == 404:
         return _NotFound("Object not found (HTTP 404).")
+    if code == 403:
+        return PermissionDeniedError(f"Permission denied: {kind} (HTTP 403).")
     if isinstance(code, int):
         if code in _TRANSIENT_CODES:
             return TransientStoreError(

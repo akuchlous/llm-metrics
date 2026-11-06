@@ -936,7 +936,7 @@ class GcsObjectStoreTest(unittest.TestCase):
 
 
 class BoundaryTest(unittest.TestCase):
-    """Step 021 must not touch the paid path or import cloud code eagerly."""
+    """No eager cloud imports; SQL modules stay independent of records."""
 
     def test_import_does_not_load_cloud_client(self):
         code = (
@@ -952,9 +952,12 @@ class BoundaryTest(unittest.TestCase):
         )
         self.assertEqual(out.stdout.strip(), "False")
 
-    def test_paid_path_does_not_use_object_results(self):
+    def test_sql_paths_do_not_use_object_results(self):
+        # Step 022 wires records into real_benchmark's explicit GCS mode only
+        # (tests/test_gcs_mode.py); the measurement and SQL modules stay free
+        # of it.
         package = pathlib.Path(obj.__file__).parent
-        for module in ("benchmark.py", "real_benchmark.py", "real_smoke.py"):
+        for module in ("benchmark.py", "storage.py", "real_smoke.py"):
             with self.subTest(module=module):
                 self.assertNotIn(
                     "object_results", (package / module).read_text()

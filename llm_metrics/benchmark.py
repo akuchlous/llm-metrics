@@ -31,7 +31,42 @@ def run_attempt(
     *,
     origin: tuple[str, str],
 ) -> tuple[dict, list[dict], str]:
-    """Runs one workload once and saves the attempt with its conditions.
+    """Runs one workload once and saves the attempt to SQL storage.
+
+    `measure_attempt` followed by `storage.save_request`; see
+    `measure_attempt` for the measurement, pricing and refusal contract.
+
+    Args:
+        provider: Provider to call exactly once.
+        workload: A catalogue workload (`workloads.get_workload`).
+        environment: "test" (simulated data) or "prod" (real-provider data).
+        db_ref: Database to write to: a pathlib.Path for a local SQLite file,
+            or a SQLAlchemy URL string (e.g. 'postgresql://host/db').
+        origin: (origin_cloud, origin_region) of this runner.
+
+    Returns:
+        (request, results, request_id): the saved request facts (including the
+        unsaved "diagnostics" of a failure), the metric observations, and the
+        new request's id.
+
+    Raises:
+        ValueError, KeyError: As `measure_attempt`; nothing is called or saved.
+    """
+    request, results = measure_attempt(provider, workload, origin=origin)
+    request_id = storage.save_request(db_ref, request, results, environment)
+    return request, results, request_id
+
+
+def measure_attempt(
+    provider: providers.LLMProvider,
+    workload: workloads.Workload,
+    *,
+    origin: tuple[str, str],
+) -> tuple[dict, list[dict]]:
+    """Runs one workload once and returns the attempt with its conditions.
+
+    Persistence is the caller's: `run_attempt` saves to SQL storage, and the
+    explicitly selected GCS mode of `real_benchmark` writes an immutable record.
 
     The provider receives the workload's prompt and output cap unchanged, and
     the attempt is stored under the workload's versioned id, so every stored
@@ -53,24 +88,20 @@ def run_attempt(
         provider: Provider to call exactly once.
         workload: A catalogue workload (`workloads.get_workload`). Its prompt
             is never stored or printed.
-        environment: "test" (simulated data) or "prod" (real-provider data).
-        db_ref: Database to write to: a pathlib.Path for a local SQLite file,
-            or a SQLAlchemy URL string (e.g. 'postgresql://host/db').
         origin: (origin_cloud, origin_region) of this runner; see
             `config.get_origin`.
 
     Returns:
-        (request, results, request_id): the saved request facts (including the
-        unsaved "diagnostics" of a failure), the metric observations, and the
-        new request's id.
+        (request, results): the request facts (every storage fact except the
+        identity, plus the never-stored "diagnostics" of a failure) and the
+        metric observations.
 
     Raises:
         ValueError: If `workload` is not the catalogue's definition of its id
             (so a stored id could not be trusted to mean that content); the
             provider has no registered request profile, or its name, model or
             cache policy differs from the profile's; or the workload is not
-            well within the price's prompt-size tier. Nothing is called or
-            saved.
+            well within the price's prompt-size tier. Nothing is called.
         KeyError: If no price is defined for the provider/model.
     """
     if workloads.get_workload(workload.workload_id) != workload:
@@ -122,8 +153,7 @@ def run_attempt(
         "cached_input_price_per_1m": price.cached_input_per_1m,
         **cost,
     }
-    request_id = storage.save_request(db_ref, request, results, environment)
-    return request, results, request_id
+    return request, results
 
 
 def _db_display(db_ref: pathlib.Path | str) -> str:

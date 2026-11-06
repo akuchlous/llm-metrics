@@ -1,10 +1,10 @@
 """Runtime configuration read from environment variables.
 
 Owns: environment selection (`APP_ENV`), simulated-provider wiring, the
-database path, the dashboard port, and the benchmark runner's origin. Every
-reader takes an optional `environ` mapping so tests never touch the real
-process environment. Invalid values raise `ConfigError` before any measurement
-or paid call happens.
+database path, the dashboard port, the benchmark runner's origin and its
+results backend. Every reader takes an optional `environ` mapping so tests
+never touch the real process environment. Invalid values raise `ConfigError`
+before any measurement or paid call happens.
 
 Secrets are not read here: provider API keys are read only by `real_smoke`
 and `real_benchmark`, each from its provider's environment variable.
@@ -172,3 +172,29 @@ def get_origin(environ: Mapping[str, str] | None = None) -> tuple[str, str]:
             )
         origin.append(value)
     return origin[0], origin[1]
+
+
+# Where `real_benchmark` persists a paid attempt. "sql" (the default when unset)
+# is the SQLAlchemy store, guarded for cloud origins by the PostgreSQL check in
+# `real_benchmark`; "gcs" writes one immutable `object_results` record and
+# must be chosen explicitly. Any other value is refused, never mapped to a
+# default, so a typo cannot select a different store.
+RESULTS_BACKEND_VARIABLE = "LLM_METRICS_RESULTS_BACKEND"
+RESULTS_BACKENDS = ("sql", "gcs")
+DEFAULT_RESULTS_BACKEND = "sql"
+
+
+def get_results_backend(environ: Mapping[str, str] | None = None) -> str:
+    """Returns the results backend: "sql" (default when unset/empty) or "gcs".
+
+    Raises:
+        ConfigError: If the value is set to anything else (not echoed).
+    """
+    if environ is None:
+        environ = os.environ
+    value = environ.get(RESULTS_BACKEND_VARIABLE) or DEFAULT_RESULTS_BACKEND
+    if value not in RESULTS_BACKENDS:
+        raise ConfigError(
+            f"Invalid {RESULTS_BACKEND_VARIABLE}. Expected 'sql' or 'gcs'."
+        )
+    return value
