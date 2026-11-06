@@ -68,3 +68,4 @@ Each file has:
 | [018e](018e/) | Secure Cloud Run deployment readiness (code only) | `prompts/018e-secure-cloud-deployment-readiness.md` |
 | [018f](018f/) | First controlled OpenAI measurement on Google Cloud (Stage A: gated readiness) | `prompts/018f-first-openai-cloud-measurement.md` |
 | [018g](018g/) | Post-pilot security cleanup and durable backup | `prompts/018g-post-pilot-cleanup-and-backup.md` |
+| [018h](018h/) | Fail-closed paid cloud execution and durable-store decision | `prompts/018h-fail-closed-cloud-storage-and-decision.md` |

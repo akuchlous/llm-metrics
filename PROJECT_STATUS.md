@@ -1,8 +1,10 @@
 # Project status
 
-_Last updated: Step 018g complete — 2026-11-04_
+_Last updated: Step 018h complete — 2026-11-06_
 
 ## Current state
+
+**Step 018h complete: fail-closed paid cloud execution guard and durable-store decision.** `real_benchmark.run()` now rejects any non-local-origin paid benchmark attempt that lacks an explicitly configured PostgreSQL `LLM_METRICS_DATABASE_URL`, preventing silent data loss to ephemeral container SQLite. Guard fires before the API key is read or any provider adapter is constructed; local-origin SQLite behavior is unchanged. 31 new regression tests (all passing); `test_origin_comes_from_the_environment` updated to supply a fake PostgreSQL URL and patch `storage.connect`. Full suite: 423 tests (379 offline, 44 new + existing, 13 skipped). Storage analysis (D073): Cloud SQL per-session is recommended; Cloud Storage requires a new backend; serverless SQL unconfirmed on GCP. **Operational caveat:** Cloud Run Job `llm-metrics-benchmark` still runs image `app:sha-9cf8ac9` (pre-guard); do not execute the job until 018i rebuilds and redeploys with the guard active. No GCP changes; no paid calls. Full evidence in `prompts/018h-output.md`.
 
 **Step 018g complete: post-pilot security cleanup and durable backup.** All five 018f findings resolved in Cloud Shell after explicit approval: (1) project `roles/editor` removed from the default compute service account (unused by the job, build or any service); (2) Cloud Run Job's `LLM_METRICS_DATABASE_URL` reference and Cloud SQL attachment removed, secret deleted; (3) `OPENAI_API_KEY` v1 disabled (v2 enabled, job uses `latest`); (4) pilot CSVs (1 request, 4 observations) backed up to private, versioned `gs://llm-metrics-513617-pilot-backups/snapshots/018f/2026-11-04/` with a `SHA256SUMS` manifest, verified by independent download (D072); (5) three orphaned Cloud Build source tarballs deleted; image `app:sha-9cf8ac9` retained. Residual risk: without a DB URL the job falls back to container SQLite, so a manual execution would spend ~$0.0003 and lose the result; do not execute the job until a fail-closed guard (proposed 018h) or a database exists. Remaining GCP resources: idle Cloud Run Job, `OPENAI_API_KEY` secret, Artifact Registry image, backup bucket, empty Cloud Build bucket, service accounts, budget alert. Ongoing cost ~$0.13/month. No code changes; tests not re-run (inherited 018e result). Full evidence in `prompts/018g-output.md`.
 
@@ -159,6 +161,6 @@ A unique index on observations (`recorded_at`, `environment`, `provider`, `model
 
 ## Next step
 
-**Step 018f Stage A complete (2026-11-03):** Docker build-context bug fixed; Mako upgraded for CVEs; container consistency tests added; OSV advisory scan run; GCP cost research completed; authorization checkpoint produced. 392 tests (379 offline); `./run.sh` verified. Stage B blocked pending explicit user authorization of cloud resource provisioning. Next: await user authorization for Stage B (Cloud SQL, Artifact Registry, Cloud Run Job, one OpenAI request).
+**Step 018i (proposed):** Provision a new Cloud SQL `db-f1-micro` instance; rebuild and redeploy the Cloud Run Job image with the 018h guard; run one new OpenAI measurement; verify the guard fires when DATABASE_URL is absent; export and back up results; delete Cloud SQL. No new providers, no scheduling.
 
-Do not yet add more models, a scheduler, repeated benchmark runs, authentication, price scraping/history, or workload matrices without a numbered prompt. Do not provision GCP resources, build/push images, or make paid API calls without explicit bounded user authorization in this session.
+Do not yet add more models, a scheduler, repeated benchmark runs, authentication, price scraping/history, or workload matrices without a numbered prompt. Do not provision GCP resources, build/push images, or make paid API calls without explicit bounded user authorization in this session. Do not execute the existing Cloud Run Job (image `app:sha-9cf8ac9`, pre-guard).

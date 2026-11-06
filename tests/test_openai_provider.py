@@ -26,6 +26,7 @@ import urllib.request
 
 from llm_metrics import __main__ as cli
 from llm_metrics import benchmark
+from llm_metrics import config
 from llm_metrics import http_streaming
 from llm_metrics import latency
 from llm_metrics import openai_provider
@@ -1031,14 +1032,20 @@ class RealSmokeCommandTest(unittest.TestCase):
         opener = FakeOpener(
             response=FakeResponse(sse(delta("a"), delta("b"), completed()))
         )
-        code, out, _ = self.run_main(
-            {
-                "OPENAI_API_KEY": FAKE_KEY,
-                "LLM_METRICS_ORIGIN_CLOUD": "gcp",
-                "LLM_METRICS_ORIGIN_REGION": "us-central1",
-            },
-            opener,
-        )
+        # The cloud-origin guard requires a PostgreSQL URL for non-local origins.
+        # Redirect storage.connect to the existing SQLite test DB so the full
+        # path (save and read-back) works without a live PostgreSQL server.
+        sqlite_engine = storage.connect(f"sqlite:///{self.db_path}")
+        with mock.patch.object(storage, "connect", return_value=sqlite_engine):
+            code, out, _ = self.run_main(
+                {
+                    "OPENAI_API_KEY": FAKE_KEY,
+                    "LLM_METRICS_ORIGIN_CLOUD": "gcp",
+                    "LLM_METRICS_ORIGIN_REGION": "us-central1",
+                    config.DATABASE_URL_VARIABLE: "postgresql://fake-host/test_db",
+                },
+                opener,
+            )
         self.assertEqual(code, 0)
         self.assertIn("Origin: gcp / us-central1", out)
         stored = self.only_real_request()

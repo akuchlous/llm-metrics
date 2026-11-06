@@ -45,6 +45,9 @@ USAGE = (
     " [--workload WORKLOAD_ID] [--debug]"
 )
 ENVIRONMENT = "prod"
+# Schemes accepted for LLM_METRICS_DATABASE_URL when ORIGIN_CLOUD is not "local".
+# SQLite and bare paths resolve to ephemeral container storage and are not durable.
+_CLOUD_APPROVED_DB_SCHEMES = frozenset({"postgresql", "postgresql+psycopg2"})
 # The adapter class of each benchmark target, by provider name.
 ADAPTERS = {
     "openai": openai_provider.OpenAIProvider,
@@ -84,6 +87,36 @@ def _parse_args(args: list[str]) -> tuple[str, str, bool]:
     )
 
 
+def _check_cloud_db_url(raw_url: str) -> str | None:
+    """Returns None if raw_url is a valid cloud-approved database URL, else an error.
+
+    For non-local origins the URL must be explicitly configured as PostgreSQL.
+    SQLite URLs (any form, including absolute paths and :memory:), empty values,
+    and unsupported schemes are all rejected: they may resolve to ephemeral storage
+    that disappears on container exit.
+
+    Returns:
+        None when the URL passes; a short, credential-free error message otherwise.
+        Never echoes the URL value.
+    """
+    if not raw_url:
+        return f"{config.DATABASE_URL_VARIABLE} is not set or is empty."
+    # A URL without "://" is a bare path (absolute, relative, or :memory:);
+    # treat it the same as sqlite since it cannot be a durable remote database.
+    scheme = raw_url.split("://")[0] if "://" in raw_url else ""
+    if not scheme or scheme == "sqlite":
+        return (
+            f"{config.DATABASE_URL_VARIABLE} is a SQLite URL or bare path,"
+            " which is not durable for cloud-origin paid requests."
+        )
+    if scheme not in _CLOUD_APPROVED_DB_SCHEMES:
+        return (
+            f"{config.DATABASE_URL_VARIABLE} has an unsupported scheme."
+            " Expected postgresql or postgresql+psycopg2."
+        )
+    return None
+
+
 def _print_diagnostics(diagnostics: dict[str, str]) -> None:
     details = ", ".join(f"{k}={v}" for k, v in diagnostics.items()) or "(none)"
     print(f"Debug (sanitized, not stored): {details}", file=sys.stderr)
@@ -111,6 +144,26 @@ def run(
         message = e.args[0] if isinstance(e, KeyError) else e
         print(f"Error: {message} No request was made.", file=sys.stderr)
         return 2
+
+    # Cloud-origin guard: before reading the API key or constructing any
+    # provider adapter. Rejects non-PostgreSQL database configurations for
+    # non-local origins so a paid request never silently falls back to ephemeral
+    # container SQLite. Origin is operator-declared and not cryptographically
+    # attested; this is a configuration safety gate, not proof of durability.
+    # Local origin retains existing SQLite behavior (intentional for local dev).
+    if origin[0] != config.DEFAULT_ORIGIN_CLOUD:
+        raw_url = os.environ.get(config.DATABASE_URL_VARIABLE, "")
+        url_error = _check_cloud_db_url(raw_url)
+        if url_error:
+            print(
+                f"Error: {config.ORIGIN_CLOUD_VARIABLE}={origin[0]!r}:"
+                f" {url_error} Cloud-origin paid requests require an explicit"
+                f" PostgreSQL {config.DATABASE_URL_VARIABLE} to prevent data"
+                " loss to ephemeral container storage. No request was made.",
+                file=sys.stderr,
+            )
+            return 2
+
     api_key = os.environ.get(target.api_key_variable, "")
     if not api_key:
         print(

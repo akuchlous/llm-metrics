@@ -2,7 +2,7 @@
 
 Concise context not captured by `PROJECT_STATUS.md` or `DECISIONS.md`. Keep only decisions and learning that affect future work; this is not a conversation transcript.
 
-_Last updated: 2026-11-03 (018b)_
+_Last updated: 2026-11-06 (018h)_
 
 ## Product direction
 
@@ -384,3 +384,23 @@ Step 018g is complete. Claude ran Phase A read-only inspection in Google Cloud S
 **Residual risk found:** with the DB URL removed, the job falls back to container SQLite, so a manual execution would make one ~$0.0003 paid call and lose the result. Proposed fail-closed guard for 018h; do not execute the job meanwhile. `Bash(gcloud *)` Claude setting recommended for narrowing, not changed. No code changes; tests not re-run. Ongoing cost ~$0.13/month.
 
 MARKETING CHECKPOINT: not publishable yet. Stopping for ChatGPT review; Step 018h not started.
+
+
+## Step 018h prompt — fail-closed cloud-origin guard and durable-store decision (2026-11-06)
+
+Following 018g's residual risk finding (Cloud Run Job falls back to ephemeral container SQLite without a DB URL), the user requested Step 018h as a local code-only change. ChatGPT created `prompts/018h-fail-closed-cloud-storage-and-decision.md` with two objectives: (1) add a fail-closed guard in `real_benchmark.run()` rejecting non-local-origin paid runs without an explicit PostgreSQL DATABASE_URL, and (2) provide an evidence-backed storage architecture analysis for the next OpenAI-only pilot. The prompt explicitly prohibits GCP resource changes, paid calls, or starting 018i.
+
+
+## Step 018h implementation — fail-closed cloud-origin guard and durable-store decision (2026-11-06)
+
+Step 018h is complete. Code-only change, no GCP resources provisioned or modified.
+
+**Guard added (`real_benchmark.py`):** `_check_cloud_db_url()` helper and guard block in `run()` fire before the API key is read. Any non-local origin (`LLM_METRICS_ORIGIN_CLOUD != "local"`) without an explicit PostgreSQL `LLM_METRICS_DATABASE_URL` returns exit 2 with "No request was made." Rejects: empty/unset, `sqlite://` forms, bare paths (`:memory:`, absolute paths), unsupported schemes. Local-origin SQLite behavior unchanged.
+
+**Tests:** 31 new tests in `tests/test_cloud_db_guard.py`; `test_origin_comes_from_the_environment` updated in `tests/test_openai_provider.py` (now supplies fake PostgreSQL URL + patches `storage.connect` to redirect to test SQLite engine). Full suite: 423 tests, 13 skipped, 0 failures.
+
+**Storage analysis (D073):** Cloud SQL per-session recommended (proven, no code changes, ~$9–11/month idle, delete between sessions). Cloud Storage requires a new backend abstraction (untested). No GCP-native serverless PostgreSQL confirmed usable with existing psycopg2/SQLAlchemy.
+
+**Operational caveat:** Cloud Run Job still runs pre-guard image `app:sha-9cf8ac9`. Do not execute it. 018i closes this by rebuilding and redeploying with the guard active.
+
+MARKETING CHECKPOINT: not publishable yet. Stopping for ChatGPT review; Step 018i not started.
