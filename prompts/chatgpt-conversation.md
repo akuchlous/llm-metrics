@@ -404,3 +404,8 @@ Step 018h is complete. Code-only change, no GCP resources provisioned or modifie
 **Operational caveat:** Cloud Run Job still runs pre-guard image `app:sha-9cf8ac9`. Do not execute it. 018i closes this by rebuilding and redeploying with the guard active.
 
 MARKETING CHECKPOINT: not publishable yet. Stopping for ChatGPT review; Step 018i not started.
+
+
+## Step 018i prompt — second controlled OpenAI cloud pilot (2026-11-06)
+
+After Claude completed 018h's cloud-origin fail-closed database guard and comparison of storage options, ChatGPT authored `prompts/018i-second-controlled-openai-cloud-pilot.md`. The step requires separate explicit approvals for first deploying the corrected immutable container and verifying a negative no-database refusal, then provisioning temporary PostgreSQL and executing exactly one OpenAI request. It requires independent private backup verification before teardown, no scheduler or other providers, and a stop-for-review checkpoint. The previously deployed image remains unsafe until replaced; recurring storage design remains a separate decision.
