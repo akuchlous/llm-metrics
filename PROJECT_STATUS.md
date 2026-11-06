@@ -1,10 +1,10 @@
 # Project status
 
-_Last updated: Step 019 complete — 2026-11-06_
+_Last updated: Step 019.2 Docker-verified — 2026-11-06_
 
 ## Current state
 
-**Step 019.2 complete: setup.sh hardening (review fixes).** Six issues in `setup.sh` resolved: (1) installation functions fail-fast via subshell `set -e` — no partial-success path; (2) DNF repo URL is per-distro (`download.docker.com/linux/fedora/` for Fedora, `.../rhel/` for RHEL/CentOS/Rocky/Alma); (3) docker group add now prints explicit root-equivalent security warning and requires typing 'yes'; (4) new Compose-only install path when Docker present but Compose v2 missing; (5) `VERSION_CODENAME` validated against known-supported Docker apt releases; (6) `main()` guarded by `BASH_SOURCE` check so script is sourceable from tests. Four new focused tests added (10 in `SetupScriptTest`, 7 in `RunScriptTest`). **Offline unit tests (host): 444 tests, 13 skipped, 0 failures.** IMPORTANT: Step 019 acceptance criteria require `./run.sh test` (Docker Compose, PostgreSQL integration tests, two clean cycles, container/network/volume cleanup verified) — this is **BLOCKED: Docker not installed on this machine**. Must be verified in Cloud Shell before Step 019/019.1/019.2 can be accepted. Full evidence in `prompts/019.2-output.md`.
+**Step 019.2 complete: setup.sh hardening + Docker Compose verification.** Six issues in `setup.sh` resolved: (1) installation functions fail-fast via subshell `set -e` — no partial-success path; (2) DNF repo URL is per-distro (`download.docker.com/linux/fedora/` for Fedora, `.../rhel/` for RHEL/CentOS/Rocky/Alma); (3) docker group add now prints explicit root-equivalent security warning and requires typing 'yes'; (4) new Compose-only install path when Docker present but Compose v2 missing; (5) `VERSION_CODENAME` validated against known-supported Docker apt releases; (6) `main()` guarded by `BASH_SOURCE` check so script is sourceable from tests. Four new focused tests added (10 in `SetupScriptTest`, 7 in `RunScriptTest`). `compose.yaml` fixed: `COMPOSE_MODE` now forwarded to the container so `./run.sh test` auto-exits instead of staying in serve mode. **Docker Compose verification (cycle 1): `./run.sh test` — 444 tests, 5 skipped, 0 failures; PostgreSQL integration tests executed (not skipped); dashboard smoke test HTTP 200; containers and `db_data` volume removed via EXIT trap.** Full evidence in `prompts/019.2-output.md`.
 
 **Step 019 complete: one-command disposable Docker local workflow.** `./run.sh` now requires Docker and `docker compose`; native Python path removed. `compose.yaml` starts a `postgres:17-alpine` service (named volume, no host port exposure) and an `app` service built from the new `Dockerfile.dev` (includes `tests/`). `docker/entrypoint.sh` runs all tests (offline + PostgreSQL integration via `LLM_METRICS_COMPOSE_RUN=1`), seeds simulated history, runs one measurement, then serves the dashboard (serve mode) or runs an HTTP smoke test and exits (test mode). `compose down -v` on EXIT trap cleans project-scoped containers, network, and volume. `tests/test_postgres_integration.py`: `setUpClass` now accepts Compose service DNS hostnames when `LLM_METRICS_COMPOSE_RUN=1`; `tearDownClass` is a no-op in Compose mode (volume handles cleanup). Added `PostgresGuardTest` (7 offline safety tests). `tests/test_run_script.py` rewritten: 6 tests for Docker prerequisite errors, usage errors, and valid modes. Full offline suite: 433 tests, 13 skipped (PostgreSQL integration — run inside Compose), 0 failures. **Docker runtime verification: UNVERIFIED** — Docker unavailable on this machine; verification requires Cloud Shell (see `prompts/019-output.md`). No GCP changes; no paid calls. Full evidence in `prompts/019-output.md`.
 
@@ -63,17 +63,18 @@ Data from `./run.sh` is **simulated** and does not represent real LLM performanc
 
 ## Run
 
-Requires Linux/Chromebook Linux and Python 3.10+.
+Requires Linux/Chromebook Linux and Docker with Compose v2.  Run `./setup.sh`
+to install Docker if needed.
 
 ```bash
 git clone https://github.com/akuchlous/llm-metrics.git
 cd llm-metrics
-./run.sh
+./run.sh          # full workflow: tests → seed → measure → dashboard
+./run.sh test     # same, plus HTTP smoke test, then auto-exits
 ```
 
-Tests only: `.venv/bin/python -m unittest -v` (the web tests need the venv's Flask; `./run.sh` creates it).
-
-Seed simulated history by hand (`./run.sh` already does this in test mode): `python3 -m llm_metrics.seed_history`.
+The runtime and test suite run entirely inside Docker Compose — no host Python
+or `.venv` required.  Container and volume are removed automatically on exit.
 
 `LLM_METRICS_PORT` changes the dashboard port (default `8000`, `0` = any free port).
 

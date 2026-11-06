@@ -47,6 +47,8 @@ services:
       # LLM_METRICS_HOST=0.0.0.0: bind to all interfaces inside the container
       # so the host can reach the dashboard via the port mapping below.
       LLM_METRICS_HOST: "0.0.0.0"
+      # COMPOSE_MODE: inherited from the shell (set by run.sh to "test" or "serve").
+      COMPOSE_MODE:
     ports:
       # 127.0.0.1-only: host loopback only, never exposed to the network.
       - "127.0.0.1:8000:8000"
