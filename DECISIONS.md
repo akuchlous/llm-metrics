@@ -96,7 +96,25 @@ Every step must preserve `./run.sh`, keep secrets/runtime artifacts out of Git, 
   `real_smoke` now delegates to `real_benchmark.run` (the OpenAI target with the smoke workload), so both paid commands share one refusal, announce, attempt and report path. `OpenAIProvider` lost its unused `model` override (the profile fixes the model), and `run_attempt` lost a cache-policy check that profile matching already covers. Test fakes (`sse`, `FakeResponse`, `FakeOpener`, `no_network`) live in `tests/fakes.py`.
 
   Kept separate on purpose, because each provider has its own contract: event dispatch, usage field extraction, request-id source, error-code tables, and request bodies. The OpenAI and xAI Responses parsers stay separate despite similar shapes, because their account errors, ids and documented fields differ. Wire requests, profiles, stored facts, outcomes and output are unchanged, except that the `real_smoke` pre-request announcement now uses `real_benchmark`'s multi-line format.
-- **D078 — Immutable per-attempt JSON records with create-only GCS writes (Step 021; offline, not yet used by the paid path).** `llm_metrics/object_results.py` defines schema `llm-metrics.attempt.v1`:
+- **D079 — Explicit GCS results backend for the paid OpenAI command, with a real storage preflight and no-key smoke (Step 022).**
+  - **Backend selection:** `LLM_METRICS_RESULTS_BACKEND` selects `sql` (default when unset or empty; unchanged SQL storage and the 018h PostgreSQL guard) or `gcs`. Any other value is refused. The GCS bucket/prefix variables alone never select GCS, and a `gs://` URL is never a database URL.
+  - **GCS mode in `real_benchmark`** is limited to `LLM_METRICS_ORIGIN_CLOUD=gcp` and profile `openai.gpt-6-luna.v1`, and needs the explicit bucket/prefix (D078). Order of operations:
+    1. configuration checks, with no I/O and before the key or adapter
+    2. key present
+    3. `object_results.preflight`: create a probe under `<prefix>/v1/preflight/<date>/`, read it, require that an overwrite is refused, re-read
+    4. adapter, then `attempt_id` allocated and printed
+    5. `benchmark.measure_attempt` (exactly one provider call)
+    6. `build_record` (with `recorded_at` set after the measurement), then `write_record`
+  - **Exit codes:** 2 means nothing was requested (or the provider rejected the request); 3 means a request was made but the record is not confirmed durable. Exit 3 prints the attempt ID, outcome, error class and object name only, never the payload. The provider is never retried.
+  - **Permissions:** `GcsObjectStore.create` maps a 403 to "exists" only when the object really exists, so a create-only grant (`objectCreator` + `objectViewer`, no delete) works.
+  - **Storage smoke:** `llm_metrics.gcs_smoke` checks storage with no provider. It refuses if any provider key is set, and writes synthetic `environment: test` records only.
+  - **Cloud resources:** private bucket `gs://llm-metrics-513617-results` (us-central1, UBLA, PAP enforced, default 7-day soft delete, no versioning or retention lock) with prefix `attempts`. The job service account has objectCreator + objectViewer on that bucket only.
+  - **Idle job state:** GCS env, `real_benchmark --real` command, no secret references. It refuses at the key check before any I/O.
+  - **Known gaps:**
+    - the crash window between the paid response and the write
+    - probe objects accumulate (no lifecycle rule yet)
+    - real 412-vs-403 behaviour not observed
+- **D078 — Immutable per-attempt JSON records with create-only GCS writes (Step 021; used by the explicit GCS mode since Step 022, D079).** `llm_metrics/object_results.py` defines schema `llm-metrics.attempt.v1`:
   - **One object per attempt:** keys `schema_version`, `attempt_id` (llm-metrics' UUID hex, the same id as `requests.id`), `recorded_at` (UTC fixed-width `Z`), `environment` (`test`/`prod`), `request` and `observations`.
     - `request` holds exactly the 20 storage request columns other than the identity columns (`REQUEST_FIELDS`, frozen for v1 and test-pinned to `storage`).
     - `observations` holds `{metric, value}` in `latency.METRICS` order.

@@ -498,3 +498,31 @@ Claude implemented `prompts/021-durable-append-only-gcs-results.md`. The point w
 **Not done:** no paid-path integration, cloud changes or paid calls. The post-response failure window remains; Step 022 mitigations are proposed in the report.
 
 MARKETING: not publishable (n = 2). Stopping for ChatGPT review; Step 022 not started.
+
+
+## Step 022 implementation — first live GCS-backed OpenAI measurement (2026-11-06)
+
+Claude implemented `prompts/022-first-live-gcs-backed-openai-pilot.md`.
+
+**Phase 0 (offline):**
+- an explicit `LLM_METRICS_RESULTS_BACKEND` (`sql` default with the 018h guard unchanged; `gcs` explicit, gcp + OpenAI only)
+- `benchmark.measure_attempt` split from SQL persistence
+- in GCS mode: configuration refusals before the key or adapter, a real create/read/no-overwrite preflight before the paid request, a pre-allocated attempt id, and exit 3 when the record is not confirmed durable
+- a storage-only `gcs_smoke` command
+- 24 new tests; the Docker suite passed with 511 tests, 5 skipped
+
+**Phase A (user: "Approve A"):**
+- created private bucket `llm-metrics-513617-results` with bucket-only objectCreator + objectViewer for the job service account
+- built `sha-ee33635` and deployed it by digest
+- ran one storage smoke with no provider key: a synthetic test record, replay accepted, conflict refused, operator SHA-256 match, nothing in `prod`
+
+**Phase B (user: "approved Step B"):**
+- attached only the OpenAI key reference and executed once: success, `prod` record `e00ee56c…` (TTFT 1913 ms, latency 5314 ms, 1795/300 tokens, $0.0003295)
+- detached the key immediately
+- the record was independently downloaded, its SHA-256 and v1 validation passed
+
+**Outcome:** no Cloud SQL, no scheduler, spend under $0.01. The crash window remains open.
+
+Rationale: prove database-free durable collection end to end before scheduling.
+
+MARKETING: not publishable (n = 3). Stopping for ChatGPT review; Step 023 not started.

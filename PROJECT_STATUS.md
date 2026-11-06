@@ -1,8 +1,29 @@
 # Project status
 
-_Last updated: Step 021 complete — 2026-11-06_
+_Last updated: Step 022 complete — 2026-11-06_
 
 ## Current state
+
+**Step 022 complete: first live GCS-backed OpenAI measurement.**
+- **Code:**
+  - `LLM_METRICS_RESULTS_BACKEND` (`sql` default, `gcs` explicit).
+  - `benchmark.measure_attempt` split out of `run_attempt`.
+  - `real_benchmark` GCS mode: gcp origin and OpenAI only; configuration checks before the key or adapter; a real create/read/no-overwrite storage preflight before the paid request; the attempt id fixed before the request; exit 3 if the record is not confirmed durable; no provider retry.
+  - New `llm_metrics.gcs_smoke`: storage only, refuses if any provider key is present.
+  - The SQL path and the 018h guard are unchanged.
+  - Docker `./run.sh test`: 511 tests, 5 skipped, 0 failures, PostgreSQL integration executed.
+- **Cloud (two in-session approvals):**
+  - New private bucket `gs://llm-metrics-513617-results` (UBLA, PAP enforced); the job service account has objectCreator + objectViewer on it only.
+  - Image `sha-ee33635` deployed by digest `sha256:3da244ac…`.
+  - Phase A: a storage smoke as the job service account, with no key, wrote a synthetic `test` record and verified replay and conflict behaviour; the operator re-downloaded it and the SHA-256 matched.
+  - Phase B: one paid execution (`fvv5b`) produced `prod` record `attempts/v1/requests/prod/2026-11-06/e00ee56c46ba499b8579ba3413611be3.json` (sha256 `75e6986d…`, independently verified): TTFT 1913.4 ms, total latency 5314.0 ms, 88.3 tokens/s, 1795 input / 0 cached / 300 output tokens, $0.0003295, request `req_06166e6d…`.
+  - The key was detached immediately afterwards.
+- **Current state:**
+  - The job is idle on the digest with no secrets, no database and no schedule.
+  - No Cloud SQL.
+  - Backups unchanged.
+- **Spend and open risk:** under $0.01. The crash window between the paid response and the write remains open.
+- **Evidence:** `prompts/022-output.md`. MARKETING: not publishable (n = 3).
 
 **Step 021 complete (offline only): immutable per-attempt GCS records.**
 - **What it adds:** `llm_metrics/object_results.py` defines schema `llm-metrics.attempt.v1`, one canonical JSON object per attempt.
