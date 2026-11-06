@@ -1,0 +1,23 @@
+# Dev/test build context ignore file (BuildKit: Dockerfile.dev.dockerignore
+# overrides .dockerignore when building with Dockerfile.dev).
+# Excludes secrets and VCS history; keeps tests/ and docker/ for the dev image.
+
+.git/
+.gitignore
+
+data/
+.venv/
+
+.env
+.env.*
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+service-account*.json
+*-credentials.json
+
+__pycache__/
+*.pyc
+*.pyo

@@ -1,0 +1,26 @@
+FROM python:3.13-slim
+
+# Dev/test image: includes tests, docker entrypoint, and scripts.
+# Production image: use Dockerfile (excludes test sources and dev tooling).
+
+RUN useradd --no-create-home --shell /bin/false appuser
+
+WORKDIR /app
+
+# Install pinned, hash-verified dependencies before copying application code.
+COPY requirements.txt ./
+COPY scripts/install_requirements.py ./scripts/
+RUN python scripts/install_requirements.py
+
+# Application code, migrations, test files, and docker entrypoint.
+COPY alembic.ini ./
+COPY migrations/ ./migrations/
+COPY llm_metrics/ ./llm_metrics/
+COPY tests/ ./tests/
+COPY docker/ ./docker/
+
+RUN chmod +x /app/docker/entrypoint.sh
+
+USER appuser
+
+CMD ["/app/docker/entrypoint.sh"]

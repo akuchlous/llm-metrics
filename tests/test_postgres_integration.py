@@ -1,25 +1,30 @@
 """Real PostgreSQL integration tests for the storage layer.
 
-These tests run only when TEST_POSTGRES_URL is set to a local PostgreSQL URL
-(hostname must be localhost or 127.0.0.1). They verify that the v7 schema
-creation, round-trip persistence, constraint enforcement, atomicity, seeding
-idempotency, and the fail-closed orphan-tables behaviour all work against a
-live PostgreSQL server.
+These tests run only when TEST_POSTGRES_URL is set to a local PostgreSQL URL.
+Outside Docker Compose (LLM_METRICS_COMPOSE_RUN not set), the hostname must be
+localhost or 127.0.0.1.  Inside Compose, the hostname is a service name (e.g.
+"db") and the localhost check is bypassed; the disposable-dbname check still
+applies in both modes.
 
-Run with:
+Run outside Compose:
     TEST_POSTGRES_URL=postgresql://user:pass@localhost/dbname \
         python -m unittest tests.test_postgres_integration -v
+
+Run inside Compose:
+    Set by compose.yaml automatically (LLM_METRICS_COMPOSE_RUN=1).
 
 The test database must already exist and the user must have full privileges on
 it. Each test class drops and recreates the application tables in setUp so
 every test starts with a clean schema; no data from other tests or runs survives.
 
-Security note: the hostname check (localhost/127.0.0.1) is necessary but not
-sufficient. An SSH port-forwarding tunnel (e.g. `ssh -L 5432:prod-db:5432`)
-makes a production database appear at localhost. The database name must also
-contain a recognizable disposable marker (test, dev, bench, tmp, temp, or a
-step suffix like 018d) as a second guard. Neither check is a guarantee: treat
-TEST_POSTGRES_URL as a destructive-operation credential.
+Security notes:
+- Outside Compose: the hostname check (localhost/127.0.0.1) is necessary but
+  not sufficient. SSH port-forwarding can make a production database appear at
+  localhost. The disposable-dbname check is a second guard. Neither check is a
+  guarantee: treat TEST_POSTGRES_URL as a destructive-operation credential.
+- Inside Compose (LLM_METRICS_COMPOSE_RUN=1): the hostname check is bypassed
+  because the host is a Compose service name. tearDownClass skips DROP DATABASE
+  because compose down -v destroys the volume.  The dbname check still applies.
 
 Never set TEST_POSTGRES_URL to a shared or production database.
 """
@@ -28,6 +33,7 @@ import datetime
 import os
 import re
 import unittest
+from unittest import mock
 from urllib.parse import urlparse
 
 import sqlalchemy.exc
@@ -113,14 +119,20 @@ class PostgresIntegrationTest(unittest.TestCase):
     def setUpClass(cls) -> None:
         url = _pg_url()
         parsed = urlparse(url)
-        if parsed.hostname not in ("localhost", "127.0.0.1", "::1"):
-            raise unittest.SkipTest(
-                f"{_URL_VAR} must point to localhost or 127.0.0.1"
-                " — never use a shared or cloud database for these tests."
-            )
-        # SSH tunnels forward a production database to localhost, bypassing the
-        # hostname check above. Require a database name that signals disposable
-        # intent as a second guard. See module docstring.
+        compose_run = bool(os.environ.get("LLM_METRICS_COMPOSE_RUN"))
+        if not compose_run:
+            # Outside Compose: allow only localhost/loopback.  SSH tunnels can
+            # forward a production database to localhost; the dbname check below
+            # is a second guard against that.
+            if parsed.hostname not in ("localhost", "127.0.0.1", "::1"):
+                raise unittest.SkipTest(
+                    f"{_URL_VAR} must point to localhost or 127.0.0.1"
+                    " — never use a shared or cloud database for these tests."
+                )
+        # Always require a database name that signals disposable intent,
+        # regardless of hostname.  In Compose mode the hostname is a service
+        # name (e.g. "db"), so the localhost check is bypassed, but the dbname
+        # guard still applies.  See module docstring.
         dbname = parsed.path.lstrip("/")
         if not _SAFE_DBNAME_RE.search(dbname):
             raise unittest.SkipTest(
@@ -136,12 +148,19 @@ class PostgresIntegrationTest(unittest.TestCase):
     def tearDownClass(cls) -> None:
         """Drop the test database after the full test run.
 
-        Prevents orphaned databases from accumulating between test sessions.
-        Connects to the postgres maintenance database (same credentials) so
-        the test database can be dropped. AUTOCOMMIT is required; DROP DATABASE
-        cannot run inside a transaction.
+        When running under Docker Compose (LLM_METRICS_COMPOSE_RUN=1), cleanup
+        is owned by Compose: 'compose down -v' destroys the disposable volume,
+        including the entire test database cluster.  This method does nothing in
+        that case.  Outside Compose (manual localhost runs), it drops the test
+        database to prevent orphaned databases from accumulating.
+
+        AUTOCOMMIT is required; DROP DATABASE cannot run inside a transaction.
         """
         if not cls.pg_url:
+            return
+        # In Compose mode, the disposable volume handles database cleanup.
+        # DROP DATABASE here would race with Compose teardown and is unnecessary.
+        if os.environ.get("LLM_METRICS_COMPOSE_RUN"):
             return
         # Dispose any engine still in the cache for the test database before
         # dropping it; active connections prevent DROP DATABASE from succeeding.
@@ -412,3 +431,100 @@ class RedactDbUrlTest(unittest.TestCase):
     def test_sqlite_url_unchanged(self):
         url = "sqlite:////home/user/data/db.sqlite"
         self.assertEqual(storage._redact_db_url(url), url)
+
+
+# ------------------------------------------------------------------
+# Safety-guard unit tests for setUpClass / tearDownClass (no DB required)
+# ------------------------------------------------------------------
+
+class PostgresGuardTest(unittest.TestCase):
+    """Unit tests for the hostname and Compose safety guards.
+
+    These tests run without a live database.  They verify that:
+    - setUpClass rejects non-localhost URLs outside Compose mode
+    - setUpClass accepts Compose service-DNS hostnames when COMPOSE_RUN=1
+    - setUpClass always enforces the disposable-dbname check
+    - tearDownClass is a no-op in Compose mode (volume owns cleanup)
+    - tearDownClass is a no-op when pg_url is empty
+    """
+
+    def setUp(self) -> None:
+        self._saved_pg_url = PostgresIntegrationTest.pg_url
+
+    def tearDown(self) -> None:
+        PostgresIntegrationTest.pg_url = self._saved_pg_url
+
+    def test_setUpClass_skips_non_localhost_outside_compose(self):
+        env = {"TEST_POSTGRES_URL": "postgresql://u:p@remote.host/testdb"}
+        # Ensure LLM_METRICS_COMPOSE_RUN is absent.
+        clean_env = {k: v for k, v in os.environ.items()
+                     if k != "LLM_METRICS_COMPOSE_RUN"}
+        clean_env.update(env)
+        with mock.patch.dict(os.environ, clean_env, clear=True):
+            with self.assertRaises(unittest.SkipTest) as ctx:
+                PostgresIntegrationTest.setUpClass()
+            self.assertIn("localhost", str(ctx.exception))
+
+    def test_setUpClass_accepts_localhost_outside_compose(self):
+        env = {
+            "TEST_POSTGRES_URL": "postgresql://u:p@localhost/testdb",
+        }
+        clean_env = {k: v for k, v in os.environ.items()
+                     if k != "LLM_METRICS_COMPOSE_RUN"}
+        clean_env.update(env)
+        with mock.patch.dict(os.environ, clean_env, clear=True):
+            PostgresIntegrationTest.pg_url = ""
+            PostgresIntegrationTest.setUpClass()
+            self.assertEqual(
+                PostgresIntegrationTest.pg_url,
+                "postgresql://u:p@localhost/testdb",
+            )
+
+    def test_setUpClass_accepts_compose_service_hostname(self):
+        env = {
+            "TEST_POSTGRES_URL": "postgresql://u:p@db/llm_metrics_test",
+            "LLM_METRICS_COMPOSE_RUN": "1",
+        }
+        with mock.patch.dict(os.environ, env, clear=True):
+            PostgresIntegrationTest.pg_url = ""
+            PostgresIntegrationTest.setUpClass()
+            self.assertEqual(
+                PostgresIntegrationTest.pg_url,
+                "postgresql://u:p@db/llm_metrics_test",
+            )
+
+    def test_setUpClass_compose_mode_still_enforces_safe_dbname(self):
+        env = {
+            "TEST_POSTGRES_URL": "postgresql://u:p@db/production",
+            "LLM_METRICS_COMPOSE_RUN": "1",
+        }
+        with mock.patch.dict(os.environ, env, clear=True):
+            with self.assertRaises(unittest.SkipTest) as ctx:
+                PostgresIntegrationTest.setUpClass()
+            self.assertIn("disposable", str(ctx.exception))
+
+    def test_setUpClass_outside_compose_still_enforces_safe_dbname(self):
+        env = {
+            "TEST_POSTGRES_URL": "postgresql://u:p@localhost/production",
+        }
+        clean_env = {k: v for k, v in os.environ.items()
+                     if k != "LLM_METRICS_COMPOSE_RUN"}
+        clean_env.update(env)
+        with mock.patch.dict(os.environ, clean_env, clear=True):
+            with self.assertRaises(unittest.SkipTest) as ctx:
+                PostgresIntegrationTest.setUpClass()
+            self.assertIn("disposable", str(ctx.exception))
+
+    def test_tearDownClass_noop_when_pg_url_empty(self):
+        PostgresIntegrationTest.pg_url = ""
+        with mock.patch("sqlalchemy.create_engine") as mock_ce:
+            PostgresIntegrationTest.tearDownClass()
+            mock_ce.assert_not_called()
+
+    def test_tearDownClass_noop_in_compose_mode(self):
+        PostgresIntegrationTest.pg_url = "postgresql://u:p@db/llm_metrics_test"
+        env = {"LLM_METRICS_COMPOSE_RUN": "1"}
+        with mock.patch.dict(os.environ, env):
+            with mock.patch("sqlalchemy.create_engine") as mock_ce:
+                PostgresIntegrationTest.tearDownClass()
+                mock_ce.assert_not_called()

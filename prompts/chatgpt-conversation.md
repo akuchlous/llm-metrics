@@ -419,3 +419,25 @@ The user chose to defer the second OpenAI cloud pilot and instead make the local
 ## Step 019 revised before implementation (2026-11-06)
 
 The user clarified that `./run.sh` itself should run Docker Compose, instead of retaining an independent native Python path. ChatGPT revised the pending `prompts/019-disposable-docker-local-workflow.md`: Docker and Compose are now explicit prerequisites, `./run.sh` runs the complete containerized workflow and dashboard, `./run.sh test` runs disposable tests and smoke, and teardown removes only project-specific containers, networks and disposable database volumes. Verification occurs in Cloud Shell while Docker is absent locally. GitHub history preserves the earlier draft; Cloud Run production is unchanged.
+
+
+## Step 019 implementation — one-command disposable Docker local workflow (2026-11-06)
+
+Step 019 is complete. Code changes only; no GCP resources provisioned or executed.
+
+**What changed:**
+- `compose.yaml` (new): project name `llm_metrics`; `db` service (`postgres:17-alpine`, named volume `db_data`, no host port); `app` service (`Dockerfile.dev`, `LLM_METRICS_COMPOSE_RUN=1`, `TEST_POSTGRES_URL` and `LLM_METRICS_DATABASE_URL` locked to Compose service DNS; `127.0.0.1:8000:8000`)
+- `Dockerfile.dev` (new): dev/test image including `tests/` and `docker/entrypoint.sh`; production `Dockerfile` unchanged
+- `Dockerfile.dev.dockerignore` (new): BuildKit per-Dockerfile ignore; keeps `tests/` and `docker/` for dev build
+- `docker/entrypoint.sh` (new): in-container entrypoint; runs all tests → seeds → measures → serves dashboard (serve mode) or HTTP smoke test (test mode)
+- `run.sh` (rewritten): Docker Compose wrapper; requires `docker` + `docker compose`; EXIT trap calls `compose down -v --remove-orphans` (project-scoped); supports `serve`, `test`, `down` modes
+- `tests/test_postgres_integration.py`: `setUpClass` skips hostname check in Compose mode; `tearDownClass` is a no-op when `LLM_METRICS_COMPOSE_RUN=1`; added `PostgresGuardTest` (7 offline safety tests); added `from unittest import mock` import
+- `tests/test_run_script.py` (rewritten): Docker prerequisite tests; removed native-Python end-to-end test
+
+**Test counts:** 433 total, 13 skipped (PostgreSQL integration — run inside Compose), 0 failures.
+
+**Docker verification: UNVERIFIED.** Docker is unavailable on the development machine. Cloud Shell commands for two clean runs are in `prompts/019-output.md`. Do not mark the step fully accepted until verified.
+
+**a20bf6f tearDownClass:** `tearDownClass` is now a no-op in Compose mode; `compose down -v` handles cleanup. Outside Compose, localhost + dbname guards unchanged (D075). Safety tests added.
+
+MARKETING CHECKPOINT: not publishable yet. Stopping for ChatGPT review; Step 018i (second cloud pilot) not started.

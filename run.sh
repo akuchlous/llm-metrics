@@ -1,53 +1,70 @@
 #!/usr/bin/env bash
-# One-command local run: prepare .venv and its pinned dependencies, run the
-# tests, seed simulated history (test mode only), run one simulated
-# measurement, then serve the dashboard until Ctrl+C. Never calls a paid API.
-# Usage: ./run.sh
+# One-command disposable local workflow using Docker Compose.
+# Requires: docker with Compose v2 (docker compose, not docker-compose).
+#
+# Usage:
+#   ./run.sh           Full workflow: offline+integration tests, seed, measure,
+#                      dashboard on http://127.0.0.1:8000  (Ctrl+C to stop)
+#   ./run.sh test      Same workflow; dashboard HTTP 200 smoke test; auto-exits
+#   ./run.sh down      Remove project containers, network and volume after
+#                      a SIGKILL (safe, project-scoped — see cleanup below)
+#
+# Cleanup is project-scoped to Compose project name "llm_metrics".  It only
+# removes containers, the internal network and the disposable db_data volume
+# created by this project.  It never prunes or deletes unrelated host images,
+# volumes or containers.
 set -euo pipefail
 
 cd "$(dirname "$0")"
 
-echo "LLM Metrics — local test environment"
-
-if ! command -v python3 >/dev/null 2>&1; then
-    echo "✗ python3 not found. Install Python 3.10 or newer." >&2
+# --- Prerequisites ---
+if ! command -v docker &>/dev/null; then
+    echo "✗ Docker is required but was not found." >&2
+    echo "  Install Docker: https://docs.docker.com/get-docker/" >&2
+    echo "  On Google Cloud Shell: docker is pre-installed." >&2
+    exit 1
+fi
+if ! docker compose version &>/dev/null 2>&1; then
+    echo "✗ 'docker compose' (Compose v2) is required but was not found." >&2
+    echo "  Update Docker Desktop, or install the Docker Compose plugin." >&2
     exit 1
 fi
 
-# Created without pip, which avoids needing Debian's python3-venv package
-# (missing on some Chromebooks); the installer below brings its own verified
-# pip when one is needed.
-if [ ! -x .venv/bin/python ]; then
-    echo "  Creating Python environment in .venv ..."
-    python3 -m venv --without-pip .venv
-fi
-PYTHON=.venv/bin/python
-echo "✓ Python environment ready"
+MODE="${1:-serve}"
+case "$MODE" in
+    serve|test|down) ;;
+    *)
+        echo "Usage: ./run.sh [serve|test|down]" >&2
+        echo "  serve  Offline+integration tests, seed, measure, dashboard (default)" >&2
+        echo "  test   Same as serve but runs dashboard smoke test and auto-exits" >&2
+        echo "  down   Remove project Compose containers, network and volume" >&2
+        exit 1
+        ;;
+esac
 
-# Hash-checked install of requirements.txt. Needs the network only on the
-# first run and after requirements.txt changes.
-if ! "$PYTHON" -I scripts/install_requirements.py; then
-    echo "✗ Dependencies are not installed. Not running the tests." >&2
-    exit 1
-fi
+cleanup() {
+    local ec=$?
+    echo ""
+    echo "Stopping and removing project Compose resources..."
+    docker compose down -v --remove-orphans 2>/dev/null || true
+    exit "$ec"
+}
 
-if ! test_output=$("$PYTHON" -m unittest 2>&1); then
-    echo "$test_output" >&2
-    echo "✗ Tests failed. Not starting the measurement." >&2
-    exit 1
-fi
-echo "✓ Tests passed"
-
-export APP_ENV="${APP_ENV:-test}"
-
-# Idempotent: adds the fixed simulated week once, then nothing. Never in prod.
-if [ "$APP_ENV" = "test" ]; then
-    "$PYTHON" -m llm_metrics.seed_history
-    echo "✓ Simulated history ready"
+if [ "$MODE" = "down" ]; then
+    echo "LLM Metrics — removing project Compose resources..."
+    docker compose down -v --remove-orphans
+    echo "✓ Done."
+    exit 0
 fi
 
-echo "✓ Starting $APP_ENV measurement"
-echo
-"$PYTHON" -m llm_metrics
-echo
-exec "$PYTHON" -m llm_metrics.web
+trap cleanup EXIT
+
+export COMPOSE_MODE="$MODE"
+
+echo "LLM Metrics — Docker local environment (mode: $MODE)"
+if [ "$MODE" = "serve" ]; then
+    echo "Dashboard: http://127.0.0.1:8000  (Ctrl+C to stop)"
+fi
+echo ""
+
+docker compose up --build --exit-code-from app --abort-on-container-exit

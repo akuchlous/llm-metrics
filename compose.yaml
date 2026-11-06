@@ -1,0 +1,55 @@
+# llm-metrics Docker Compose local development and test workflow.
+# Project name "llm_metrics" scopes all Compose resources; cleanup is
+# project-scoped (never touches unrelated host images, volumes or containers).
+#
+# Usage: ./run.sh           Full workflow with dashboard (Ctrl+C to stop)
+#        ./run.sh test      Same workflow with HTTP smoke test, then auto-exits
+#        ./run.sh down      Clean up after a SIGKILL
+name: llm_metrics
+
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: llm_metrics_test
+      POSTGRES_USER: llm_metrics
+      POSTGRES_PASSWORD: llm_metrics_test_pass
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U llm_metrics -d llm_metrics_test"]
+      interval: 2s
+      timeout: 5s
+      retries: 15
+    # No ports: host cannot reach the database directly.
+    # The app service connects via service DNS (db:5432).
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      APP_ENV: test
+      # LLM_METRICS_COMPOSE_RUN=1: tells test code to trust Compose isolation.
+      # setUpClass skips the localhost-only hostname check; tearDownClass skips
+      # DROP DATABASE (the volume deletion handles cleanup instead).
+      LLM_METRICS_COMPOSE_RUN: "1"
+      # TEST_POSTGRES_URL: set explicitly so inherited host env cannot redirect
+      # integration tests to a production database.
+      TEST_POSTGRES_URL: "postgresql://llm_metrics:llm_metrics_test_pass@db/llm_metrics_test"
+      # LLM_METRICS_DATABASE_URL: used by seed_history and real_benchmark.
+      LLM_METRICS_DATABASE_URL: "postgresql://llm_metrics:llm_metrics_test_pass@db/llm_metrics_test"
+      LLM_METRICS_ORIGIN_CLOUD: local
+      LLM_METRICS_ORIGIN_REGION: unknown
+      # LLM_METRICS_HOST=0.0.0.0: bind to all interfaces inside the container
+      # so the host can reach the dashboard via the port mapping below.
+      LLM_METRICS_HOST: "0.0.0.0"
+    ports:
+      # 127.0.0.1-only: host loopback only, never exposed to the network.
+      - "127.0.0.1:8000:8000"
+
+volumes:
+  db_data:
