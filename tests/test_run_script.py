@@ -177,11 +177,111 @@ class SetupScriptTest(unittest.TestCase):
 
     def test_idempotent_check_only_no_changes(self):
         """setup.sh --check never modifies the filesystem."""
-        import os as _os
-        # Capture a snapshot of files in common install paths before and after
-        # (can't modify them without sudo, but we verify no attempt is made
-        # on a check-only run with no docker present)
+        # Can't modify system paths without sudo, but we verify no attempt
+        # is made on a check-only run with no docker present.
         with tempfile.TemporaryDirectory() as empty_bin:
             result = _run_setup("--check", extra_path_first=empty_bin)
         # check-only should never succeed when Docker is absent
         self.assertNotEqual(result.returncode, 0)
+
+    def test_check_only_reports_compose_missing_when_docker_present(self):
+        """setup.sh --check reports Compose missing when docker binary is present but compose fails."""
+        with tempfile.TemporaryDirectory() as fake_bin:
+            p = pathlib.Path(fake_bin) / "docker"
+            p.write_text(
+                "#!/bin/sh\n"
+                # compose version → fail (simulates missing plugin)
+                'if [ "$1" = "compose" ] && [ "$2" = "version" ]; then exit 1; fi\n'
+                'if [ "$1" = "info" ]; then exit 0; fi\n'
+                'if [ "$1" = "--version" ]; then echo "Docker version 27.0.0"; exit 0; fi\n'
+                "exit 0\n"
+            )
+            p.chmod(0o755)
+            result = _run_setup("--check", extra_path_first=fake_bin)
+        self.assertNotEqual(result.returncode, 0)
+        combined = result.stdout + result.stderr
+        # Must mention compose (not just generic docker missing)
+        self.assertIn("compose", combined.lower())
+        # Must NOT say "binary not found" (docker IS found)
+        self.assertNotIn("binary not found", combined.lower())
+
+    def test_install_fails_gracefully_on_command_failure(self):
+        """setup.sh exits non-zero with an error message when an install command fails mid-way."""
+        with tempfile.TemporaryDirectory() as fake_bin:
+            # No docker binary → install path triggered
+            # Fake sudo: succeeds for 'sudo -n true' but fails for 'apt-get'
+            sudo = pathlib.Path(fake_bin) / "sudo"
+            sudo.write_text(
+                "#!/bin/sh\n"
+                # sudo -n true → succeed (so _require_sudo passes)
+                'if [ "$1" = "-n" ] && [ "$2" = "true" ]; then exit 0; fi\n'
+                # sudo apt-get → fail (simulates package manager error)
+                'if [ "$1" = "apt-get" ]; then\n'
+                '    echo "E: Unable to fetch packages" >&2\n'
+                "    exit 1\n"
+                "fi\n"
+                "exit 0\n"
+            )
+            sudo.chmod(0o755)
+            # Feed "y\n" to answer the "Install Docker now?" prompt
+            result = subprocess.run(
+                ["bash", str(SETUP_SH)],
+                env={**os.environ, "PATH": f"{fake_bin}:/usr/bin:/bin"},
+                input="y\n",
+                capture_output=True,
+                text=True,
+                timeout=15,
+            )
+        self.assertNotEqual(result.returncode, 0)
+        combined = result.stdout + result.stderr
+        # Must report failure, not success
+        self.assertNotIn("installed.", combined.lower())
+        # Must indicate a step failed
+        self.assertTrue(
+            any(w in combined.lower() for w in ("failed", "error", "✗")),
+            f"Expected failure message in output:\n{combined}",
+        )
+
+    def test_dnf_repo_uses_fedora_url_for_fedora(self):
+        """setup.sh selects the fedora Docker repo URL when DISTRO=fedora."""
+        # We call setup.sh --check on a fake environment that looks like
+        # Fedora by supplying a minimal /etc/os-release via a temp dir.
+        # We read the check-only output and confirm the fedora URL appears.
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Fake os-release for Fedora (no docker so check-only will describe the install)
+            os_release = pathlib.Path(tmpdir) / "os-release"
+            os_release.write_text(
+                'ID=fedora\nID_LIKE=""\nVERSION_CODENAME=""\nNAME="Fedora Linux"\n'
+            )
+            # Inject override: setup.sh sources /etc/os-release via '. /etc/os-release'
+            # We can't easily redirect that, so instead test the helper function in isolation.
+            fake_bin = pathlib.Path(tmpdir) / "bin"
+            fake_bin.mkdir()
+            # Pass DISTRO into environment and call _dnf_docker_repo_url via bash -c
+            result = subprocess.run(
+                ["bash", "-c",
+                 f'source {str(SETUP_SH)} 2>/dev/null; DISTRO=fedora; _dnf_docker_repo_url'],
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+        # Even if the source fails, we look for the URL in output
+        url = result.stdout.strip()
+        self.assertIn("fedora", url, f"Expected fedora in URL, got: {url!r}")
+        self.assertNotIn("rhel", url, f"Unexpected rhel in Fedora URL: {url!r}")
+
+    def test_dnf_repo_uses_rhel_url_for_rhel_compatible(self):
+        """setup.sh selects the RHEL Docker repo URL for RHEL/CentOS/Rocky/Alma."""
+        for distro in ("rhel", "centos", "rocky", "alma"):
+            with self.subTest(distro=distro):
+                result = subprocess.run(
+                    ["bash", "-c",
+                     f'source {str(SETUP_SH)} 2>/dev/null; DISTRO={distro}; _dnf_docker_repo_url'],
+                    capture_output=True,
+                    text=True,
+                    timeout=10,
+                )
+                url = result.stdout.strip()
+                self.assertIn("rhel", url, f"Expected rhel in URL for {distro}, got: {url!r}")
+                self.assertNotIn("/fedora/", url,
+                                 f"Unexpected fedora in URL for {distro}: {url!r}")
