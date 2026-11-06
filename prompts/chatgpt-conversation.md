@@ -414,3 +414,8 @@ After Claude completed 018h's cloud-origin fail-closed database guard and compar
 ## Step 019 replaces pending 018i (2026-11-06)
 
 The user chose to defer the second OpenAI cloud pilot and instead make the local Docker workflow the next milestone. The unstarted 018i cloud prompt was deleted from main (its history remains in Git). ChatGPT authored `prompts/019-disposable-docker-local-workflow.md`: an opt-in Docker Compose integration path with isolated PostgreSQL, genuine migration/tests, simulated dashboard smoke, project-scoped teardown, and two reproducible clean runs. Native `./run.sh` remains supported because Docker is not installed on the developer machine. Step 019 must audit the latest test-database teardown patch for unsafe database deletion. No GCP changes or paid model requests are included. Review and stop before any cloud pilot.
+
+
+## Step 019 revised before implementation (2026-11-06)
+
+The user clarified that `./run.sh` itself should run Docker Compose, instead of retaining an independent native Python path. ChatGPT revised the pending `prompts/019-disposable-docker-local-workflow.md`: Docker and Compose are now explicit prerequisites, `./run.sh` runs the complete containerized workflow and dashboard, `./run.sh test` runs disposable tests and smoke, and teardown removes only project-specific containers, networks and disposable database volumes. Verification occurs in Cloud Shell while Docker is absent locally. GitHub history preserves the earlier draft; Cloud Run production is unchanged.
