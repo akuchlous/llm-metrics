@@ -74,3 +74,4 @@ Each file has:
 | [021](021/) | Immutable append-only per-attempt GCS records (offline) | `prompts/021-durable-append-only-gcs-results.md` |
 | [022](022/) | First live GCS-backed OpenAI pilot: GCS mode, storage preflight, no-key smoke, one paid run | `prompts/022-first-live-gcs-backed-openai-pilot.md` |
 | [023](023/) | Bounded 15-minute OpenAI collector: atomic slot claims, 96-slot policy, alerts, audit | `prompts/023-15-minute-openai-collector.md` |
+| [024](024/) | Offline read-only analytics from immutable GCS records | `prompts/024-gcs-readonly-analytics.md` |

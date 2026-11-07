@@ -96,6 +96,32 @@ Every step must preserve `./run.sh`, keep secrets/runtime artifacts out of Git, 
   `real_smoke` now delegates to `real_benchmark.run` (the OpenAI target with the smoke workload), so both paid commands share one refusal, announce, attempt and report path. `OpenAIProvider` lost its unused `model` override (the profile fixes the model), and `run_attempt` lost a cache-policy check that profile matching already covers. Test fakes (`sse`, `FakeResponse`, `FakeOpener`, `no_network`) live in `tests/fakes.py`.
 
   Kept separate on purpose, because each provider has its own contract: event dispatch, usage field extraction, request-id source, error-code tables, and request bodies. The OpenAI and xAI Responses parsers stay separate despite similar shapes, because their account errors, ids and documented fields differ. Wire requests, profiles, stored facts, outcomes and output are unchanged, except that the `real_smoke` pre-request announcement now uses `real_benchmark`'s multi-line format.
+- **D081 — Published analytics come from an offline, read-only summary over immutable GCS records, not from the SQL dashboard (Step 024).**
+  - **Command:** `llm_metrics.record_analytics` reads a local mirror of the bucket, only `<prefix>/v1/requests/prod/`. It never contacts GCP, providers or a database. The mirror is a separate, explicit operator copy.
+  - **Population:** exact provider, model, profile, workload, origin cloud/region and UTC `[start, end)`.
+    - `test` records and the 018f/020 `snapshots/` CSV backups are never read. Importing the CSVs would need its own step.
+    - A record with the selected profile but another provider/model fails the run as a mixed population.
+  - **Validation:**
+    - Every file in the scanned day directories goes through `object_results.decode_record` with its expected object name, so the record schema is not duplicated.
+    - Symlinks, unexpected entries, oversized files (over 64 KiB), more than 200,000 tree entries, duplicate provider request ids and zero selected records all fail before any write.
+  - **Semantics** (as in D035/D046/`analytics`):
+    - Reliability counts all selected attempts.
+    - TTFT, total latency and both throughputs use successful observations only (nearest-rank p50/p95, min, max, latest). A missing throughput is counted, not 0.
+    - Known costs and tokens are summed over successes (`math.fsum`). A failure's cost is unknown and counted. "None known" is null, never 0.
+  - **Slots:** completeness is never inferred from records. With `--collector-policy-start`, `collector_audit.audit` classifies the slots over the claims in the same mirror. The selection must then agree with it exactly:
+    - the collector's fixed scope;
+    - start equal to the policy start;
+    - no unclaimed selected record;
+    - recorded success/failure counts and failure ids equal.
+
+    Otherwise the run fails. Without it, `slot_completeness` is null and a `no_slot_evidence` caveat is written.
+  - **Output, schema `llm-metrics.analytics.v1`:**
+    - Canonical JSON (sorted keys, compact, no NaN), with no wall-clock fields, so identical inputs give byte-identical bytes.
+    - Per-record object name, attempt id, outcome and SHA-256, plus the SHA-256 of a `sha256sum`-format manifest.
+    - Machine-readable caveats.
+    - No provider request ids, prompts or responses.
+  - **Write:** temp file + fsync + `os.link` (atomic and create-only). An identical existing file is "unchanged"; a different one, a symlink, or a path inside the mirror is refused.
+  - **Contract:** future static pages (D069) consume only this schema.
 - **D080 — Bounded scheduled collection: atomic per-slot GCS claims, a fixed 96-slot policy, and a dedicated credentialed job (Step 023).**
   - **Command:** `llm_metrics.scheduled_collector` takes no arguments and has a fixed scope: `openai.gpt-6-luna.v1`, `interactive-chat-v1`, origin gcp, GCS backend. It is a separate path from the one-off commands.
   - **Slots:** UTC quarter-hours derived from the process clock.

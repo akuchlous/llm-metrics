@@ -593,3 +593,23 @@ The user asked for an updated status report.
 **So far:** TTFT p50 1649 ms, total latency p50 4293 ms, 115 tokens/s p50. Model cost so far $0.0200.
 
 The window still ends 2026-11-07T18:00Z, and indefinite collection was not enabled. Step 023 remains PARTIAL pending the post-window audit and `stop`.
+
+
+## Step 024 implemented: offline read-only analytics from immutable GCS records (2026-11-07)
+
+The user asked Claude to implement Step 024 only, offline, without touching the active Step 023 collector, scheduler, credentials or 24-hour pilot, and with no paid calls or cloud changes.
+
+**What was built.** New `llm_metrics.record_analytics` reads a local mirror of the bucket (prod records only), selects one exact population (provider, model, profile, workload, origin, UTC window) and validates every scanned file through `object_results.decode_record`. It writes a canonical, create-only `llm-metrics.analytics.v1` summary containing:
+- reliability over all attempts;
+- success-only nearest-rank percentiles;
+- known cost, with failed attempts counted as cost-unknown;
+- per-record SHA-256 evidence;
+- machine-readable caveats.
+
+**Why slot completeness comes from claims.** Records alone cannot show missing scheduled slots. Slot completeness therefore comes only from the collector's claims, via `collector_audit`, and it must agree exactly with the selected records; otherwise the run fails.
+
+**Testing.** It was tested on committed synthetic fixtures only. Docker `./run.sh test`: 564 tests, 5 skipped, 0 failures.
+
+**Decision.** D081 records that published numbers will come from this summary, not from the SQL dashboard.
+
+**Not done.** The real pilot mirror was not downloaded or analysed, and no cloud actions were taken. Stopped for ChatGPT review; Step 025 not started.

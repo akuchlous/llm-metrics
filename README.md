@@ -543,3 +543,33 @@ unknown providers or workloads, and invalid origins are refused before any
 network access. Requests the provider rejects because of our key, access,
 parameters or billing are reported and not recorded.
 
+
+## Offline analytics from GCS records (read-only)
+
+`python -m llm_metrics.record_analytics` turns a **local copy** of the
+immutable per-attempt records (`llm-metrics.attempt.v1`) into one versioned
+summary file (`llm-metrics.analytics.v1`). It never contacts GCP, OpenAI or a
+database, and it does not use the SQL-backed dashboard. Getting the mirror is a
+separate, explicit operator action, for example
+`gcloud storage cp -r gs://llm-metrics-513617-results/attempts/v1 MIRROR/attempts/`.
+
+Try it on the committed synthetic fixture (not real measurements):
+
+```bash
+.venv/bin/python -m llm_metrics.record_analytics \
+  --input tests/fixtures/gcs_mirror --output /tmp/summary.json \
+  --provider openai --model gpt-6-luna --profile openai.gpt-6-luna.v1 \
+  --workload interactive-chat-v1 --origin gcp/us-central1 \
+  --start 2026-01-05T18:00:00Z --end 2026-01-05T20:00:00Z \
+  --collector-policy-start 2026-01-05T18:00:00Z
+```
+
+- **Population:** only `prod` records under `MIRROR/<prefix>/v1/requests/prod/`, matched by exact provider, model, profile, workload and origin, with `start <= recorded_at < end` (UTC). `test` records and the `snapshots/` CSV backups are never read.
+- **Semantics:**
+  - Reliability counts every selected attempt, failures included.
+  - TTFT, total latency and throughput use successful observations only, with nearest-rank p50/p95, min, max and latest. A failure never becomes a 0 latency.
+  - Known costs and tokens are summed over successes. Failed attempts are counted as cost-unknown.
+- **Slots:** records alone cannot show slots that produced no record. Slot completeness (missing / claim without record) is reported only with `--collector-policy-start`, from the collector's claims in the same mirror; otherwise it is `null`.
+- **Evidence:** each record's object name, attempt id, outcome and SHA-256 are listed, plus the SHA-256 of a `sha256sum`-format manifest. No provider request ids, prompts or responses are written.
+- **Fail-closed:** malformed, non-canonical, misplaced, oversized or symlinked files, unexpected entries, duplicate provider request ids, mixed populations, inconsistent slot evidence or zero matching records all exit 1 with nothing written. Bad arguments exit 2.
+- **Output:** canonical JSON with no wall-clock fields, so identical inputs give byte-identical files. It is written atomically and create-only: an existing file with different content is never replaced, and an identical one is left as is.

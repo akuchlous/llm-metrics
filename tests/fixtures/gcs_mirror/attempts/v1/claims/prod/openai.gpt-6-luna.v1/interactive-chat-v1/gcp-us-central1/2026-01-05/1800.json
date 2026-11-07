@@ -1,0 +1,1 @@
+{"attempt_id":"00000000000000000000000000000001","claimed_at":"2026-01-05T18:00:04.125000Z","kind":"llm-metrics.claim.v1","mode":"prod","origin_cloud":"gcp","origin_region":"us-central1","policy":{"expires":"2026-01-06T18:00:00Z","max_slots":96,"start":"2026-01-05T18:00:00Z"},"profile_id":"openai.gpt-6-luna.v1","slot":"2026-01-05T18:00:00Z","workload_id":"interactive-chat-v1"}
