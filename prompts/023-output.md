@@ -130,7 +130,7 @@ These are observed mid-window figures. The 96-slot result is still pending, with
 - **Audit at 09:30:45Z** (`scripts/gcp/023_collector.sh audit 2026-11-06T18:00:00Z`):
   - expected 63, claimed 62
   - `recorded_success` 61, `recorded_failure` 1
-  - `missing` 1: the **09:30Z slot, which was still in progress**. The scheduler delivered it at 09:30:18Z, and the container had not yet started or claimed by 09:31:41Z. That is normal startup latency (about 2 min), not a missed slot. Its outcome will appear in the next audit.
+  - `missing` 1: the **09:30Z slot, which was still in progress**. The scheduler delivered it at 09:30:18Z, and the container had not yet started or claimed by 09:31:41Z. That is normal startup latency (about 2 min), not a missed slot. Its outcome will appear in the next audit. **Follow-up (observed from the job log):** slot 09:30Z was claimed at 09:32:12Z and recorded `recorded_success` at 09:32:16Z (attempt `261d46a552f743d384e4f7d87f05614b`). That makes **63 of 63** begun slots recorded, 62 of them successes.
   - claim_without_record 0, records without a claim 0, invalid records 0, claims outside the policy 0
 - **Executions since 18:00Z:** 63; 62 succeeded, 0 failed, 1 running at audit time. The scheduler is ENABLED; next delivery 09:45Z.
 - **Failures:** still only the 21:30Z `provider_error` (attempt `18e49063…`): nulls kept, no retry.
