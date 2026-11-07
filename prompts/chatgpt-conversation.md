@@ -554,3 +554,18 @@ Claude implemented `prompts/023-15-minute-openai-collector.md`. This combines th
 **Status:** PARTIAL. The 24 h results are not yet observed. The key reference stays attached to the collector job until `stop` is run after the window (the code refuses after expiry).
 
 MARKETING: not publishable. Stopping for ChatGPT review; no further step started.
+
+
+## Step 023 mid-window progress (2026-11-07)
+
+About 11 hours into the 24-hour pilot, the user asked for the number of collected measurements.
+
+**Audit at 04:56Z:** 44 of 44 begun slots claimed and recorded; 43 successes and 1 recorded `provider_error` (21:30Z, nulls kept, not retried); no missing slots, duplicates or late starts.
+
+**Live counts at 05:14Z:** 45 claims, 45 records, 45 successful executions. Model cost so far is about $0.014.
+
+The Cloud Console's "3 objects" storage figure was the daily-sampled metric reflecting the 018f backups, not a live count.
+
+The user started to ask for the schedule to be made indefinite, then interrupted that request and asked only for a status update and commit. Nothing was changed: the policy still expires 2026-11-07T18:00Z. An indefinite schedule would need a new reviewed step, because the collector deliberately accepts only exactly 24-hour policies.
+
+Status remains PARTIAL until the window closes and is audited.

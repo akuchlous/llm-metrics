@@ -123,6 +123,33 @@ Before activating I checked that no collector execution was running. Pricing was
 
 **Not observed:** any slot after 18:00Z, the final count, any alert email, the missed-run alert, and the billed amount.
 
+## Progress update — 2026-11-07T05:14Z (window still active; not final)
+
+These are observed mid-window figures. The 96-slot result is still pending.
+
+- **Live counts at 05:14Z:**
+  - 45 `prod` claims, so slots 18:00Z through 05:00Z are each claimed exactly once.
+  - 45 window records in `requests/prod/` (46 objects including the Step 022 record).
+  - 45 collector executions since 18:00Z, all succeeded, none failed.
+- **Audit at 04:56Z** (`scripts/gcp/023_collector.sh audit 2026-11-06T18:00:00Z`, via a local mirror):
+  - expected 44, claimed 44
+  - `recorded_success` 43, `recorded_failure` 1, missing 0, claim_without_record 0
+  - no records without a claim, no invalid records, no claims outside the policy
+- **Event counts in Cloud Logging** (18:00Z–04:56Z): `slot_claimed` 44, `attempt_initiated` 44, `recorded_success` 43, `recorded_failure` 1. No `duplicate_skip`, `late_start`, `claim_failed`, `clock_skew` or `not_persisted` events. Scheduler ERROR entries: 0.
+- **The one failure:** slot 21:30Z, attempt `18e49063ac444c70acc512da44d48c9c`, outcome `provider_error` after 15,226 ms. Stored with null tokens and cost and no provider request id; not retried.
+- **The 43 successful requests** (descriptive only, not statistics):
+
+  | Metric | min | p50 | p90 | max | mean |
+  |---|---|---|---|---|---|
+  | TTFT (ms) | 929 | 1685 | 2414 | 12343 | 2082 |
+  | Total latency (ms) | 3594 | 4219 | 5218 | 15236 | 4724 |
+  | Output (tokens/s) | 84 | 117 | 132 | 136 | 117 |
+
+  Input was always 1795 tokens with 0 cached; output ranged from 266 to 300 tokens. Derived model cost: $0.014109.
+- **Console figure explained:** the Cloud Console's Storage overview showed "1 bucket with objects, 3 objects, 429.33 B average". That is the daily-sampled storage metric, which still reflects the three 018f backup files ((162 + 543 + 583) / 3 = 429.33). It is not a live count.
+- **Unchanged:** the window still expires 2026-11-07T18:00Z. The user started a request to make collection indefinite, then interrupted it; **no change was made**. Making collection indefinite would need a new reviewed step and approval, because the code deliberately refuses any policy that isn't exactly 24 hours.
+- **Credentials:** the key reference is still attached to `llm-metrics-collector` only. Post-window actions are as above (`audit`, then `stop`).
+
 ## Pending: the rest of the 24-hour window
 
 The authorization is **active and finite**: up to 96 slots from 18:00Z, with the last slot at 2026-11-07T17:45Z. After 18:00Z on 2026-11-07, every delivery is a `policy_expired` no-op, even if the scheduler is still running, because the code refuses independently.
