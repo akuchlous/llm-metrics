@@ -102,6 +102,20 @@ class EveryPageIsAQuestionTest(unittest.TestCase):
             self.assertTrue(h1.rstrip().endswith("?"), f"{name}: {h1!r}")
 
 
+class NoDownloadsTest(unittest.TestCase):
+
+    def test_no_data_files_or_download_links(self):
+        files = published_files()
+        self.assertFalse(any(n.startswith("data/") for n in files))
+        for name, data in files.items():
+            if name.endswith(".html"):
+                text = data.decode()
+                self.assertNotIn("download", text.lower(), name)
+                self.assertIsNone(
+                    re.search(r'href="[^"]+\.(json|csv)"', text), name
+                )
+
+
 class MetricQuestionTest(unittest.TestCase):
 
     def test_metric_question_has_no_numbers_without_a_dataset(self):

@@ -41,7 +41,7 @@
 {% endfor %}</tbody>
 </table>
 </details>
-<p><a href="{{ charts.json_path }}">Download the per-slot series (JSON)</a>, SHA-256 <code class="hash">{{ charts.sha256 }}</code>. It contains slot times, outcomes and rounded values only.</p>
+<p>Per-slot series SHA-256: <code class="hash">{{ charts.sha256 }}</code> (slot times, outcomes and rounded values; the file itself is not published).</p>
 {% else %}
 <p>Per-request charts appear here when a validated time series of real measurements is supplied with the dataset.</p>
 {% endif %}

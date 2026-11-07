@@ -156,9 +156,7 @@ class EvidencePageTest(unittest.TestCase):
         # Other drafts stay out; no dated edition or archive is created.
         self.assertNotIn("ttft-vs-total-response-time/index.html", files)
         self.assertFalse(any(n.startswith("reports/") for n in files))
-        json_files = [n for n in files if n.startswith("data/analytics/")]
-        self.assertEqual(len(json_files), 1)
-        self.assertNotIn(b"attempt_id", files[json_files[0]])
+        self.assertFalse(any(n.startswith("data/") for n in files))
 
     def test_no_evidence_page_without_provisional_data(self):
         files = ss.render_site(STAGING, preview_at=AT, staging=True)

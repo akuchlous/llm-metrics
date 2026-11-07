@@ -59,4 +59,9 @@ Review the charts locally with `./run.sh site-preview`; if they look right, say 
 
 Full files: `design-questions/027c/`.
 
-**STOP: awaiting local visual review and ChatGPT review. No Cloudflare deploy, Step 028 and Approval B/C not started.**
+## Follow-ups (2026-11-07)
+- Every page heading is a question (D090).
+- No data downloads: the dataset and series links and `data/` files were removed; fingerprints stay as text (D091).
+- **Deployed to staging at the owner's request** ("deploy to cloudflare"): Worker `llmxchange` version ff23ce00-3739-4c0a-9efb-ba50390b105e (previous 4843a1e5) on Workers Static Assets, not Cloudflare Pages. Live: all pages 200 and byte-identical to the build; charts and "Partial pilot, as of 2026-11-07 15:30:00 UTC" on `/metrics/openai/ttft`; the old `/data/analytics/...json` now 404; drafts 404; `noindex, nofollow`. 691 tests OK (7 skipped).
+
+**STOP: awaiting ChatGPT review. Step 028 and Approvals B/C not started.**

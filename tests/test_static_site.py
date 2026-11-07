@@ -10,7 +10,6 @@ reaches a network, database, GCP or a provider.
 """
 
 import contextlib
-import hashlib
 import io
 import json
 import pathlib
@@ -384,9 +383,8 @@ class DatasetTest(unittest.TestCase):
         ):
             self.assertIn(text, metric)
         self.assertIn("<svg", metric)
-        name = f"data/analytics/{hashlib.sha256(self.data).hexdigest()}.json"
-        self.assertEqual(self.files[name], self.data)
-        self.assertIn(f'href="/{name}"', metric)
+        self.assertFalse(any(n.startswith("data/") for n in self.files))
+        self.assertNotIn("Download", metric)
 
     def test_low_n_is_visible(self):
         for name in (QUESTION, METRIC):

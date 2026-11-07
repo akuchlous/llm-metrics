@@ -4,7 +4,7 @@ _Last updated: Step 027c per-request pilot charts (local preview, not deployed) 
 
 ## Current state
 
-**Step 027c complete locally, not deployed; awaiting local visual review and ChatGPT review.**
+**Step 027c deployed to staging at the owner's request** (Worker version ff23ce00): per-request charts, question headings on every page (D090), no data downloads (D091). Awaiting ChatGPT review.
 - Metric page charts of every real pilot request over time (TTFT, total response time, tokens/s) and every slot's outcome, from a sanitized per-slot series (D089). Preview with `./run.sh site-preview`; deploy to staging only after you say "deploy staging".
 - `./run.sh pilot-plan --start <UTC>` plans (only) a new 24-hour run; launching needs Approval C after the original pilot is stopped and audited.
 - Every page heading is now a question (D090). 690 tests OK (7 skipped).
@@ -36,7 +36,7 @@ _Last updated: Step 027c per-request pilot charts (local preview, not deployed) 
 - **Tests:** Docker `./run.sh test` (see 027 output).
 - **Not done:** no screenshots (the headless browser image was not permitted).
 - **Cloudflare status (2026-11-07): staging deployed (Approval A).**
-  - https://llmxchange.akuchlous.workers.dev: one assets-only Worker `llmxchange` (version 4843a1e5, after 7e8681e8, a46f81ef and the first deploy 34fc2545), workers.dev only, preview URLs off, no custom domain, routes or DNS. Built with `--staging`: approved answers only, no dated editions, nothing archived, `noindex, nofollow` everywhere.
+  - https://llmxchange.akuchlous.workers.dev: one assets-only Worker `llmxchange` (version ff23ce00, after 4843a1e5, 7e8681e8, a46f81ef and the first deploy 34fc2545), workers.dev only, preview URLs off, no custom domain, routes or DNS. Built with `--staging`: approved answers only, no dated editions, nothing archived, `noindex, nofollow` everywhere.
   - Live routing, redirects, 404s, security headers, robots and content checks passed; see `prompts/027-output.md`. Screenshots/Lighthouse not run (headless browser not permitted).
   - Wrangler 4.152.0 via OAuth login; Cloudflare agent plugin installed. `llmxchange.com` not purchased; production (Approval B) not started.
 - **No GCP, DNS or paid Cloudflare actions.**

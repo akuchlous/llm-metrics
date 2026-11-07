@@ -2089,10 +2089,8 @@ def plan_site(
         )
         files[page.output_file] = html_text.encode("utf-8")
     files[STYLESHEET_PATH[1:]] = STYLESHEET_SOURCE.read_bytes()
-    if dataset is not None:
-        files[dataset.json_path[1:]] = dataset.public_bytes
-    if series is not None:
-        files[series.json_path[1:]] = series.data
+    # Data files are never published or linked (owner decision D091): the
+    # pages show validated numbers and their fingerprints only.
     redirects = [
         {"from": source, "to": q.path, "status": 301}
         for q in questions

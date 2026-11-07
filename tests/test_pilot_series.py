@@ -181,8 +181,7 @@ class ChartTest(unittest.TestCase):
         self.assertEqual(
             self.page.count('<tr><th scope="row"><time'), sc.MAX_SLOTS
         )
-        name = self.view["json_path"][1:]
-        self.assertEqual(self.files[name], series_bytes())
+        self.assertFalse(any(n.startswith("data/") for n in self.files))
 
     def test_outliers_are_capped_and_labelled_not_hidden(self):
         rows = [
