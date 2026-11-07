@@ -1,0 +1,14 @@
+{
+  "question_id": "q0007",
+  "path": "/useful-llm-api-metrics",
+  "breadcrumb_name": "Useful LLM API metrics",
+  "category": "Performance",
+  "related_metrics": [
+    "/metrics/openai/ttft"
+  ],
+  "aliases": [],
+  "reviewed_distinct_from": [],
+  "editions": [
+    "e1"
+  ]
+}

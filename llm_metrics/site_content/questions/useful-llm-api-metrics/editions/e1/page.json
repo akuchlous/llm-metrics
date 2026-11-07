@@ -1,0 +1,57 @@
+{
+  "kind": "question",
+  "path": "/useful-llm-api-metrics",
+  "title": "Which LLM API Metrics Are Useful, and Why?",
+  "h1": "Which LLM API metrics are useful, and why?",
+  "meta_description": "The LLM API metrics that matter: time to first token, total response time, output speed, reliability, token usage and cost per request, and why each matters.",
+  "breadcrumb_name": "Useful LLM API metrics",
+  "focus_keyphrase": "LLM API metrics",
+  "slug_terms": [
+    "useful",
+    "llm",
+    "api",
+    "metrics"
+  ],
+  "editorial_revision": "r1",
+  "answer_revision": "useful-llm-api-metrics/answer-r1",
+  "answer_basis": "methodology",
+  "answer_reviewed_dataset_sha256": null,
+  "authors": [],
+  "related_metric": "/metrics/openai/ttft",
+  "sections": [
+    {
+      "id": "answer",
+      "heading": "Answer",
+      "file": "answer.html"
+    },
+    {
+      "id": "metrics",
+      "heading": "The metrics and why each matters",
+      "file": "metrics.html"
+    },
+    {
+      "id": "summaries",
+      "heading": "How to summarize them",
+      "file": "summaries.html"
+    },
+    {
+      "id": "ours",
+      "heading": "What our benchmark records",
+      "file": "ours.html"
+    },
+    {
+      "id": "limitations",
+      "heading": "Limitations",
+      "file": "limitations.html"
+    },
+    {
+      "id": "related",
+      "heading": "Related pages",
+      "file": "related.html"
+    }
+  ],
+  "status": "approved",
+  "summary": "TTFT, total response time, output speed, reliability, token usage and cost per request: what each tells you and how to report it.",
+  "what_changed": null,
+  "source_commit": "4241ec7"
+}

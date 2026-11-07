@@ -12,6 +12,7 @@
     "questions/output-tokens-and-llm-response-time",
     "questions/why-llm-latency-varies",
     "questions/openai-ttft",
+    "questions/useful-llm-api-metrics",
     "metrics/openai-ttft"
   ]
 }

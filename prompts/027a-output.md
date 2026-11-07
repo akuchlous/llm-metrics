@@ -47,4 +47,11 @@ Review the four drafts (and the duplicate-calls draft) in a local preview and ap
 
 Full files: `design-questions/027a/`.
 
+## Follow-up: "Which LLM API metrics are useful, and why?" (2026-11-07)
+
+- New question q0007 at `/useful-llm-api-metrics` (category Performance), **approved at the owner's request** for the static pages. It explains TTFT, total response time, output tokens per second, reliability, token usage and cost per request, how to summarize them (percentiles, failures counted separately, sample size and window), what our benchmark records, and limitations. No measured values; it links to `/metrics/openai/ttft`, `/costs` and the TTFT methodology article.
+- Not frozen: no dated edition was created (that needs `--publish-at`, Approval B).
+- Tests: focused 120 OK; full Docker 656 OK (6 skipped); lint clean. Editorial report: all checks pass.
+- Staging Worker updated to version 7e8681e8-1ae2-453b-af1e-44acbe5c6f9b: home lists two questions; `/useful-llm-api-metrics` 200, trailing slash 307, `-latest` 301, `noindex, nofollow`, byte-identical to the build; drafts still 404.
+
 **STOP: awaiting ChatGPT review. Approval B and Step 028 not started.**

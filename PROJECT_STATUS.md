@@ -7,7 +7,8 @@ _Last updated: Step 027a question-first site on workers.dev staging; awaiting Ch
 **Step 027a complete, staging updated, awaiting ChatGPT review.**
 - Question-first home page (newest first, 50 per page, `/page/N` only when needed), categories, answer-first question pages, related questions, metric question `/openai-ttft` with no numbers, simpler stylesheet. See `prompts/027a-output.md`, D086.
 - Four new educational drafts (not approved, not on staging); duplicate-calls article still a draft.
-- Staging Worker version a46f81ef at https://llmxchange.akuchlous.workers.dev; 656 tests OK (6 skipped).
+- Approved follow-up question `/useful-llm-api-metrics` ("Which LLM API metrics are useful, and why?"), live on staging.
+- Staging Worker version 7e8681e8 at https://llmxchange.akuchlous.workers.dev; 656 tests OK (6 skipped).
 
 **Step 027 complete; staging deployed (Approval A, D085) and updated in Step 027a. Production not deployed.**
 - **Design:** an "LLM Xchange" brand with top navigation (Questions, Metrics, Project Costs, Methodology), cards and a responsive dark-mode stylesheet. No JavaScript or trackers.
@@ -23,7 +24,7 @@ _Last updated: Step 027a question-first site on workers.dev staging; awaiting Ch
 - **Tests:** Docker `./run.sh test` (see 027 output).
 - **Not done:** no screenshots (the headless browser image was not permitted).
 - **Cloudflare status (2026-11-07): staging deployed (Approval A).**
-  - https://llmxchange.akuchlous.workers.dev: one assets-only Worker `llmxchange` (version a46f81ef since Step 027a; first deploy 34fc2545), workers.dev only, preview URLs off, no custom domain, routes or DNS. Built with `--staging`: approved answers only, no dated editions, nothing archived, `noindex, nofollow` everywhere.
+  - https://llmxchange.akuchlous.workers.dev: one assets-only Worker `llmxchange` (version 7e8681e8, after a46f81ef and the first deploy 34fc2545), workers.dev only, preview URLs off, no custom domain, routes or DNS. Built with `--staging`: approved answers only, no dated editions, nothing archived, `noindex, nofollow` everywhere.
   - Live routing, redirects, 404s, security headers, robots and content checks passed; see `prompts/027-output.md`. Screenshots/Lighthouse not run (headless browser not permitted).
   - Wrangler 4.152.0 via OAuth login; Cloudflare agent plugin installed. `llmxchange.com` not purchased; production (Approval B) not started.
 - **No GCP, DNS or paid Cloudflare actions.**

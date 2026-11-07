@@ -25,6 +25,7 @@ DUP = "questions/prevent-duplicate-paid-llm-calls"
 TTFT_R1 = "reports/2026-11-08/how-to-measure-openai-ttft/index.html"
 TTFT_R2 = "reports/2026-11-10/how-to-measure-openai-ttft/index.html"
 DUP_R1 = t25.DUP_R1
+METRICS_R1 = "reports/2026-11-08/useful-llm-api-metrics/index.html"
 ROUTE_RE = r"^reports/\d{4}-\d{2}-\d{2}/[a-z0-9-]+(/r\d+)?/index\.html$"
 
 
@@ -103,7 +104,7 @@ class DefaultContentTest(unittest.TestCase):
     def test_publishing_takes_only_approved_editions(self):
         content = Content(self)
         files, archived = content.publish(D1)
-        self.assertEqual(archived, [TTFT_R1])
+        self.assertEqual(archived, [TTFT_R1, METRICS_R1])
         self.assertIn(t25.QUESTION, files)
         self.assertNotIn(t25.DUPLICATE, files)
         metric = files[t25.METRIC].decode()
@@ -134,6 +135,7 @@ class EditionLifecycleTest(unittest.TestCase):
             [
                 TTFT_R1,
                 DUP_R1,
+                METRICS_R1,
             ],
         )
         self.assertEqual(self.archived_second, [TTFT_R2])

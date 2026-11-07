@@ -679,3 +679,7 @@ ChatGPT accepted Step 026 for the educational Q&A scope. Remaining items were mo
 
 The user asked to simplify LLM Xchange: the home page becomes a chronological list of questions (50 per page, `/page/N`), every question gets an answer-first page, metrics are presented as questions ("What is OpenAI's TTFT?") that say no validated measurements exist yet, and three educational questions plus the metric question were added as drafts under the existing approval workflow. The design became minimal and typographic. This replaces the Step 027 edition-feed home page (D086) without changing immutable editions. The existing workers.dev staging Worker was updated (approved content only, `noindex, nofollow`); production, DNS, GCP and scheduling were not touched.
 
+## Step 027a follow-up: useful LLM API metrics question (2026-11-07)
+
+The user asked for one more question built from existing work, "Which LLM API metrics are useful, and why?", and for it to be on the static pages. It was added as q0007 `/useful-llm-api-metrics`, approved at the user's request, without numbers or a dated edition, and staging was updated.
+

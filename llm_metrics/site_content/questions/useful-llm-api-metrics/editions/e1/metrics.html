@@ -1,0 +1,8 @@
+<ul>
+<li><strong>Time to first token (TTFT):</strong> how long until the first piece of answer text arrives. It is what people feel in chat and other streaming interfaces, and it captures connection time, queueing and prompt processing.</li>
+<li><strong>Total response time:</strong> how long until the whole answer has arrived. It matters for batch jobs, tool calls and structured output, where nothing is usable until the end.</li>
+<li><strong>Output tokens per second:</strong> how fast the answer is generated after it starts. It explains why long answers take longer, and it is only meaningful when the provider reports the output token count.</li>
+<li><strong>Reliability:</strong> how many requests succeed, and how the rest fail (for example rate limits, timeouts or server errors). A fast service that often fails is not fast in practice.</li>
+<li><strong>Token usage:</strong> input, cached input and output tokens as reported by the provider. These drive both cost and latency, so they are recorded rather than estimated from the text.</li>
+<li><strong>Cost per request:</strong> computed from the reported tokens and stored per-token prices. Estimated cost is not the same as billed cost, and the cost of a failed request is unknown rather than zero.</li>
+</ul>

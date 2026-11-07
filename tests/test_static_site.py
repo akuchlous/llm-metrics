@@ -39,6 +39,7 @@ NEW_QUESTIONS = (
     "output-tokens-and-llm-response-time/index.html",
     "why-llm-latency-varies/index.html",
     "openai-ttft/index.html",
+    "useful-llm-api-metrics/index.html",
 )
 PAGES = (
     "index.html",
