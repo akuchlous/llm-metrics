@@ -77,3 +77,4 @@ Each file has:
 | [024](024/) | Offline read-only analytics from immutable GCS records | `prompts/024-gcs-readonly-analytics.md` |
 | [025](025/) | First question-driven static pages: TTFT Q&A article and metric page | `prompts/025-first-question-static-html.md` |
 | [026](026/) | Question registry and immutable dated Q&A editions | `prompts/026-immutable-page-versioning.md` |
+| [027](027/) | Cloudflare-ready static site: design, costs ledger, sitemap/redirects, release lanes | `prompts/027-configurable-static-publishing.md` |

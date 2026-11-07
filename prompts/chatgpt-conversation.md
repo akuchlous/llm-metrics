@@ -656,3 +656,21 @@ ChatGPT reviewed Step 025 and approved proceeding. The user's priority is to mak
 **Deliberately deferred.** Dated metric snapshots and sample thresholds were deferred to keep the step minimal, so the prompt's two-dataset metric acceptance check is not met. Data-based answers are refused until snapshots exist.
 
 **Not done.** Nothing has been published (the archive is empty); no hosting, DNS or cloud changes. Stopped for ChatGPT review; Step 027 not started; Step 023 untouched.
+
+
+## Step 027 implemented offline: Cloudflare-ready site, costs ledger, release lanes (2026-11-07)
+
+ChatGPT accepted Step 026 for the educational Q&A scope. Remaining items were moved forward: `/costs`, pricing Q&A foundations and the ledger format to Step 027; metric snapshots, thresholds and the weekly metrics Q&A workflow to Step 028, mandatory before real results are published. The user's architecture is one public domain (llmxchange.com) on Cloudflare static hosting (free tier preferred), with a polished design and an optional future Flask `/api/*`.
+
+**What was built.** Claude implemented Step 027 offline:
+- **Design:** a redesigned site with an "LLM Xchange" brand and top navigation.
+- **Costs:** `/costs` from a private reviewed ledger, counting actual charges only. It shows "Full lifetime total not yet verified." until every source is reconciled.
+- **Hosting files:** `sitemap.xml`, `robots.txt`, `_redirects`, `_headers` and `404.html`, plus a Workers Static Assets `wrangler.jsonc` using `drop-trailing-slash`.
+- **Checks:** a host-routing emulator and a forbidden-content scan.
+- **Release lanes:** `publish_runner` with separate editorial and metrics lanes, a cadence config and an emergency switch.
+
+**Testing.** Docker: 646 tests, 6 skipped, 0 failures.
+
+**Screenshots.** Not taken: running a third-party headless-browser image was not permitted.
+
+**Not done.** No Cloudflare, DNS or cloud actions. The next step needs Approval A (a `workers.dev` staging deploy). Stopped for ChatGPT review.

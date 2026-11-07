@@ -1,8 +1,23 @@
 # Project status
 
-_Last updated: Step 026 complete locally (question registry + immutable dated Q&A editions; awaiting ChatGPT review); Step 023 PARTIAL — 2026-11-07_
+_Last updated: Step 027 complete offline (Cloudflare-ready site, costs ledger, release lanes; awaiting ChatGPT review and Approvals A/B); Step 023 PARTIAL — 2026-11-07_
 
 ## Current state
+
+**Step 027 complete offline, awaiting ChatGPT review. Nothing deployed.**
+- **Design:** an "LLM Xchange" brand with top navigation (Questions, Metrics, Project Costs, Methodology), cards and a responsive dark-mode stylesheet. No JavaScript or trackers.
+- **Costs:** `/costs` is built from a private reviewed ledger (`cost_ledger.py`). It shows actual charges only, and "Full lifetime total not yet verified." until every source is reconciled.
+- **Hosting:**
+  - Generated `sitemap.xml`, `robots.txt`, `_redirects`, `_headers` and `404.html`.
+  - A `wrangler.jsonc` for Cloudflare Workers Static Assets (`drop-trailing-slash`, `404-page`).
+  - An offline host-routing emulator and a forbidden-content scan.
+- **Release lanes:** `publish_runner` runs separate editorial and metrics lanes, with a cadence config and an emergency switch.
+- **Deferred decisions (ChatGPT review of 026):**
+  - `/costs`, pricing Q&A foundations and the ledger format: done in 027.
+  - **Step 028** must deliver immutable dated metric snapshots, sample-size thresholds and the weekly metrics Q&A workflow **before any real benchmark result is published**.
+- **Tests:** Docker `./run.sh test` (see 027 output).
+- **Not done:** no screenshots (the headless browser image was not permitted).
+- **No cloud, DNS or Cloudflare actions.**
 
 **Step 026 complete (local only), awaiting ChatGPT review: question registry and immutable dated Q&A editions.**
 - **Registry:** each question directory has a `question.json` (opaque `question_id`, stable path, editions). Editions reuse the Step 025 `page.json` and fragments, with `status` draft/approved.
@@ -209,6 +224,8 @@ llm_metrics/
   object_results.py  immutable llm-metrics.attempt.v1 records: schema, canonical encoding, create-only GCS writes, read/validate
   scheduled_collector.py / collector_audit.py  bounded 15-minute collector with slot claims; read-only claims-vs-records audit
   record_analytics.py  offline read-only analytics over a local mirror of prod records -> canonical llm-metrics.analytics.v1 summary
+  cost_ledger.py   private cost ledger -> sanitized /costs summary (actual charges only)
+  publish_runner.py  local editorial and metrics release lanes (cadence, emergency switch, history)
   static_site.py   offline static site generator (Step 026: question registry, dated editions frozen into site_content/archive/): reviewed site_content/ + validated analytics summary -> HTML pages (site_templates/, site_static/)
   config.py        environment, DB path, dashboard port
   __main__.py      CLI
@@ -281,7 +298,9 @@ A unique index on observations (`recorded_at`, `environment`, `provider`, `model
 
 ## Next step
 
-**Recommended (after ChatGPT review of Step 026):** review and approve the draft duplicate-calls article, then follow the minimum publication steps in `prompts/026-output.md`: publish with `--publish-at`, commit the archive, then an approved hosting step (027).
+**Recommended (after ChatGPT review of Step 027):** Approval A, a Cloudflare `*.workers.dev` staging deploy with route, header and visual verification; see `prompts/027-output.md`.
+
+_Previous:_ **Recommended (after ChatGPT review of Step 026):** review and approve the draft duplicate-calls article, then follow the minimum publication steps in `prompts/026-output.md`: publish with `--publish-at`, commit the archive, then an approved hosting step (027).
 
 _Previous:_ **Recommended (after ChatGPT review of Step 025):** decide the publication order under the new "publish educational content early" priority. The shortest safe path is in `prompts/025-output.md`: review the article, then an approved, minimal hosting step that serves the no-data build, before or alongside Step 026.
 

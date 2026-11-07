@@ -628,3 +628,21 @@ Each question in `llm_metrics/site_content/questions/<name>/` has a `question.js
 - **Canonicals:** dated editions are canonical to the stable page.
 - **Redirect plan:** the output's `redirects.json` lists `<slug>-latest` → `<slug>` (301) for the hosting step.
 - **Indexing:** an empty or synthetic metric page is `noindex`. Educational questions need no dataset and stay indexable.
+
+### Hosting, costs and release lanes (Step 027, offline)
+
+- **Hosting target:** Cloudflare Workers Static Assets, assets only (`wrangler.jsonc`, **not deployed**). `html_handling: "drop-trailing-slash"` serves the slashless canonical URLs. Each build also writes `sitemap.xml`, `robots.txt`, `_redirects`, `_headers` and `404.html`.
+- **Project costs:** `--cost-ledger FILE` reads a private `llm-metrics.cost-ledger.v1` file (see `llm_metrics/cost_ledger.py`) and renders `/costs` from actual charges only. Until every source is reconciled, the page says "Full lifetime total not yet verified." The ledger is never published.
+- **Release lanes:**
+
+  ```bash
+  # Editorial: publish approved Q&A editions (no analytics needed).
+  .venv/bin/python -m llm_metrics.publish_runner editorial --output site_build \
+    --site-url https://llmxchange.com --state-dir publish_state --publish-at 2026-11-08T09:00:00Z --dry-run
+  # Metrics: refresh metric pages on the configured cadence from a changed, complete, real dataset.
+  .venv/bin/python -m llm_metrics.publish_runner metrics --output site_build \
+    --site-url https://llmxchange.com --state-dir publish_state \
+    --now 2026-11-09T02:05:00Z --analytics summary.json --data-source real --dry-run
+  ```
+
+  `llm_metrics/site_content/publishing.json` holds the cadence (`daily` | `every_3_days` | `weekly`, at 02:00 UTC) and the `publishing_enabled` emergency switch. Nothing is scheduled.

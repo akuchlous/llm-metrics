@@ -1,10 +1,11 @@
 {
-  "site_name": "llmxchange.com",
+  "site_name": "LLM Xchange",
   "language": "en",
   "pages": [
     "pages/home",
     "pages/llm-performance",
     "pages/questions",
+    "pages/costs",
     "questions/how-to-measure-openai-ttft",
     "questions/prevent-duplicate-paid-llm-calls",
     "metrics/openai-ttft"

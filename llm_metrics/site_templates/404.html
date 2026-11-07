@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="{{ site.language }}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="{{ csp }}">
+<meta name="robots" content="noindex">
+<title>Page not found</title>
+<link rel="stylesheet" href="{{ stylesheet }}">
+</head>
+<body>
+<header class="site-header">
+<div class="header-inner">
+<a class="brand" href="/"><span class="brand-mark" aria-hidden="true">LX</span><span class="brand-name">{{ site.name }}</span></a>
+<nav aria-label="Main" class="main-nav"><ul>
+{% for item in nav %}<li><a href="{{ item.path }}">{{ item.label }}</a></li>
+{% endfor %}</ul></nav>
+</div>
+</header>
+<main id="content">
+<article>
+<h1>Page not found</h1>
+<p>There is no page at this address. Published editions never move, so an old link may simply be mistyped.</p>
+<p><a href="/">Go to the latest questions</a> or <a href="/questions">browse all questions</a>.</p>
+</article>
+</main>
+</body>
+</html>

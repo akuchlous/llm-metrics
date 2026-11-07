@@ -44,27 +44,33 @@
 {% if feed or page.kind == "home" %}
 <section id="latest">
 <h2>Published questions, newest first</h2>
-{% if feed %}<ul class="page-list">
-{% for item in feed %}<li><a href="{{ item.path }}">{{ item.h1 }}</a> <time datetime="{{ item.date }}">{{ item.label }}</time><p>{{ item.summary }}</p></li>
-{% endfor %}</ul>{% else %}<p>No questions have been published yet.</p>{% endif %}
+{% if feed %}<ol class="feed">
+{% for item in feed %}<li class="card question-card"><p class="card-meta"><time datetime="{{ item.date }}">{{ item.label }}</time>{% if item.what_changed %} · Answer updated{% endif %}</p><h3><a href="{{ item.path }}">{{ item.h1 }}</a></h3><p>{{ item.summary }}</p></li>
+{% endfor %}</ol>{% else %}<p class="empty">No questions have been published yet.</p>{% endif %}
 </section>
 {% endif %}
 {% if page.kind == "directory" %}
 <section id="all-questions">
 <h2>All questions</h2>
-{% if directory %}{% for question in directory %}
+{% if directory %}<div class="card-grid">{% for question in directory %}
+<div class="card question-card">
 <h3><a href="{{ question.path }}">{{ question.h1 }}</a></h3>
 <p>{{ question.description }}</p>
-<ul>
+<p class="card-meta">Editions:</p>
+<ul class="edition-list">
 {% for item in question.editions %}<li><a href="{{ item.path }}">{{ item.label }}</a></li>
 {% endfor %}</ul>
-{% endfor %}{% else %}<p>No questions have been published yet.</p>{% endif %}
+</div>
+{% endfor %}</div>{% else %}<p class="empty">No questions have been published yet.</p>{% endif %}
 </section>
 {% endif %}
 {% if links %}
-<ul class="page-list">
-{% for link in links %}<li><a href="{{ link.path }}">{{ link.h1 }}</a><p>{{ link.description }}</p></li>
-{% endfor %}</ul>
+<section id="explore">
+<h2>Explore</h2>
+<div class="card-grid">
+{% for link in links %}<div class="card link-card"><h3><a href="{{ link.path }}">{{ link.h1 }}</a></h3><p>{{ link.description }}</p></div>
+{% endfor %}</div>
+</section>
 {% endif %}
 </article>
 {% endblock %}

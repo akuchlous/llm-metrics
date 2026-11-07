@@ -1,0 +1,5 @@
+{
+  "publishing_enabled": true,
+  "metrics_frequency": "daily",
+  "metrics_run_at_utc": "02:00"
+}

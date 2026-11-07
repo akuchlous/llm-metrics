@@ -411,7 +411,7 @@ class PreviewTest(unittest.TestCase):
         self.assertEqual((archive_files, manifest), ({}, None))
         self.assertIn(t25.DUPLICATE, files)
         for name, data in files.items():
-            if name.endswith(".html"):
+            if name.endswith(".html") and name != "404.html":
                 self.assertEqual(
                     ss.parse_page(data).meta.get("robots"), ["noindex"], name
                 )

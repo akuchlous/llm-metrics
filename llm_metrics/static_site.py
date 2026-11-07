@@ -75,6 +75,7 @@ import urllib.parse
 import jinja2
 import markupsafe
 
+from llm_metrics import cost_ledger
 from llm_metrics import latency
 from llm_metrics import outcomes
 from llm_metrics import pricing
@@ -108,7 +109,7 @@ CSP = (
 
 DATA_SOURCES = ("real", "synthetic")
 MAX_SUMMARY_BYTES = 4 * 1024 * 1024
-PAGE_KINDS = ("home", "hub", "directory", "question", "metric")
+PAGE_KINDS = ("home", "hub", "directory", "question", "metric", "costs")
 # Breadcrumb parent of each loaded page kind; editions hang under their
 # question's stable page.
 _PARENTS = {
@@ -117,10 +118,12 @@ _PARENTS = {
     "directory": "/",
     "question": "/questions",
     "metric": "/llm-performance",
+    "costs": "/",
 }
 GENERATED_SECTIONS = {
     "question": ("findings", "setup"),
     "metric": ("measurements", "setup", "provenance", "methodology"),
+    "costs": ("costs",),
 }
 # Order shown on the TTFT metric page: TTFT first, then the related latency
 # and throughput metrics from the same requests.
@@ -1447,6 +1450,8 @@ def plan_site(
     archive_dir: pathlib.Path | None = None,
     freeze_at: str | None = None,
     preview_at: str | None = None,
+    costs: dict | None = None,
+    forbidden: tuple[str, ...] = (),
 ) -> tuple[dict[str, bytes], dict[str, bytes], dict | None, list[Page]]:
     """Renders and checks the whole site without writing anything.
 
@@ -1530,6 +1535,14 @@ def plan_site(
             if question.question_id in hubs:
                 methodology.setdefault(metric_path, hubs[question.question_id])
     environment = _environment()
+    nav = [
+        {"path": "/questions", "label": "Questions"},
+        {"path": "/llm-performance", "label": "Metrics"},
+        {"path": "/costs", "label": "Project Costs"},
+    ]
+    methodology_hub = methodology.get("/metrics/openai/ttft")
+    if methodology_hub is not None:
+        nav.append({"path": methodology_hub.path, "label": "Methodology"})
     files, frozen_paths = {}, set()
     for page in pages:
         if page.kind == "edition" and page.extra["frozen"] is not None:
@@ -1538,9 +1551,13 @@ def plan_site(
             frozen_paths.add(page.path)
             continue
         robots = None
-        if banner or (page.kind == "metric" and not real_data):
-            # An empty or synthetic metric page is not indexable content;
-            # educational pages stay indexable without any dataset.
+        if (
+            banner
+            or (page.kind == "metric" and not real_data)
+            or (page.kind == "costs" and costs is None)
+        ):
+            # Empty or synthetic metric and cost pages are not indexable
+            # content; educational pages stay indexable without any data.
             robots = "noindex"
         page = dataclasses.replace(page, robots=robots)
         by_path[page.path] = page
@@ -1588,6 +1605,8 @@ def plan_site(
             methodology_page=methodology.get(page.path),
             methodology_version=METHODOLOGY_VERSION,
             banner=banner,
+            nav=nav,
+            costs=costs,
             csp=CSP,
             stylesheet=STYLESHEET_PATH,
         )
@@ -1609,7 +1628,25 @@ def plan_site(
                 f"Redirect {rule['from']} collides or has no target."
             )
     files["redirects.json"] = _canonical_json({"redirects": redirects})
+    files.update(
+        hosting_files(
+            config,
+            [
+                dataclasses.replace(p, robots=_robots_of(p, files))
+                for p in pages
+            ],
+            redirects,
+            published,
+            environment.get_template("404.html").render(
+                site={"name": site["site_name"], "language": site["language"]},
+                nav=nav,
+                csp=CSP,
+                stylesheet=STYLESHEET_PATH,
+            ),
+        )
+    )
     check_site(files, config, pages, frozen_paths)
+    scan_public(files, forbidden)
     archive_files, manifest = {}, None
     if new_entries:
         manifest = load_manifest(archive_dir)
@@ -1630,6 +1667,141 @@ def plan_site(
             name = f"{entry['route'][1:]}/index.html"
             archive_files[name] = files[name]
     return dict(sorted(files.items())), archive_files, manifest, pages
+
+
+def _robots_of(page: Page, files: dict) -> str | None:
+    robots = parse_page(files[page.output_file]).meta.get("robots")
+    return robots[0] if robots else None
+
+
+def hosting_files(
+    config: SiteConfig,
+    pages: list[Page],
+    redirects: list[dict],
+    published: list[Published],
+    not_found_html: str,
+) -> dict[str, bytes]:
+    """`sitemap.xml`, `robots.txt`, `_redirects`, `_headers`, `404.html`.
+
+    The sitemap lists only indexable canonical pages, never dated editions
+    (canonical to their question), redirects, drafts or noindex pages.
+    `lastmod` is given only where a real change time exists: a question's
+    latest publication, and the feed pages' newest publication. A rebuild
+    never advances it.
+    """
+    latest = {}
+    for item in published:
+        path = item.question.path
+        latest[path] = max(latest.get(path, ""), item.published_at)
+    newest = max(latest.values(), default=None)
+    entries = []
+    for page in pages:
+        if page.kind == "edition" or page.robots:
+            continue
+        lastmod = latest.get(page.path)
+        if page.path in ("/", "/questions"):
+            lastmod = newest
+        entries.append((config.absolute(page.path), lastmod))
+    lines = [
+        '<?xml version="1.0" encoding="UTF-8"?>',
+        '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">',
+    ]
+    for url, lastmod in sorted(entries):
+        lines.append(
+            f"<url><loc>{xml_escape(url)}</loc>"
+            + (f"<lastmod>{lastmod}</lastmod>" if lastmod else "")
+            + "</url>"
+        )
+    lines.append("</urlset>")
+    # Header rules mirror the meta CSP (the HTTP header also covers
+    # frame-ancestors, which a meta tag cannot).
+    headers = "\n".join(
+        [
+            "/*",
+            f"  Content-Security-Policy: {CSP}; frame-ancestors 'none'",
+            "  X-Content-Type-Options: nosniff",
+            "  Referrer-Policy: strict-origin-when-cross-origin",
+            "  Permissions-Policy: camera=(), microphone=(), geolocation=()",
+            "",
+        ]
+    )
+    return {
+        "sitemap.xml": ("\n".join(lines) + "\n").encode("utf-8"),
+        "robots.txt": (
+            "User-agent: *\nAllow: /\n\n"
+            f"Sitemap: {config.absolute('/sitemap.xml')}\n"
+        ).encode("utf-8"),
+        "_redirects": "".join(
+            f"{rule['from']} {rule['to']} {rule['status']}\n"
+            for rule in redirects
+        ).encode("utf-8"),
+        "_headers": headers.encode("utf-8"),
+        "404.html": not_found_html.encode("utf-8"),
+    }
+
+
+def xml_escape(text: str) -> str:
+    return (
+        text.replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+        .replace('"', "&quot;")
+    )
+
+
+# Strings that must never appear in public output: private storage, keys,
+# provider request ids, private ledger references (added per build).
+_FORBIDDEN = (
+    "gs://",
+    "llm-metrics-513617-results",
+    "storage.googleapis.com",
+    "OPENAI_API_KEY",
+    "private_reference",
+    "synthetic-req-",
+)
+_FORBIDDEN_RE = re.compile(r"\bsk-[A-Za-z0-9_-]{16,}|\breq_[A-Za-z0-9]{8,}")
+
+
+def scan_public(files: dict, extra: tuple[str, ...] = ()) -> None:
+    """Refuses the build if any public file contains forbidden content."""
+    for name, data in files.items():
+        text = data.decode("utf-8", errors="replace")
+        for needle in (*_FORBIDDEN, *extra):
+            if needle and needle in text:
+                raise SiteError(f"Forbidden content in public file {name}.")
+        if _FORBIDDEN_RE.search(text):
+            raise SiteError(
+                f"Key or provider request id in public file {name}."
+            )
+
+
+def resolve(files: dict, request_path: str) -> tuple[int, str | None]:
+    """Emulates the chosen host: Cloudflare Workers Static Assets with
+    `html_handling: "drop-trailing-slash"`, `not_found_handling: "404-page"`
+    and `_redirects` (per Cloudflare's published routing tables; to be
+    confirmed on the real host before production).
+
+    Returns:
+        (status, Location for redirects or the served file name).
+    """
+    for line in files.get("_redirects", b"").decode().splitlines():
+        source, target, status = line.split()
+        if request_path == source:
+            return int(status), target
+    if request_path.endswith("/index.html"):
+        return 307, request_path[: -len("/index.html")] or "/"
+    if request_path.endswith(".html") and request_path != "/404.html":
+        return 307, request_path[: -len(".html")]
+    if request_path != "/" and request_path.endswith("/"):
+        target = request_path.rstrip("/")
+        if f"{target[1:]}/index.html" in files or target[1:] in files:
+            return 307, target
+    name = "index.html" if request_path == "/" else request_path[1:]
+    if name in files and not name.startswith("_"):
+        return 200, name
+    if f"{name}/index.html" in files:
+        return 200, f"{name}/index.html"
+    return 404, "404.html"
 
 
 def render_site(
@@ -1827,6 +1999,11 @@ def check_site(
             if href.startswith("/"):
                 require(
                     _route_exists(href, files), f"broken internal link {href}"
+                )
+            elif href.startswith("#"):
+                require(
+                    f'id="{href[1:]}"'.encode() in files[page.output_file],
+                    f"missing anchor {href}",
                 )
             else:
                 require(href.startswith("https://"), f"non-https link {href}")
@@ -2068,6 +2245,7 @@ def build(
     archive_dir: pathlib.Path | None = None,
     freeze_at: str | None = None,
     preview_at: str | None = None,
+    cost_ledger_path: pathlib.Path | None = None,
 ) -> tuple[dict, list[dict], list[str]]:
     """Validates, renders and checks everything, then writes.
 
@@ -2090,6 +2268,18 @@ def build(
             "expected_population"
         ]
         dataset = load_dataset(analytics, data_source, expected)
+    costs, forbidden = None, ()
+    if cost_ledger_path is not None:
+        try:
+            ledger = cost_ledger.load(cost_ledger_path)
+        except cost_ledger.LedgerError as error:
+            raise SiteError(f"Cost ledger: {error}") from None
+        costs = cost_ledger.summarize(ledger.data)
+        forbidden = tuple(
+            e["private_reference"]
+            for e in ledger.data["entries"]
+            if e.get("private_reference")
+        )
     files, archive_files, manifest, pages = plan_site(
         config,
         dataset,
@@ -2097,6 +2287,8 @@ def build(
         archive_dir=archive_dir,
         freeze_at=freeze_at,
         preview_at=preview_at,
+        costs=costs,
+        forbidden=forbidden,
     )
     if manifest is not None:
         freeze(archive_dir, archive_files, manifest)
@@ -2132,6 +2324,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--report", help="also write the editorial report JSON here"
     )
+    parser.add_argument(
+        "--cost-ledger",
+        help="private llm-metrics.cost-ledger.v1 file (never published)",
+    )
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument(
         "--publish-at",
@@ -2156,6 +2352,9 @@ def main(argv: list[str] | None = None) -> int:
             options.data_source,
             freeze_at=options.publish_at,
             preview_at=options.preview_at,
+            cost_ledger_path=None
+            if options.cost_ledger is None
+            else pathlib.Path(options.cost_ledger),
         )
     except SiteError as error:
         print(f"Error: {error} Nothing written.", file=sys.stderr)

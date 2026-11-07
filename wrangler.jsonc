@@ -1,0 +1,18 @@
+// Cloudflare Workers Static Assets configuration for llmxchange.com.
+// Assets only: there is no Worker script ("main"), so every request is
+// served as a static asset and nothing is billed per request.
+// NOT DEPLOYED. Deploying needs a Cloudflare account, an API token and
+// explicit approval (Step 027 Approval A/B); see prompts/027-output.md.
+{
+  "name": "llmxchange",
+  "compatibility_date": "2026-11-07",
+  "assets": {
+    // Output of `python -m llm_metrics.publish_runner ... --output site_build`.
+    "directory": "./site_build",
+    // Canonical URLs have no trailing slash: /slug serves slug/index.html
+    // with 200; /slug/ and /slug/index.html redirect (307) to /slug.
+    "html_handling": "drop-trailing-slash",
+    // Unknown paths get 404.html with status 404 (never an SPA fallback).
+    "not_found_handling": "404-page"
+  }
+}

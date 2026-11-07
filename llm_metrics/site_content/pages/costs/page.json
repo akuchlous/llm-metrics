@@ -1,0 +1,13 @@
+{
+  "kind": "costs",
+  "path": "/costs",
+  "title": "LLM Xchange Project Costs: What We Have Actually Been Charged",
+  "h1": "How much has the LLM Xchange project actually cost?",
+  "meta_description": "What the LLM Xchange project has actually been charged across LLM APIs, Google Cloud, hosting and domains, from reviewed bills, with unknowns shown as unknown.",
+  "breadcrumb_name": "Project Costs",
+  "sections": [
+    {"id": "answer", "heading": "Short answer", "file": "answer.html"},
+    {"id": "charges", "heading": "Charges so far", "generated": "costs"},
+    {"id": "method", "heading": "How we count costs", "file": "method.html"}
+  ]
+}

@@ -1,0 +1,27 @@
+{% import "_macros.html" as m %}
+{% if costs %}
+<div class="cost-status{% if not costs.lifetime_total %} cost-unverified{% endif %}" role="status">
+{% if costs.lifetime_total %}<p><strong>Lifetime total charged (verified):</strong> {% for currency, amount in costs.lifetime_total.items() %}{{ currency }} {{ amount }}{% if not loop.last %}; {% endif %}{% endfor %}</p>
+{% else %}<p><strong>{{ costs.lifetime_status }}</strong></p>
+<p>Verified charged subtotal: {% for currency, amount in costs.verified_charged_subtotal.items() %}{{ currency }} {{ amount }}{% if not loop.last %}; {% endif %}{% else %}none verified yet{% endfor %}. Not yet verified: {{ costs.unverified_sources | join(", ") }}.</p>
+{% endif %}
+<p class="card-meta">Project start {{ costs.project_start }} · reporting cut-off <time datetime="{{ costs.reporting_cutoff }}">{{ costs.reporting_cutoff[:10] }}</time> (UTC). Amounts are per currency, with no conversion.</p>
+</div>
+{% if costs.invoiced_unpaid %}<p>Invoiced but not yet paid: {% for currency, amount in costs.invoiced_unpaid.items() %}{{ currency }} {{ amount }}{% if not loop.last %}; {% endif %}{% endfor %}.</p>{% endif %}
+<table>
+<caption>Charges by service (actual charges only; usage estimates are never added)</caption>
+<thead><tr><th scope="col">Vendor and service</th><th scope="col">Charged</th><th scope="col">Status</th><th scope="col">Last verified</th></tr></thead>
+<tbody>
+{% for row in costs.sources %}<tr><th scope="row">{{ row.vendor }}: {{ row.service }}</th><td>{% for currency, amount in row.charged.items() %}{{ currency }} {{ amount }}{% if not loop.last %}<br>{% endif %}{% else %}<span class="unknown">unknown</span>{% endfor %}</td><td>{{ row.status }}</td><td>{{ m.value(row.last_verified_at[:10] if row.last_verified_at else none) }}</td></tr>
+{% endfor %}</tbody>
+</table>
+<h3>Evidence</h3>
+<ul>
+{% for row in costs.sources %}{% for item in row.evidence %}<li>{{ row.vendor }}, {{ item.period }}: {{ item.description }} ({{ item.status }}; evidence hash {{ item.sha256_prefix }}…)</li>
+{% endfor %}{% endfor %}</ul>
+{% else %}
+<div class="notice cost-unverified" role="status">
+<p><strong>No verified billing data has been published yet.</strong></p>
+<p>This page will show only amounts we have actually been charged, from reviewed bills and receipts. Until then no total is shown, and missing bills are treated as unknown, not as zero.</p>
+</div>
+{% endif %}

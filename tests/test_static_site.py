@@ -154,7 +154,20 @@ class NoDatasetTest(unittest.TestCase):
         ]
         self.assertEqual(
             sorted(self.files),
-            sorted([*PAGES, *reports, "assets/site.css", "redirects.json"]),
+            sorted(
+                [
+                    *PAGES,
+                    *reports,
+                    "assets/site.css",
+                    "redirects.json",
+                    "costs/index.html",
+                    "404.html",
+                    "sitemap.xml",
+                    "robots.txt",
+                    "_redirects",
+                    "_headers",
+                ]
+            ),
         )
 
     def test_unavailable_state_without_numbers(self):
@@ -269,6 +282,8 @@ class NoDatasetTest(unittest.TestCase):
             for href in parsed.hrefs:
                 if href.startswith("/"):
                     self.assertTrue(ss._route_exists(href, self.files), href)  # pylint: disable=protected-access
+                elif href.startswith("#"):
+                    self.assertIn(f'id="{href[1:]}"', self.files[name].decode())
                 else:
                     self.assertTrue(href.startswith("https://"), href)
             self.assertTrue(
@@ -658,7 +673,7 @@ class ConfigAndOutputTest(unittest.TestCase):
                     ]
                 )
             self.assertEqual(code, 0, err.getvalue())
-            self.assertIn("Built 4 pages", out.getvalue())
+            self.assertIn("Built 6 pages", out.getvalue())
             findings = json.loads(report.read_text())
             self.assertEqual(
                 {f["status"] for f in findings} - {"pass", "warn", "manual"},

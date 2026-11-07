@@ -96,6 +96,41 @@ Every step must preserve `./run.sh`, keep secrets/runtime artifacts out of Git, 
   `real_smoke` now delegates to `real_benchmark.run` (the OpenAI target with the smoke workload), so both paid commands share one refusal, announce, attempt and report path. `OpenAIProvider` lost its unused `model` override (the profile fixes the model), and `run_attempt` lost a cache-policy check that profile matching already covers. Test fakes (`sse`, `FakeResponse`, `FakeOpener`, `no_network`) live in `tests/fakes.py`.
 
   Kept separate on purpose, because each provider has its own contract: event dispatch, usage field extraction, request-id source, error-code tables, and request bodies. The OpenAI and xAI Responses parsers stay separate despite similar shapes, because their account errors, ids and documented fields differ. Wire requests, profiles, stored facts, outcomes and output are unchanged, except that the `real_smoke` pre-request announcement now uses `real_benchmark`'s multi-line format.
+- **D084 — One static llmxchange.com on Cloudflare Workers Static Assets; private cost ledger; two release lanes (Step 027, offline).**
+  - **Scope decisions recorded (ChatGPT review of Step 026):**
+    - Step 026 is accepted for educational Q&A.
+    - `/costs`, pricing Q&A foundations and the private ledger format moved to Step 027 (done here).
+    - Immutable dated metric snapshots, sample-size thresholds and the weekly metrics Q&A workflow moved to Step 028, and are mandatory before any real benchmark result is published.
+  - **Host choice:** Cloudflare Workers Static Assets, assets only, with no Worker script (`wrangler.jsonc`, not deployed).
+    - Per Cloudflare docs (billing page updated 2026-11-03): "Requests to static assets are free and unlimited" with no storage charge. Free limits are 20,000 files per version and 25 MiB per file.
+    - `html_handling: "drop-trailing-slash"` serves `/slug` → 200 (from `slug/index.html`) and redirects `/slug/` and `/slug/index.html` with 307 to `/slug`. That matches the slashless canonicals, so the URL strategy is unchanged.
+    - `not_found_handling: "404-page"` serves `404.html` with status 404; there is no SPA fallback.
+    - Pages was rejected: it redirects `/about/index.html` to `/about/` (trailing slash) and assumes an SPA without a top-level 404. Firebase was rejected because it has paid overage beyond 360 MB/day.
+    - The `_redirects`/`_headers` limits are documented for Workers, but their syntax is not; both must be verified on staging (Approval A).
+  - **Generated hosting files:**
+    - `sitemap.xml`: only indexable canonical pages, never dated editions, aliases, drafts or `noindex` pages. `lastmod` comes only from real publication times.
+    - `robots.txt`.
+    - `_redirects`, from `redirects.json` (301).
+    - `_headers`: CSP plus `frame-ancestors 'none'`, `nosniff`, referrer and permissions policies.
+    - `404.html` (`noindex`).
+    - `static_site.resolve()` emulates the host's routing for offline tests and link crawls.
+  - **Costs:** `llm_metrics.cost_ledger` (private `llm-metrics.cost-ledger.v1` → public `llm-metrics.cost-summary.v1`).
+    - Only `charged` entries count, kept per currency with no FX, net of refunds. Unpaid invoices are shown separately; estimates are never added.
+    - A source without bills is unknown, not $0.
+    - A lifetime total is shown only when every declared source is fully reconciled through the cut-off with nothing unpaid; otherwise the page says "Full lifetime total not yet verified."
+    - Overlapping charged periods, reused evidence hashes and duplicate ids are refused. `private_reference` values are never published and are added to the forbidden-content scan.
+    - `/costs` is `noindex` until a ledger is supplied.
+  - **Forbidden-content scan** on every public file:
+    - bucket names, `gs://`, `storage.googleapis.com`, `OPENAI_API_KEY`, `private_reference`, synthetic request ids;
+    - patterns `sk-…` and `req_…`;
+    - the ledger's private references.
+  - **Release lanes:** `llm_metrics.publish_runner`, with `publishing.json` (`publishing_enabled` emergency switch; `metrics_frequency` daily | every_3_days | weekly at `metrics_run_at_utc`, default 02:00 UTC; UTC has no DST).
+    - **Editorial lane:** freezes approved editions at an explicit time and needs no analytics. It reuses the last accepted dataset (hash-checked) so metric pages never regress.
+    - **Metrics lane:** runs only when a scheduled slot is due and the dataset is `real`, changed, ended before the current UTC day and not partial (or `--allow-preliminary`).
+    - Failures leave the output and the accepted dataset unchanged. Runs are logged to `history.jsonl`.
+    - Nothing is scheduled, deployed or connected to any cloud.
+  - **Design:** an "LLM Xchange" brand, a top navigation (Questions, Metrics, Project Costs, Methodology once published), a skip link, cards for the feed, directory and links, system fonts, dark mode, visible focus states, and a stylesheet under 20 KB. No JavaScript, web fonts or trackers.
+  - **Future API:** Flask may later serve `/api/*` on the same hostname, through a separately approved Cloudflare route to a private origin. It is not built here and needs its own step.
 - **D083 — Question registry and immutable dated editions on the Step 025 content system (Step 026).**
   - **Registry:** there is no second content system. A question directory listed in `site.json` holds `question.json`:
     - an opaque `question_id` such as `q0001` (titles are not identity);

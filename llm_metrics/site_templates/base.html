@@ -17,7 +17,17 @@
 {% for block in page.json_ld %}<script type="application/ld+json">{{ block }}</script>
 {% endfor %}</head>
 <body>
-<header class="site-header"><a class="site-name" href="/">{{ site.name }}</a></header>
+<a class="skip-link" href="#content">Skip to content</a>
+<header class="site-header">
+<div class="header-inner">
+<a class="brand" href="/"><span class="brand-mark" aria-hidden="true">LX</span><span class="brand-name">{{ site.name }}</span></a>
+<nav aria-label="Main" class="main-nav">
+<ul>
+{% for item in nav %}<li><a href="{{ item.path }}"{% if item.path == page.path %} aria-current="page"{% endif %}>{{ item.label }}</a></li>
+{% endfor %}</ul>
+</nav>
+</div>
+</header>
 {% if page.breadcrumbs | length > 1 %}
 <nav aria-label="Breadcrumb" class="breadcrumb">
 <ol>
@@ -26,12 +36,15 @@
 {% endif %}{% endfor %}</ol>
 </nav>
 {% endif %}
-<main>
+<main id="content">
 {% if banner %}<p class="notice" role="note"><strong>{{ banner[0] }}</strong> {{ banner[1] }}</p>
 {% endif %}{% block main %}{% endblock %}
 </main>
 <footer class="site-footer">
-<p>Open-source benchmark code: <a href="https://github.com/akuchlous/llm-metrics">github.com/akuchlous/llm-metrics</a>.</p>
+<div class="footer-inner">
+<p><strong>{{ site.name }}</strong> measures LLM APIs in the open. No rankings, no trackers, no invented numbers.</p>
+<p><a href="/questions">Questions</a> · <a href="/llm-performance">Metrics</a> · <a href="/costs">Project Costs</a> · <a href="https://github.com/akuchlous/llm-metrics">Source code on GitHub</a></p>
+</div>
 </footer>
 </body>
 </html>
