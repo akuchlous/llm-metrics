@@ -1,9 +1,14 @@
 {
   "kind": "directory",
   "path": "/questions",
-  "title": "All Questions: LLM Benchmarking Answers and Editions",
-  "h1": "All questions",
+  "title": "Which LLM Questions Have We Answered? All Questions",
+  "h1": "Which questions have we answered?",
   "meta_description": "Every question we answer about LLM API benchmarking, each with its current answer and a dated history of earlier editions.",
   "breadcrumb_name": "Questions",
-  "sections": [{"id": "intro", "file": "intro.html"}]
+  "sections": [
+    {
+      "id": "intro",
+      "file": "intro.html"
+    }
+  ]
 }

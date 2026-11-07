@@ -90,6 +90,18 @@ class HomeListTest(unittest.TestCase):
         self.assertEqual(headings[-1], "About this answer")
 
 
+class EveryPageIsAQuestionTest(unittest.TestCase):
+
+    def test_every_page_heading_is_a_question(self):
+        files = published_files()
+        for name, data in files.items():
+            if not name.endswith(".html"):
+                continue
+            headings = ss.parse_page(data).headings
+            h1 = next(text for level, text in headings if level == 1)
+            self.assertTrue(h1.rstrip().endswith("?"), f"{name}: {h1!r}")
+
+
 class MetricQuestionTest(unittest.TestCase):
 
     def test_metric_question_has_no_numbers_without_a_dataset(self):

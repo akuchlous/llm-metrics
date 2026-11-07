@@ -1,9 +1,14 @@
 {
   "kind": "hub",
   "path": "/llm-performance",
-  "title": "LLM Performance: Questions and Measured Metrics",
-  "h1": "LLM performance",
+  "title": "How Do LLM APIs Perform? Questions and Measurements",
+  "h1": "How do LLM APIs perform in practice?",
   "meta_description": "Questions about LLM API latency and reliability, answered with a documented method, and the metric pages that hold our validated measurements.",
   "breadcrumb_name": "LLM Performance",
-  "sections": [{"id": "intro", "file": "intro.html"}]
+  "sections": [
+    {
+      "id": "intro",
+      "file": "intro.html"
+    }
+  ]
 }

@@ -7,7 +7,7 @@ _Last updated: Step 027c per-request pilot charts (local preview, not deployed) 
 **Step 027c complete locally, not deployed; awaiting local visual review and ChatGPT review.**
 - Metric page charts of every real pilot request over time (TTFT, total response time, tokens/s) and every slot's outcome, from a sanitized per-slot series (D089). Preview with `./run.sh site-preview`; deploy to staging only after you say "deploy staging".
 - `./run.sh pilot-plan --start <UTC>` plans (only) a new 24-hour run; launching needs Approval C after the original pilot is stopped and audited.
-- 689 tests OK (7 skipped).
+- Every page heading is now a question (D090). 690 tests OK (7 skipped).
 
 **Local website preview added (D088), awaiting ChatGPT review.** `./run.sh site-preview` builds the staging-equivalent site locally and serves it on http://localhost:8000 (Ctrl+C to stop; `--help`, `--drafts`, `--analytics`, `--port`). No deploy, no cloud calls. Local preview and human review now come before every Cloudflare staging deploy. 670 tests OK (7 skipped).
 

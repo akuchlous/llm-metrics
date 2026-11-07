@@ -1,10 +1,10 @@
 {
   "kind": "metric",
   "path": "/metrics/openai/ttft",
-  "title": "OpenAI gpt-6-luna TTFT: Measured Time to First Token",
-  "h1": "OpenAI time to first token (TTFT): measured data",
+  "title": "What Are OpenAI's Measured TTFT Results? (gpt-6-luna)",
+  "h1": "What are the measured OpenAI time to first token (TTFT) results?",
   "meta_description": "Validated time-to-first-token measurements for OpenAI gpt-6-luna: p50 and p95, sample size, failures, cost and the exact data window and source fingerprint.",
-  "breadcrumb_name": "OpenAI TTFT metrics",
+  "breadcrumb_name": "Measured OpenAI TTFT",
   "metric": "ttft",
   "expected_population": {
     "environment": "prod",

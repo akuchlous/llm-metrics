@@ -229,7 +229,7 @@ class NoDatasetTest(unittest.TestCase):
                 "How to measure OpenAI TTFT",
                 "8 November 2026 edition",
             ],
-            METRIC: ["Home", "LLM Performance", "OpenAI TTFT metrics"],
+            METRIC: ["Home", "LLM Performance", "Measured OpenAI TTFT"],
             "llm-performance/index.html": ["Home", "LLM Performance"],
         }
         for name, names in expected.items():
