@@ -61,7 +61,7 @@ class RespondTest(unittest.TestCase):
         )
 
     def test_drafts_absent_by_default(self):
-        status, _, _ = sp.respond(self.files, "/ttft-vs-total-response-time")
+        status, _, _ = sp.respond(self.files, "/openai-ttft")
         self.assertEqual(status, 404)
 
 

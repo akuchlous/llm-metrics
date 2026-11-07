@@ -231,12 +231,37 @@ class CostsPageTest(unittest.TestCase):
         self.assertIn("USD 9.50", page)
         self.assertIn("EUR 1.20", page)
         self.assertIn("Not yet verified: Google Cloud Billing account", page)
-        self.assertNotIn("0.30", page)  # the estimate is not a charge
+        # The estimate is listed only as planned, never in a charged total.
+        charged, planned = page.split("Planned costs", 1)
+        self.assertNotIn("0.30", charged)
+        self.assertIn("USD 0.30", planned.split("Status by service")[0])
+        self.assertIn("Every charge so far", page)
+        self.assertIn("Total charged (USD)", page)
+        self.assertIn("<strong>USD 9.50</strong>", page)
+        self.assertIn("<strong>EUR 1.20</strong>", page)
         self.assertNotIn("noindex", page)
         for data in files.values():
             self.assertNotIn(b"INV-SECRET", data)
         self.assertIn(
             "https://llmxchange.com/costs", files["sitemap.xml"].decode()
+        )
+
+    def test_line_items_and_planned_are_separate(self):
+        summary = cost_ledger.summarize(ledger())
+        self.assertEqual(
+            [(i["vendor"], i["amount"], i["status"])
+             for i in summary["line_items"]],
+            [
+                ("OpenAI", "9.50", "charged"),
+                ("Google Cloud", "1.20", "charged"),
+            ],
+        )  # fmt: skip
+        self.assertEqual(
+            [(i["service"], i["amount"]) for i in summary["planned"]],
+            [("Billing account", "0.30")],
+        )
+        self.assertEqual(
+            summary["verified_charged_subtotal"], {"EUR": "1.20", "USD": "9.50"}
         )
 
     def test_private_reference_in_content_is_refused(self):
@@ -428,9 +453,10 @@ class StagingTest(unittest.TestCase):
         )
         self.assertFalse(any(n.startswith("reports/") for n in files))
         self.assertIn("how-to-measure-openai-ttft/index.html", files)
-        # The draft (unapproved) article is absent everywhere.
+        # The remaining draft (unapproved) question is absent everywhere.
+        self.assertNotIn("openai-ttft/index.html", files)
         self.assertFalse(
-            any(b"prevent-duplicate" in data for data in files.values())
+            any(b'href="/openai-ttft"' in data for data in files.values())
         )
         for name, data in files.items():
             if name.endswith(".html"):

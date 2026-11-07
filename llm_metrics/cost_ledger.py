@@ -257,6 +257,27 @@ def summarize(ledger: dict) -> dict:
             }
         )
     complete = all(row["status"] == "reconciled" for row in rows) and not unpaid
+    # One row per entry for the public table. Estimates are listed as
+    # planned and never enter a charged figure.
+    line_items, planned = [], []
+    for entry in sorted(
+        ledger["entries"], key=lambda e: (e["period_start"], e["entry_id"])
+    ):
+        source = by_source[entry["source_id"]]
+        item = {
+            "vendor": source["vendor"],
+            "service": source["service"],
+            "period": f"{entry['period_start']} to {entry['period_end']}",
+            "date": entry["period_start"],
+            "currency": entry["currency"],
+            "amount": _money(
+                decimal.Decimal(entry["charged_amount"])
+                - decimal.Decimal(entry.get("refunds", "0"))
+            ),
+            "status": entry["status"],
+            "description": entry["evidence_description"],
+        }
+        (planned if entry["status"] == "estimate" else line_items).append(item)
     return {
         "schema_version": SUMMARY_SCHEMA,
         "project_start": ledger["project_start"],
@@ -277,4 +298,6 @@ def summarize(ledger: dict) -> dict:
             if row["status"] != "reconciled"
         ],
         "sources": rows,
+        "line_items": line_items,
+        "planned": planned,
     }

@@ -13,7 +13,7 @@
   "answer_reviewed_dataset_sha256": null,
   "authors": [],
   "related_metric": null,
-  "status": "draft",
+  "status": "approved",
   "summary": "The controls our scheduled collector uses to make at most one paid request per time slot, and where those controls stop.",
   "what_changed": null,
   "source_commit": "2058c24",

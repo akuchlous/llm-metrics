@@ -154,7 +154,6 @@ class EvidencePageTest(unittest.TestCase):
         self.assertNotIn(first_sentence, page)  # no draft prose
         self.assertIn('href="/openai-ttft"', files["index.html"].decode())
         # Other drafts stay out; no dated edition or archive is created.
-        self.assertNotIn("ttft-vs-total-response-time/index.html", files)
         self.assertFalse(any(n.startswith("reports/") for n in files))
         self.assertFalse(any(n.startswith("data/") for n in files))
 

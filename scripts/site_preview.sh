@@ -21,6 +21,8 @@
 #   --series FILE     Per-slot llm-metrics.pilot-series.v1 file over the same
 #                     records, for the per-request charts (default:
 #                     .site-preview/series.json when present with analytics).
+#   --cost-ledger FILE  Private llm-metrics.cost-ledger.v1 file for /costs
+#                     (default: .site-preview/cost-ledger.json when present).
 #   --drafts          Also show draft questions (review only; never deploy
 #                     this build). Cannot be combined with --analytics.
 #   --port N          Local port (default 8000).
@@ -34,15 +36,17 @@ OUT=".site-preview"
 PORT=8000
 ANALYTICS=""
 SERIES=""
+LEDGER=""
 DRAFTS=0
 
-usage() { sed -n '2,27p' "$0" | sed 's/^# \{0,1\}//'; }
+usage() { sed -n '2,29p' "$0" | sed 's/^# \{0,1\}//'; }
 
 while [ $# -gt 0 ]; do
     case "$1" in
         -h|--help) usage; exit 0 ;;
         --analytics) ANALYTICS="${2:?--analytics needs a file}"; shift 2 ;;
         --series) SERIES="${2:?--series needs a file}"; shift 2 ;;
+        --cost-ledger) LEDGER="${2:?--cost-ledger needs a file}"; shift 2 ;;
         --drafts) DRAFTS=1; shift ;;
         --port) PORT="${2:?--port needs a number}"; shift 2 ;;
         *) echo "Unknown option: $1" >&2; usage >&2; exit 2 ;;
@@ -90,6 +94,16 @@ else
     echo "No analytics summary: metric pages show the no-data state."
 fi
 
+if [ -z "$LEDGER" ] && [ -f "$OUT/cost-ledger.json" ]; then
+    LEDGER="$OUT/cost-ledger.json"
+fi
+if [ -n "$LEDGER" ]; then
+    [ -f "$LEDGER" ] || { echo "No such cost ledger: $LEDGER" >&2; exit 2; }
+    ldir="$(cd "$(dirname "$LEDGER")" && pwd)"
+    mounts+=(-v "$ldir:/ledger:ro")
+    args+=(--cost-ledger "/ledger/$(basename "$LEDGER")")
+    echo "Using private cost ledger: $LEDGER (never published)"
+fi
 echo "Building the site into $OUT/site ..."
 log="$OUT/build.log"
 if ! docker run --rm --network none -u "$(id -u):$(id -g)" "${mounts[@]}" -w /src \

@@ -104,9 +104,20 @@ class DefaultContentTest(unittest.TestCase):
     def test_publishing_takes_only_approved_editions(self):
         content = Content(self)
         files, archived = content.publish(D1)
-        self.assertEqual(archived, [TTFT_R1, METRICS_R1])
+        approved = sorted(
+            f"reports/2026-11-08/{p}/index.html"
+            for p in (
+                "how-to-measure-openai-ttft",
+                "prevent-duplicate-paid-llm-api-calls",
+                "ttft-vs-total-response-time",
+                "output-tokens-and-llm-response-time",
+                "why-llm-latency-varies",
+                "useful-llm-api-metrics",
+            )
+        )
+        self.assertEqual(sorted(archived), approved)
+        self.assertNotIn("openai-ttft/index.html", files)  # still a draft
         self.assertIn(t25.QUESTION, files)
-        self.assertNotIn(t25.DUPLICATE, files)
         metric = files[t25.METRIC].decode()
         self.assertIn('href="/how-to-measure-openai-ttft"', metric)
 
@@ -131,12 +142,18 @@ class EditionLifecycleTest(unittest.TestCase):
 
     def test_routes_are_date_first(self):
         self.assertEqual(
-            self.archived_first,
-            [
-                TTFT_R1,
-                DUP_R1,
-                METRICS_R1,
-            ],
+            sorted(self.archived_first),
+            sorted(
+                f"reports/2026-11-08/{p}/index.html"
+                for p in (
+                    "how-to-measure-openai-ttft",
+                    "prevent-duplicate-paid-llm-api-calls",
+                    "ttft-vs-total-response-time",
+                    "output-tokens-and-llm-response-time",
+                    "why-llm-latency-varies",
+                    "useful-llm-api-metrics",
+                )
+            ),
         )
         self.assertEqual(self.archived_second, [TTFT_R2])
         for name in self.files:
@@ -343,16 +360,18 @@ class RefusalTest(unittest.TestCase):
         self.assert_refused("states a measured value")
 
     def test_similar_questions_need_explicit_review(self):
-        registry_path = self.content.root / DUP / "question.json"
-        meta = self.content.meta(f"{DUP}/editions/e1")
+        # Uses the still-draft metric question (published ones are frozen).
+        draft = "questions/openai-ttft"
+        registry_path = self.content.root / draft / "question.json"
+        registry = json.loads(registry_path.read_text())
+        registry["reviewed_distinct_from"] = []
+        registry_path.write_text(json.dumps(registry))
         ttft_h1 = self.content.meta(f"{TTFT}/editions/e1")["h1"]
         self.content.edit(
-            f"{DUP}/editions/e1",
+            f"{draft}/editions/e1",
             h1=ttft_h1.replace("(TTFT)", "(TTFT) end to end"),
-            title=meta["title"],
         )
         self.assert_refused("look like the same question")
-        registry = json.loads(registry_path.read_text())
         registry["reviewed_distinct_from"] = ["q0001"]
         registry_path.write_text(json.dumps(registry))
         ss.plan_site(CONFIG, None, self.content.root)

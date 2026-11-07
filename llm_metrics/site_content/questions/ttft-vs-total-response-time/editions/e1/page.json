@@ -8,7 +8,7 @@
   "answer_reviewed_dataset_sha256": null,
   "authors": [],
   "related_metric": null,
-  "status": "draft",
+  "status": "approved",
   "what_changed": null,
   "source_commit": "c65b619",
   "title": "TTFT vs Total Response Time: What Is the Difference?",

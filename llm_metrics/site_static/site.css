@@ -154,3 +154,5 @@ figcaption { font-size: 0.88rem; color: var(--ink-soft); }
 .swatch { display: inline-block; width: 0.8rem; height: 0.8rem; border-radius: 2px; margin-right: 0.4rem; vertical-align: -0.05rem; border: 1px solid var(--line); }
 details { margin: 1rem 0; }
 summary { cursor: pointer; color: var(--link); }
+.num { text-align: right; white-space: nowrap; }
+.cost-table tfoot th, .cost-table tfoot td { border-top: 2px solid var(--line); border-bottom: none; }

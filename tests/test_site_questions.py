@@ -138,13 +138,16 @@ class DraftsAndCategoriesTest(unittest.TestCase):
                 if json.loads((p / "question.json").read_text())["path"] == path
             )
             meta = json.loads((directory / "editions/e1/page.json").read_text())
-            self.assertEqual(meta["status"], "draft", slug)
+            # Owner approved the educational drafts on 2026-11-07; the
+            # metric question stays a draft (evidence view only).
+            expected = "draft" if path == "/openai-ttft" else "approved"
+            self.assertEqual(meta["status"], expected, slug)
         files = ss.render_site(
             ss.SiteConfig(STAGING),
             preview_at="2026-11-07T20:00:00Z",
             staging=True,
         )
-        for path in NEW:
+        for path in ("/openai-ttft",):
             self.assertNotIn(f"{path[1:]}/index.html", files)
             self.assertFalse(
                 any(f'href="{path}"'.encode() in d for d in files.values())
