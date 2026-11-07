@@ -20,6 +20,10 @@ Use this checklist **every time ChatGPT authors a numbered Claude prompt**. The 
 6. **Completion artifacts:** `prompts/<step>-output.md` listing changes, decisions, evidence/test counts, limitations, whether paid calls/resources were used, commit SHA when available, **one** next recommendation, and a **marketing checkpoint** (including 'not publishable yet'). Update `PROJECT_STATUS.md`/`DECISIONS.md` if needed.
 7. **History and review:** append a dated explanation of the change and its rationale to `prompts/chatgpt-conversation.md`; never rewrite old content or retroactively edit prompts already implemented/in progress. Commit the micro-step and **stop for ChatGPT review**.
 
+## Persistent frontend invariant for all future Claude prompts
+
+For any work that changes public HTML, templates, metrics pages, dashboards, article content or Cloudflare static publishing, explicitly apply [the question-first frontend contract](../CODING_GUIDELINES.md#public-website-question-first-frontend-contract-d086-d090) (D086/D090): **one question H1, direct answer first, then evidence**; all public metrics and dashboards are question pages. Homepage lists newest-first questions, 50/page with static pagination. Preserve the existing registry, SEO, drafts/approvals, immutable editions, verified metric provenance and staging `noindex`; use `./run.sh site-preview` and human visual review before staging deployment. Do not add a second dashboard content architecture. Distinguish unavailable measurements from verified observations.
+
 ## Before releasing the prompt / approving the result
 
 Check every item above explicitly. After Claude finishes, inspect the actual diff/code, tests, report, four design-question files and history update before writing the next prompt. Correct earlier omissions through a small follow-up, not by rewriting historical prompt files.
