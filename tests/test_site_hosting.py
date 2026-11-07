@@ -466,7 +466,16 @@ class StagingTest(unittest.TestCase):
                     name,
                 )
         self.assertIn(b"Staging preview", files["index.html"])
-        self.assertFalse((ss.CONTENT_DIR / "archive").exists())
+        # A staging build never adds to the production archive.
+        archive = ss.CONTENT_DIR / "archive"
+        before = sorted(archive.rglob("*")) if archive.exists() else []
+        ss.render_site(
+            ss.SiteConfig("https://llmxchange.example.workers.dev"),
+            preview_at="2026-11-07T20:00:00Z",
+            staging=True,
+        )
+        after = sorted(archive.rglob("*")) if archive.exists() else []
+        self.assertEqual(before, after)
 
     def test_staging_needs_a_preview_time(self):
         with self.assertRaises(ss.SiteError):

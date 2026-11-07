@@ -645,7 +645,7 @@ deployed by this command.
   - `Cache-Control: no-store` instead of Cloudflare's `public, max-age=0, must-revalidate`;
   - redirect `Location` headers are relative, so clients resolve them against localhost;
   - `_headers` is applied as the single `/*` rule the generator writes;
-  - canonical and Open Graph URLs name the staging hostname (`https://llmxchange.akuchlous.workers.dev`), but internal links are relative, so navigation stays local;
+  - canonical and Open Graph URLs name the staging hostname (`https://llmxchange-staging.akuchlous.workers.dev`), but internal links are relative, so navigation stays local;
   - Cloudflare's own routing remains the reference; the staging checks are still required after a deploy.
 
 - **Editorial text** lives in `llm_metrics/site_content/<page>/` as `page.json` (title, description, breadcrumb name, answer revision, dates and authors only when known) plus static HTML fragments checked against a small tag allowlist. **Numbers** are rendered only from a validated `llm-metrics.analytics.v1` file, never into the reviewed answer.

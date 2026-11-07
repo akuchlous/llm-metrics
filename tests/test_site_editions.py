@@ -36,7 +36,11 @@ class Content:
         tmp = pathlib.Path(tempfile.mkdtemp())
         test.addCleanup(shutil.rmtree, tmp)
         self.root = tmp / "site_content"
-        shutil.copytree(ss.CONTENT_DIR, self.root)
+        shutil.copytree(
+            ss.CONTENT_DIR,
+            self.root,
+            ignore=shutil.ignore_patterns("archive"),
+        )
         self.archive = self.root / "archive"
 
     def meta(self, edition_dir):
@@ -91,7 +95,8 @@ class DefaultContentTest(unittest.TestCase):
     """The committed content: TTFT approved, duplicate-call article draft."""
 
     def test_nothing_is_published_until_frozen(self):
-        files = ss.render_site(CONFIG)
+        content = Content(self)  # a copy without the production archive
+        files = ss.render_site(CONFIG, None, content.root)
         self.assertFalse(any(name.startswith("reports/") for name in files))
         self.assertNotIn(t25.QUESTION, files)
         home = files["index.html"].decode()

@@ -31,7 +31,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-SITE_URL="https://llmxchange.akuchlous.workers.dev"
+SITE_URL="https://llmxchange-staging.akuchlous.workers.dev"
 OUT=".site-preview"
 PORT=8000
 ANALYTICS=""

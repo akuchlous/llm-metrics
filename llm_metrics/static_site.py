@@ -748,7 +748,9 @@ def plan_editions(
         SiteError: Orphaned or modified archive content, out-of-order or
             unapproved publication, or a site URL other than the archive's.
     """
-    manifest = load_manifest(archive_dir)
+    # A staging build shows stable pages only and is built for another
+    # hostname, so it ignores the production archive entirely.
+    manifest = {"editions": []} if staging else load_manifest(archive_dir)
     entries = manifest["editions"]
     by_key = {
         (q.question_id, e.edition_id): (q, e)
@@ -794,7 +796,7 @@ def plan_editions(
             for p in archive_dir.rglob("*")
             if p.is_file()
         }
-        if archive_dir.exists()
+        if archive_dir.exists() and not staging
         else set()
     )
     expected_files = {MANIFEST_NAME} | {
