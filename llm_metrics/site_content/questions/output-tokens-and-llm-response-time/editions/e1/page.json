@@ -1,0 +1,57 @@
+{
+  "kind": "question",
+  "path": "/output-tokens-and-llm-response-time",
+  "breadcrumb_name": "Output tokens and response time",
+  "editorial_revision": "r1",
+  "answer_revision": "output-tokens-and-llm-response-time/answer-r1",
+  "answer_basis": "methodology",
+  "answer_reviewed_dataset_sha256": null,
+  "authors": [],
+  "related_metric": null,
+  "status": "draft",
+  "what_changed": null,
+  "source_commit": "c65b619",
+  "title": "How Output Token Count Affects LLM Response Time",
+  "h1": "How does output token count affect LLM response time?",
+  "meta_description": "Why output token count drives LLM response time: models generate one token at a time, so longer answers take longer, while TTFT changes much less.",
+  "focus_keyphrase": "output token count",
+  "slug_terms": [
+    "output",
+    "tokens",
+    "response",
+    "time"
+  ],
+  "summary": "Models generate answers one token at a time, so total response time grows with output length while TTFT changes much less.",
+  "sections": [
+    {
+      "id": "answer",
+      "heading": "Answer",
+      "file": "answer.html"
+    },
+    {
+      "id": "explanation",
+      "heading": "Why longer answers take longer",
+      "file": "explanation.html"
+    },
+    {
+      "id": "control",
+      "heading": "How to control it",
+      "file": "control.html"
+    },
+    {
+      "id": "cost",
+      "heading": "Effect on cost",
+      "file": "cost.html"
+    },
+    {
+      "id": "limitations",
+      "heading": "Limitations",
+      "file": "limitations.html"
+    },
+    {
+      "id": "related",
+      "heading": "Related pages",
+      "file": "related.html"
+    }
+  ]
+}

@@ -1,0 +1,3 @@
+<p>A streaming request goes through two broad phases. First, the request travels to the provider, waits for capacity and the model reads the prompt. That phase ends when the first output text is sent back, which is what TTFT captures.</p>
+<p>Second, the model generates the answer one token at a time. Each new token takes roughly the same amount of work, so a long answer keeps the connection open much longer than a short one. Total response time includes both phases.</p>
+<p>This is why the two numbers can move independently. A busy service or a very long prompt mostly raises TTFT. A request for a long answer mostly raises total response time.</p>

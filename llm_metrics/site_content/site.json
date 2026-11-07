@@ -8,6 +8,10 @@
     "pages/costs",
     "questions/how-to-measure-openai-ttft",
     "questions/prevent-duplicate-paid-llm-calls",
+    "questions/ttft-vs-total-response-time",
+    "questions/output-tokens-and-llm-response-time",
+    "questions/why-llm-latency-varies",
+    "questions/openai-ttft",
     "metrics/openai-ttft"
   ]
 }

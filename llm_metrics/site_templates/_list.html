@@ -1,0 +1,9 @@
+{% macro question_list(rows, heading_level=2) %}
+<ol class="q-list">
+{% for row in rows %}<li class="q-item">
+<h{{ heading_level }} class="q-title"><a href="{{ row.path }}">{{ row.h1 }}</a></h{{ heading_level }}>
+<p class="q-summary">{{ row.summary }}</p>
+{% if row.category or row.date %}<p class="q-meta">{% if row.category %}<span class="tag">{{ row.category }}</span>{% endif %}{% if row.date %}<time datetime="{{ row.date }}">{% if row.updated %}Updated{% else %}Published{% endif %} {{ row.date_text }}</time>{% endif %}</p>{% endif %}
+</li>
+{% endfor %}</ol>
+{% endmacro %}

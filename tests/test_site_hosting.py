@@ -272,6 +272,10 @@ class HostingFilesTest(unittest.TestCase):
                     "https://llmxchange.com/llm-performance",
                     t25.SITE + "/prevent-duplicate-paid-llm-api-calls",
                     "https://llmxchange.com/questions",
+                    *(
+                        t25.SITE + "/" + p.split("/", maxsplit=1)[0]
+                        for p in t25.NEW_QUESTIONS
+                    ),
                 ]
             ),
         )
@@ -360,7 +364,7 @@ class HostingFilesTest(unittest.TestCase):
         self.assertIn('<a class="skip-link" href="#content">', home)
         self.assertIn('<main id="content">', home)
         self.assertIn('<nav aria-label="Main"', home)
-        for label in ("Questions", "Metrics", "Project Costs", "Methodology"):
+        for label in ("Questions", "Metrics", "Costs"):
             self.assertIn(f">{label}</a>", home)
         css = (ss.PACKAGE_DIR / "site_static/site.css").read_text()
         self.assertIn(":focus-visible", css)

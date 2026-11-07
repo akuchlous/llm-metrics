@@ -1,9 +1,9 @@
 {
   "kind": "home",
   "path": "/",
-  "title": "LLM Xchange: Independent LLM API Performance Measurement",
-  "h1": "Independent LLM performance measurement",
-  "meta_description": "Practical answers about measuring LLM API performance, with the methods and validated measurements behind them. Currently one OpenAI model.",
+  "title": "LLM Xchange: LLM API Questions Answered with Evidence",
+  "h1": "LLM Xchange",
+  "meta_description": "Questions about LLM performance, cost, reliability and engineering, answered with evidence: methods, validated measurements and their limits.",
   "breadcrumb_name": "Home",
   "sections": [
     {

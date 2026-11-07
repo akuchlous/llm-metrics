@@ -158,35 +158,29 @@ class EditionLifecycleTest(unittest.TestCase):
             hrefs(self.files[TTFT_R2]),
         )
 
-    def test_home_feed_lists_every_edition_newest_first(self):
+    def test_home_lists_each_question_once_newest_first(self):
         home = self.files["index.html"].decode()
-        section = home[home.index('<section id="latest">') :]
-        order = re.findall(r'href="(/reports/[^"]+)"', section)
-        self.assertEqual(
-            order,
-            [
-                "/reports/2026-11-10/how-to-measure-openai-ttft",
-                "/reports/2026-11-08/prevent-duplicate-paid-llm-api-calls",
-                "/reports/2026-11-08/how-to-measure-openai-ttft",
-            ],
-        )
+        section = home[home.index('<section id="latest"') :]
+        order = re.findall(r'<a href="(/[^"]+)">', section)
+        # Questions, not editions: the revised TTFT answer (2026-11-10)
+        # comes first; each question links to its stable page once.
+        self.assertEqual(order[0], "/how-to-measure-openai-ttft")
+        self.assertEqual(len(order), len(set(order)))
+        self.assertNotIn("/reports/", section)
+        self.assertIn("Updated 10 November 2026", section)
 
     def test_questions_directory_groups_by_identity(self):
         directory = self.files["questions/index.html"].decode()
         self.assertEqual(
-            directory.count('<h3><a href="/how-to-measure-openai-ttft">'), 1
+            directory.count('<a href="/how-to-measure-openai-ttft">'), 1
         )
-        block = directory[
-            directory.index('<h3><a href="/how-to-measure-openai-ttft">') :
-        ]
-        block = block[: block.index("</ul>")]
-        self.assertIn("/reports/2026-11-10/how-to-measure-openai-ttft", block)
-        self.assertIn("/reports/2026-11-08/how-to-measure-openai-ttft", block)
+        self.assertIn("<h2>Performance</h2>", directory)
+        self.assertNotIn("/reports/", directory)
 
     def test_hub_shows_latest_answer_history_and_metrics(self):
         hub = self.files[t25.QUESTION].decode()
         self.assertIn("A materially revised short answer.", hub)
-        self.assertIn("Answer updated", hub)
+        self.assertIn("Updated 10 November 2026", hub)
         self.assertIn("The short answer now explains X.", hub)
         self.assertIn('href="/metrics/openai/ttft"', hub)
         for route in (
@@ -218,7 +212,9 @@ class EditionLifecycleTest(unittest.TestCase):
             "robots", edition.meta
         )  # browseable, not blanket noindex
         self.assertIn("What changed?", self.files[TTFT_R2].decode())
-        self.assertIn("Published on", self.files[TTFT_R2].decode())
+        self.assertIn(
+            "Archived edition, published", self.files[TTFT_R2].decode()
+        )
 
     def test_no_change_rebuild_publishes_nothing(self):
         manifest = (self.content.archive / ss.MANIFEST_NAME).read_bytes()
@@ -291,9 +287,7 @@ class RefusalTest(unittest.TestCase):
 
     def test_modified_archive_bytes(self):
         path = self.content.archive / TTFT_R1
-        path.write_bytes(
-            path.read_bytes().replace(b"Short answer", b"Short answr")
-        )
+        path.write_bytes(path.read_bytes().replace(b"<h1>", b"<h1 >"))
         self.assert_refused("was modified")
 
     def test_edited_published_content(self):

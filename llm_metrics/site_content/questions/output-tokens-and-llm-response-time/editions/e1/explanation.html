@@ -1,0 +1,2 @@
+<p>A model reads the whole prompt in one pass, which can be done largely in parallel. Generating the answer is different: each new token depends on the tokens before it, so they are produced in sequence. The speed of that sequence is often reported as output tokens per second.</p>
+<p>A useful approximation is: total response time ≈ TTFT + (output tokens ÷ output tokens per second). The approximation is rough, because the generation rate is not constant and varies with load, but it explains why answer length matters so much.</p>

@@ -2,6 +2,7 @@
   "question_id": "q0001",
   "path": "/how-to-measure-openai-ttft",
   "breadcrumb_name": "How to measure OpenAI TTFT",
+  "category": "Performance",
   "related_metrics": [
     "/metrics/openai/ttft"
   ],

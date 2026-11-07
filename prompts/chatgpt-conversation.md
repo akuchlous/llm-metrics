@@ -674,3 +674,8 @@ ChatGPT accepted Step 026 for the educational Q&A scope. Remaining items were mo
 **Screenshots.** Not taken: running a third-party headless-browser image was not permitted.
 
 **Not done.** No Cloudflare, DNS or cloud actions. The next step needs Approval A (a `workers.dev` staging deploy). Stopped for ChatGPT review.
+
+## Step 027a: question-first site (2026-11-07)
+
+The user asked to simplify LLM Xchange: the home page becomes a chronological list of questions (50 per page, `/page/N`), every question gets an answer-first page, metrics are presented as questions ("What is OpenAI's TTFT?") that say no validated measurements exist yet, and three educational questions plus the metric question were added as drafts under the existing approval workflow. The design became minimal and typographic. This replaces the Step 027 edition-feed home page (D086) without changing immutable editions. The existing workers.dev staging Worker was updated (approved content only, `noindex, nofollow`); production, DNS, GCP and scheduling were not touched.
+

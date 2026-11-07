@@ -1,75 +1,79 @@
 {% extends "base.html" %}
-{% import "_macros.html" as m %}
+{% import "_list.html" as l %}
 {% block main %}
-<article>
+<article class="page page-{{ page.kind }}">
+{% if page.kind in ("question", "edition") %}
+<header class="q-header">
+<p class="eyebrow">Question</p>
 <h1>{{ page.h1 }}</h1>
-{% if page.kind == "edition" %}
-<dl class="revision">
-<div><dt>Published on</dt><dd><time datetime="{{ extra.edition.date }}">{{ answer.date_published_text }}</time> (UTC)</dd></div>
-<div><dt>Answer revision</dt><dd>{{ answer.revision }}</dd></div>
-<div><dt>Answer based on</dt><dd>{{ answer.basis_text }}</dd></div>
-</dl>
-<p class="notice">This is an archived edition and is never changed after publication. <a href="{{ extra.current_path }}">Read the current answer</a>.</p>
-{% if extra.edition.what_changed %}<section id="what-changed"><h2>What changed?</h2><p>{{ extra.edition.what_changed }}</p></section>{% endif %}
-{% elif page.kind == "question" %}
-<dl class="revision">
-<div><dt>Answer revision</dt><dd>{{ answer.revision }}</dd></div>
-<div><dt>Answer based on</dt><dd>{{ answer.basis_text }}</dd></div>
-<div><dt>First published</dt><dd><time datetime="{{ answer.date_published }}">{{ answer.date_published_text }}</time></dd></div>
-{% if extra.updated %}<div><dt>Answer updated</dt><dd><time datetime="{{ answer.date_modified }}">{{ answer.date_modified_text }}</time>: {{ extra.updated.what_changed }}</dd></div>{% endif %}
-</dl>
+{% if page.kind == "edition" %}<p class="q-meta">Archived edition, published <time datetime="{{ extra.edition.date }}">{{ answer.date_published_text }}</time> (UTC). <a href="{{ extra.current_path }}">Read the current answer</a>.</p>
+{% elif extra.category or extra.verified_date %}<p class="q-meta">{% if extra.category %}<span class="tag">{{ extra.category }}</span>{% endif %}{% if extra.verified_date %}<time datetime="{{ answer.date_published }}">Published {{ answer.date_published_text }}</time>{% if extra.updated %} · <time datetime="{{ answer.date_modified }}">Updated {{ answer.date_modified_text }}</time>{% endif %}{% endif %}</p>
+{% endif %}
+</header>
+{% if page.kind == "edition" and extra.edition.what_changed %}<section id="what-changed"><h2>What changed?</h2><p>{{ extra.edition.what_changed }}</p></section>{% endif %}
+{% else %}
+<h1>{{ page.h1 }}</h1>
 {% endif %}
 {% for section in sections %}
 <section id="{{ section.id }}">
-{% if section.heading %}<h2>{{ section.heading }}</h2>{% endif %}
+{% if section.id == "answer" and page.kind in ("question", "edition") %}<h2>Answer</h2>{% elif section.heading %}<h2>{{ section.heading }}</h2>{% endif %}
 {% if section.html is not none %}{{ section.html }}{% else %}{% include "_" ~ section.generated ~ ".html" %}{% endif %}
 </section>
 {% endfor %}
+{% if related %}
+<section id="related-questions">
+<h2>Related questions</h2>
+{{ l.question_list(related, 3) }}
+</section>
+{% endif %}
 {% if page.kind == "question" %}
-<section id="editions">
-<h2>Edition history</h2>
-<ul class="page-list">
-{% for item in extra.history %}<li><a href="{{ item.path }}">{{ item.label }}</a> ({{ item.revision }})<p>{{ item.what_changed or item.summary }}</p></li>
-{% endfor %}</ul>
+<section id="editions" class="about">
+<h2>About this answer</h2>
+<dl class="revision">
+<div><dt>Answer revision</dt><dd>{{ answer.revision }}</dd></div>
+<div><dt>Based on</dt><dd>{{ answer.basis_text }}</dd></div>
+</dl>
+{% if extra.verified_date %}<p>Editions are archived and never changed after publication:</p>
+<ul class="plain-list">
+{% for item in extra.history %}<li><a href="{{ item.path }}">{{ item.label }}</a> ({{ item.revision }}){% if item.what_changed %}: {{ item.what_changed }}{% endif %}</li>
+{% endfor %}</ul>{% else %}<p>This answer has not been published yet; it has no archived editions.</p>{% endif %}
 </section>
 {% endif %}
 {% if page.kind == "edition" and extra.earlier %}
 <section id="earlier">
 <h2>Earlier editions</h2>
-<ul class="page-list">
+<ul class="plain-list">
 {% for item in extra.earlier %}<li><a href="{{ item.path }}">{{ item.label }}</a></li>
 {% endfor %}</ul>
 </section>
 {% endif %}
-{% if feed or page.kind == "home" %}
-<section id="latest">
-<h2>Published questions, newest first</h2>
-{% if feed %}<ol class="feed">
-{% for item in feed %}<li class="card question-card"><p class="card-meta"><time datetime="{{ item.date }}">{{ item.label }}</time>{% if item.what_changed %} · Answer updated{% endif %}</p><h3><a href="{{ item.path }}">{{ item.h1 }}</a></h3><p>{{ item.summary }}</p></li>
-{% endfor %}</ol>{% else %}<p class="empty">No questions have been published yet.</p>{% endif %}
+{% if page.kind == "home" %}
+<section id="latest" aria-label="Questions, newest first">
+{% if feed %}{{ l.question_list(feed, 2) }}{% else %}<p class="empty">No questions have been published yet.</p>{% endif %}
+{% if extra.pager.count > 1 %}
+<nav class="pager" aria-label="Pages">
+{% if extra.pager.previous %}<a rel="prev" href="{{ extra.pager.previous }}">← Newer questions</a>{% else %}<span></span>{% endif %}
+<span>Page {{ extra.pager.number }} of {{ extra.pager.count }}</span>
+{% if extra.pager.next %}<a rel="next" href="{{ extra.pager.next }}">Older questions →</a>{% else %}<span></span>{% endif %}
+</nav>
+{% endif %}
 </section>
 {% endif %}
 {% if page.kind == "directory" %}
-<section id="all-questions">
-<h2>All questions</h2>
-{% if directory %}<div class="card-grid">{% for question in directory %}
-<div class="card question-card">
-<h3><a href="{{ question.path }}">{{ question.h1 }}</a></h3>
-<p>{{ question.description }}</p>
-<p class="card-meta">Editions:</p>
-<ul class="edition-list">
-{% for item in question.editions %}<li><a href="{{ item.path }}">{{ item.label }}</a></li>
-{% endfor %}</ul>
-</div>
-{% endfor %}</div>{% else %}<p class="empty">No questions have been published yet.</p>{% endif %}
+<section id="all-questions" aria-label="All questions by topic">
+{% for group in categories %}
+<h2>{{ group.name }}</h2>
+{{ l.question_list(group.rows, 3) }}
+{% else %}<p class="empty">No questions have been published yet.</p>
+{% endfor %}
 </section>
 {% endif %}
 {% if links %}
 <section id="explore">
 <h2>Explore</h2>
-<div class="card-grid">
-{% for link in links %}<div class="card link-card"><h3><a href="{{ link.path }}">{{ link.h1 }}</a></h3><p>{{ link.description }}</p></div>
-{% endfor %}</div>
+<ul class="plain-list">
+{% for link in links %}<li><a href="{{ link.path }}">{{ link.h1 }}</a>: {{ link.description }}</li>
+{% endfor %}</ul>
 </section>
 {% endif %}
 </article>

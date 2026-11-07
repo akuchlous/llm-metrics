@@ -33,6 +33,13 @@ METRIC = "metrics/openai/ttft/index.html"
 DUPLICATE = "prevent-duplicate-paid-llm-api-calls/index.html"
 EDITION = "reports/2026-11-08/how-to-measure-openai-ttft/index.html"
 DUP_R1 = "reports/2026-11-08/prevent-duplicate-paid-llm-api-calls/index.html"
+# Step 027a questions (drafts in content; approved in the test copy).
+NEW_QUESTIONS = (
+    "ttft-vs-total-response-time/index.html",
+    "output-tokens-and-llm-response-time/index.html",
+    "why-llm-latency-varies/index.html",
+    "openai-ttft/index.html",
+)
 PAGES = (
     "index.html",
     "llm-performance/index.html",
@@ -40,6 +47,7 @@ PAGES = (
     QUESTION,
     DUPLICATE,
     METRIC,
+    *NEW_QUESTIONS,
 )
 CONFIG = ss.SiteConfig(SITE)
 PUBLISHED_AT = "2026-11-08T09:00:00Z"
@@ -151,6 +159,7 @@ class NoDatasetTest(unittest.TestCase):
         reports = [
             EDITION,
             DUP_R1,
+            *(f"reports/2026-11-08/{p}" for p in NEW_QUESTIONS),
         ]
         self.assertEqual(
             sorted(self.files),
@@ -300,13 +309,14 @@ class NoDatasetTest(unittest.TestCase):
         self.assertEqual(
             headings,
             [
-                "Short answer",
+                "Answer",
                 "What our measurements show",
                 "How the measurement works",
                 "Exact measurement setup",
                 "Limitations",
                 "Related pages",
-                "Edition history",
+                "Related questions",
+                "About this answer",
             ],
         )
 
@@ -575,7 +585,9 @@ class AnswerMetadataTest(unittest.TestCase):
         self.assertEqual(article["author"][0]["name"], "Example Author")
         text = files[QUESTION].decode()
         self.assertIn(
-            '<time datetime="2026-11-08T09:00:00Z">8 November 2026</time>', text
+            '<time datetime="2026-11-08T09:00:00Z">Published 8 November 2026'
+            "</time>",
+            text,
         )
 
     def test_invalid_answer_metadata_is_refused(self):

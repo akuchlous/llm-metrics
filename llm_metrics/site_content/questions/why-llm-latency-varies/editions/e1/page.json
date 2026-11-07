@@ -1,0 +1,51 @@
+{
+  "kind": "question",
+  "path": "/why-llm-latency-varies",
+  "breadcrumb_name": "Why LLM latency varies",
+  "editorial_revision": "r1",
+  "answer_revision": "why-llm-latency-varies/answer-r1",
+  "answer_basis": "methodology",
+  "answer_reviewed_dataset_sha256": null,
+  "authors": [],
+  "related_metric": null,
+  "status": "draft",
+  "what_changed": null,
+  "source_commit": "c65b619",
+  "title": "Why Do Identical LLM Requests Have Different Latency?",
+  "h1": "Why can two requests to the same LLM have different latency?",
+  "meta_description": "Why LLM latency varies between identical requests: shared server load, queueing, network paths, caching and answer length all change how long a request takes.",
+  "focus_keyphrase": "different latency",
+  "slug_terms": [
+    "llm",
+    "latency",
+    "varies"
+  ],
+  "summary": "Shared capacity, queueing, network paths, caching and answer length all change how long an identical request takes.",
+  "sections": [
+    {
+      "id": "answer",
+      "heading": "Answer",
+      "file": "answer.html"
+    },
+    {
+      "id": "causes",
+      "heading": "Common causes",
+      "file": "causes.html"
+    },
+    {
+      "id": "measure",
+      "heading": "How to measure it fairly",
+      "file": "measure.html"
+    },
+    {
+      "id": "limitations",
+      "heading": "Limitations",
+      "file": "limitations.html"
+    },
+    {
+      "id": "related",
+      "heading": "Related pages",
+      "file": "related.html"
+    }
+  ]
+}

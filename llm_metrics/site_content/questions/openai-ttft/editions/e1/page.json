@@ -1,0 +1,45 @@
+{
+  "kind": "question",
+  "path": "/openai-ttft",
+  "breadcrumb_name": "OpenAI TTFT",
+  "editorial_revision": "r1",
+  "answer_revision": "openai-ttft/answer-r1",
+  "answer_basis": "methodology",
+  "answer_reviewed_dataset_sha256": null,
+  "authors": [],
+  "related_metric": "/metrics/openai/ttft",
+  "status": "draft",
+  "what_changed": null,
+  "source_commit": "c65b619",
+  "title": "What Is OpenAI's Time to First Token (TTFT)?",
+  "h1": "What is OpenAI's time to first token (TTFT)?",
+  "meta_description": "OpenAI time to first token from our open benchmark: what we measure, and where validated TTFT results will appear. No validated measurements are published yet.",
+  "focus_keyphrase": "time to first token",
+  "slug_terms": [
+    "openai",
+    "ttft"
+  ],
+  "summary": "Our measured OpenAI TTFT, from one fixed workload. No validated measurements have been published yet.",
+  "sections": [
+    {
+      "id": "answer",
+      "heading": "Answer",
+      "file": "answer.html"
+    },
+    {
+      "id": "measured",
+      "heading": "Measured TTFT",
+      "generated": "findings"
+    },
+    {
+      "id": "method",
+      "heading": "What is measured",
+      "file": "method.html"
+    },
+    {
+      "id": "related",
+      "heading": "Related pages",
+      "file": "related.html"
+    }
+  ]
+}

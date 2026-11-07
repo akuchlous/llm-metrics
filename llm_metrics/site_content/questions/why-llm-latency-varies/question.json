@@ -1,0 +1,12 @@
+{
+  "question_id": "q0005",
+  "path": "/why-llm-latency-varies",
+  "breadcrumb_name": "Why LLM latency varies",
+  "category": "Performance",
+  "related_metrics": [],
+  "aliases": [],
+  "reviewed_distinct_from": [],
+  "editions": [
+    "e1"
+  ]
+}

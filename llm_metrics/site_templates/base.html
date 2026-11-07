@@ -20,7 +20,7 @@
 <a class="skip-link" href="#content">Skip to content</a>
 <header class="site-header">
 <div class="header-inner">
-<a class="brand" href="/"><span class="brand-mark" aria-hidden="true">LX</span><span class="brand-name">{{ site.name }}</span></a>
+<a class="brand" href="/"><span class="brand-mark" aria-hidden="true">◆</span><span class="brand-name">{{ site.name }}</span></a>
 <nav aria-label="Main" class="main-nav">
 <ul>
 {% for item in nav %}<li><a href="{{ item.path }}"{% if item.path == page.path %} aria-current="page"{% endif %}>{{ item.label }}</a></li>
@@ -42,8 +42,8 @@
 </main>
 <footer class="site-footer">
 <div class="footer-inner">
-<p><strong>{{ site.name }}</strong> measures LLM APIs in the open. No rankings, no trackers, no invented numbers.</p>
-<p><a href="/questions">Questions</a> · <a href="/llm-performance">Metrics</a> · <a href="/costs">Project Costs</a> · <a href="https://github.com/akuchlous/llm-metrics">Source code on GitHub</a></p>
+<p>{{ site.name }} answers questions about LLM APIs with evidence. No rankings, no trackers, no invented numbers.</p>
+<p><a href="/">Latest questions</a> · <a href="/questions">All questions</a> · <a href="/llm-performance">Metrics</a> · <a href="/costs">Project costs</a> · <a href="https://github.com/akuchlous/llm-metrics">Source code on GitHub</a></p>
 </div>
 </footer>
 </body>

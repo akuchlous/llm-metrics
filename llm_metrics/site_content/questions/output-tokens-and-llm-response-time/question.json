@@ -1,0 +1,12 @@
+{
+  "question_id": "q0004",
+  "path": "/output-tokens-and-llm-response-time",
+  "breadcrumb_name": "Output tokens and response time",
+  "category": "Performance",
+  "related_metrics": [],
+  "aliases": [],
+  "reviewed_distinct_from": [],
+  "editions": [
+    "e1"
+  ]
+}

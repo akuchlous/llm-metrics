@@ -96,6 +96,12 @@ Every step must preserve `./run.sh`, keep secrets/runtime artifacts out of Git, 
   `real_smoke` now delegates to `real_benchmark.run` (the OpenAI target with the smoke workload), so both paid commands share one refusal, announce, attempt and report path. `OpenAIProvider` lost its unused `model` override (the profile fixes the model), and `run_attempt` lost a cache-policy check that profile matching already covers. Test fakes (`sse`, `FakeResponse`, `FakeOpener`, `no_network`) live in `tests/fakes.py`.
 
   Kept separate on purpose, because each provider has its own contract: event dispatch, usage field extraction, request-id source, error-code tables, and request bodies. The OpenAI and xAI Responses parsers stay separate despite similar shapes, because their account errors, ids and documented fields differ. Wire requests, profiles, stored facts, outcomes and output are unchanged, except that the `real_smoke` pre-request announcement now uses `real_benchmark`'s multi-line format.
+- **D086 — Question-first discovery (Step 027a).**
+  - The home page lists questions (stable pages), newest first by latest edition, 50 per page; `/page/N` only when needed, self-canonical, prev/next links. This supersedes the Step 027 "chronological edition feed" home page at the user's request.
+  - Optional `category` (Performance, Cost, Reliability, Engineering); `/questions` groups by category.
+  - Question pages lead with the Answer; related questions are generated; edition history moves to "About this answer". Editions, archive and canonical rules (D083) are unchanged.
+  - Dates are shown only for real archived publications outside previews. Metric questions reuse the generated findings section and never show numbers without a validated dataset.
+
 - **D085 — Approval A: one staging Worker on workers.dev from a `--staging` build (Step 027).**
   - `static_site --preview-at T --staging` shows approved editions only, on their stable question pages. It generates no dated `/reports/...` edition and writes nothing to the archive. Drafts are absent, including from links and `_redirects`.
   - Every preview/staging page is `noindex, nofollow` (meta and `X-Robots-Tag`); the sitemap is empty; the banner reads "Staging preview."

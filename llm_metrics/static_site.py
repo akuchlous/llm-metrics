@@ -110,6 +110,10 @@ CSP = (
 DATA_SOURCES = ("real", "synthetic")
 MAX_SUMMARY_BYTES = 4 * 1024 * 1024
 PAGE_KINDS = ("home", "hub", "directory", "question", "metric", "costs")
+# Optional topic of a question (`question.json` "category").
+CATEGORIES = ("Performance", "Cost", "Reliability", "Engineering")
+# Questions listed per home page; later pages live at /page/N (N >= 2).
+QUESTIONS_PER_PAGE = 50
 # Breadcrumb parent of each loaded page kind; editions hang under their
 # question's stable page.
 _PARENTS = {
@@ -513,6 +517,7 @@ class Question:
     aliases: tuple[str, ...]
     reviewed_distinct_from: tuple[str, ...]
     editions: tuple[Edition, ...]
+    category: str | None = None
 
 
 def _content_sha256(directory: pathlib.Path) -> str:
@@ -550,6 +555,9 @@ def load_question(
         ):
             raise SiteError(f"{source}: {key} must be a list of strings.")
         lists[key] = tuple(value)
+    category = meta.get("category")
+    if category is not None and category not in CATEGORIES:
+        raise SiteError(f"{source}: category must be one of {CATEGORIES}.")
     for alias in lists["aliases"]:
         if not _PATH_RE.match(alias) or alias == path:
             raise SiteError(f"{source}: invalid alias.")
@@ -619,6 +627,7 @@ def load_question(
         path=path,
         breadcrumb_name=_string(meta, "breadcrumb_name", source, limit=80),
         editions=tuple(editions),
+        category=category,
         **lists,
     )
 
@@ -1278,7 +1287,7 @@ def structured_data(
 ) -> list:
     url = config.absolute(page.path)
     blocks = []
-    if page.kind == "home":
+    if page.path == "/":
         blocks.append(
             {
                 "@context": "https://schema.org",
@@ -1402,7 +1411,9 @@ def _edition_link(item: Published) -> dict:
     }
 
 
-def _question_pages(question: Question, items: list[Published]) -> list[Page]:
+def _question_pages(
+    question: Question, items: list[Published], *, preview: bool = False
+) -> list[Page]:
     """The stable question page (latest edition) and one page per edition."""
     items = sorted(items, key=lambda i: i.published_at)
     latest = items[-1]
@@ -1423,6 +1434,11 @@ def _question_pages(question: Question, items: list[Published]) -> list[Page]:
                 "history": history,
                 "updated": history[0] if len(items) > 1 else None,
                 "related_metrics": question.related_metrics,
+                "category": question.category,
+                # Real publication time (a dated, archived route); a
+                # staging preview has none, so no date is shown.
+                "verified_date": not preview
+                and latest.route.startswith("/reports/"),
             },
         )
     ]
@@ -1525,16 +1541,31 @@ def plan_site(
     for question in questions:
         items = [p for p in published if p.question is question]
         if items:
-            question_pages = _question_pages(question, items)
+            question_pages = _question_pages(
+                question, items, preview=preview_at is not None
+            )
             hubs[question.question_id] = question_pages[0]
             pages.extend(question_pages)
-    by_path = {page.path: page for page in pages}
-    feed = [
-        _edition_link(i)
-        for i in sorted(
-            published, key=lambda i: (i.published_at, i.route), reverse=True
+    listing = _question_listing(
+        questions, published, hubs, preview=preview_at is not None
+    )
+    home = next(p for p in pages if p.kind == "home")
+    pages[pages.index(home)] = home = dataclasses.replace(
+        home, extra={**home.extra, "pager": _pager(1, len(listing))}
+    )
+    for number in range(2, _page_count(len(listing)) + 1):
+        pages.append(
+            dataclasses.replace(
+                home,
+                path=f"/page/{number}",
+                title=f"{home.title} (page {number})",
+                description=f"Questions, newest first: page {number}."
+                f" {home.description}"[:300],
+                sections=(),
+                extra={"pager": _pager(number, len(listing))},
+            )
         )
-    ]
+    by_path = {page.path: page for page in pages}
     directory = [
         {
             "path": q.path,
@@ -1562,11 +1593,8 @@ def plan_site(
     nav = [
         {"path": "/questions", "label": "Questions"},
         {"path": "/llm-performance", "label": "Metrics"},
-        {"path": "/costs", "label": "Project Costs"},
+        {"path": "/costs", "label": "Costs"},
     ]
-    methodology_hub = methodology.get("/metrics/openai/ttft")
-    if methodology_hub is not None:
-        nav.append({"path": methodology_hub.path, "label": "Methodology"})
     files, frozen_paths = {}, set()
     for page in pages:
         if page.kind == "edition" and page.extra["frozen"] is not None:
@@ -1600,9 +1628,7 @@ def plan_site(
             "json_ld": structured_data(page, crumbs, config, site),
             "robots": robots,
         }
-        if page.kind == "home":
-            links = [by_path["/questions"], by_path["/llm-performance"]]
-        elif page.kind == "hub":
+        if page.kind == "hub":
             links = list(hubs.values()) + [
                 p for p in base_pages if p.kind == "metric"
             ]
@@ -1620,8 +1646,14 @@ def plan_site(
                 {"path": p.path, "h1": p.h1, "description": p.description}
                 for p in links
             ],
-            feed=feed if page.kind == "home" else [],
+            feed=_page_slice(listing, page.extra["pager"])
+            if page.kind == "home"
+            else [],
+            related=_related(page, listing) if page.kind == "question" else [],
             directory=directory if page.kind == "directory" else [],
+            categories=_by_category(listing)
+            if page.kind == "directory"
+            else [],
             # Editions are immutable, so they never embed changing numbers.
             data=None if page.kind == "edition" else data,
             setup=setup_rows(),
@@ -1692,6 +1724,91 @@ def plan_site(
             name = f"{entry['route'][1:]}/index.html"
             archive_files[name] = files[name]
     return dict(sorted(files.items())), archive_files, manifest, pages
+
+
+def _page_count(total: int) -> int:
+    """Home pages needed; an empty site still has its first page."""
+    return max(1, -(-total // QUESTIONS_PER_PAGE))
+
+
+def _pager(number: int, total: int) -> dict:
+    """Previous/next links for home page `number` (no empty pages)."""
+    count = _page_count(total)
+
+    def path(n):
+        return "/" if n == 1 else f"/page/{n}"
+
+    return {
+        "number": number,
+        "count": count,
+        "previous": path(number - 1) if number > 1 else None,
+        "next": path(number + 1) if number < count else None,
+    }
+
+
+def _page_slice(listing: list[dict], pager: dict) -> list[dict]:
+    start = (pager["number"] - 1) * QUESTIONS_PER_PAGE
+    return listing[start : start + QUESTIONS_PER_PAGE]
+
+
+def _question_listing(
+    questions: list[Question],
+    published: list[Published],
+    hubs: dict,
+    *,
+    preview: bool = False,
+) -> list[dict]:
+    """Every published question, newest first (latest edition time).
+
+    A date is shown only when it is a real publication time, i.e. the
+    latest edition has a dated route outside a preview; previews show none.
+    """
+    rows = []
+    for question in questions:
+        if question.question_id not in hubs:
+            continue
+        items = [p for p in published if p.question is question]
+        latest = max(items, key=lambda i: i.published_at)
+        verified = not preview and latest.route.startswith("/reports/")
+        rows.append(
+            {
+                "question_id": question.question_id,
+                "path": question.path,
+                "h1": hubs[question.question_id].h1,
+                "summary": latest.edition.summary,
+                "category": question.category,
+                "date": latest.published_at if verified else None,
+                "date_text": _date_text(latest.published_at)
+                if verified
+                else None,
+                "updated": verified and len(items) > 1,
+                "sort": latest.published_at,
+            }
+        )
+    rows.sort(key=lambda r: (r["sort"], r["question_id"]), reverse=True)
+    return rows
+
+
+def _by_category(listing: list[dict]) -> list[dict]:
+    """The directory: questions grouped by category, A to Z within each."""
+    groups = []
+    for name in (*CATEGORIES, None):
+        rows = sorted(
+            (r for r in listing if r["category"] == name),
+            key=lambda r: r["h1"].lower(),
+        )
+        if rows:
+            groups.append({"name": name or "Other questions", "rows": rows})
+    return groups
+
+
+def _related(page: Page, listing: list[dict], limit: int = 5) -> list[dict]:
+    """Other published questions, same category first, newest first."""
+    own = next((r for r in listing if r["path"] == page.path), None)
+    others = [r for r in listing if r["path"] != page.path]
+    if own is not None and own["category"]:
+        others.sort(key=lambda r: r["category"] != own["category"])
+    return others[:limit]
 
 
 def _robots_of(page: Page, files: dict) -> str | None:

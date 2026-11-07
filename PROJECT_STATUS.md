@@ -1,8 +1,13 @@
 # Project status
 
-_Last updated: Step 027 staging deployed to workers.dev (Approval A); awaiting ChatGPT review; Approval B not started; Step 023 PARTIAL — 2026-11-07_
+_Last updated: Step 027a question-first site on workers.dev staging; awaiting ChatGPT review; Approval B not started; Step 023 PARTIAL — 2026-11-07_
 
 ## Current state
+
+**Step 027a complete, staging updated, awaiting ChatGPT review.**
+- Question-first home page (newest first, 50 per page, `/page/N` only when needed), categories, answer-first question pages, related questions, metric question `/openai-ttft` with no numbers, simpler stylesheet. See `prompts/027a-output.md`, D086.
+- Four new educational drafts (not approved, not on staging); duplicate-calls article still a draft.
+- Staging Worker version a46f81ef at https://llmxchange.akuchlous.workers.dev; 656 tests OK (6 skipped).
 
 **Step 027 complete offline, awaiting ChatGPT review. Nothing deployed.**
 - **Design:** an "LLM Xchange" brand with top navigation (Questions, Metrics, Project Costs, Methodology), cards and a responsive dark-mode stylesheet. No JavaScript or trackers.
@@ -302,6 +307,9 @@ A unique index on observations (`recorded_at`, `environment`, `provider`, `model
 
 ## Next step
 
+**Recommended (after ChatGPT review of Step 027a):** review and approve the ready drafts in a local preview, then rebuild staging.
+
+_Previous:_
 **Recommended (after ChatGPT review of the staging deploy):** a browser visual and accessibility review of https://llmxchange.akuchlous.workers.dev, then Approval B (domain, publication, Search Console) when ready.
 
 _Previous:_ **Recommended (after ChatGPT review of Step 027):** Approval A, a Cloudflare `*.workers.dev` staging deploy; done 2026-11-07.

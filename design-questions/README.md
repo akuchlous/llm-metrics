@@ -78,3 +78,4 @@ Each file has:
 | [025](025/) | First question-driven static pages: TTFT Q&A article and metric page | `prompts/025-first-question-static-html.md` |
 | [026](026/) | Question registry and immutable dated Q&A editions | `prompts/026-immutable-page-versioning.md` |
 | [027](027/) | Cloudflare-ready static site: design, costs ledger, sitemap/redirects, release lanes | `prompts/027-configurable-static-publishing.md` |
+| [027a](027a/) | Question-first site: question home page with pagination, categories, metric questions, new drafts | `prompts/027a-question-first-site.md` |

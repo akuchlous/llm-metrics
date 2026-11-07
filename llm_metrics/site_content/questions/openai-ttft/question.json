@@ -1,0 +1,16 @@
+{
+  "question_id": "q0006",
+  "path": "/openai-ttft",
+  "breadcrumb_name": "OpenAI TTFT",
+  "category": "Performance",
+  "related_metrics": [
+    "/metrics/openai/ttft"
+  ],
+  "aliases": [],
+  "reviewed_distinct_from": [
+    "q0001"
+  ],
+  "editions": [
+    "e1"
+  ]
+}

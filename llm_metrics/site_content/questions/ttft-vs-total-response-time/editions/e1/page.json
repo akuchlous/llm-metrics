@@ -1,0 +1,52 @@
+{
+  "kind": "question",
+  "path": "/ttft-vs-total-response-time",
+  "breadcrumb_name": "TTFT vs total response time",
+  "editorial_revision": "r1",
+  "answer_revision": "ttft-vs-total-response-time/answer-r1",
+  "answer_basis": "methodology",
+  "answer_reviewed_dataset_sha256": null,
+  "authors": [],
+  "related_metric": null,
+  "status": "draft",
+  "what_changed": null,
+  "source_commit": "c65b619",
+  "title": "TTFT vs Total Response Time: What Is the Difference?",
+  "h1": "What is the difference between TTFT and total response time?",
+  "meta_description": "TTFT vs total response time: time to first token measures when an LLM starts answering; total response time measures when the full answer has arrived.",
+  "focus_keyphrase": "total response time",
+  "slug_terms": [
+    "ttft",
+    "total",
+    "response",
+    "time"
+  ],
+  "summary": "TTFT is when the first text arrives; total response time is when the last text arrives. They answer different questions.",
+  "sections": [
+    {
+      "id": "answer",
+      "heading": "Answer",
+      "file": "answer.html"
+    },
+    {
+      "id": "explanation",
+      "heading": "Why they differ",
+      "file": "explanation.html"
+    },
+    {
+      "id": "matters",
+      "heading": "Which one matters",
+      "file": "matters.html"
+    },
+    {
+      "id": "limitations",
+      "heading": "Limitations",
+      "file": "limitations.html"
+    },
+    {
+      "id": "related",
+      "heading": "Related pages",
+      "file": "related.html"
+    }
+  ]
+}

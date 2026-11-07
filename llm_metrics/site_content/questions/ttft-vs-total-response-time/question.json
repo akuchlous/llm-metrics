@@ -1,0 +1,12 @@
+{
+  "question_id": "q0003",
+  "path": "/ttft-vs-total-response-time",
+  "breadcrumb_name": "TTFT vs total response time",
+  "category": "Performance",
+  "related_metrics": [],
+  "aliases": [],
+  "reviewed_distinct_from": [],
+  "editions": [
+    "e1"
+  ]
+}

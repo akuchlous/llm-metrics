@@ -1,0 +1,8 @@
+<ul>
+<li><strong>Load and queueing:</strong> requests from many customers share the same hardware. When demand is high, a request may wait before the model starts on it, which mainly raises time to first token.</li>
+<li><strong>Batching:</strong> providers process several requests together for efficiency. Which batch a request joins, and how busy that batch is, affects both waiting and generation speed.</li>
+<li><strong>Network path:</strong> the connection setup, the distance to the serving region and the route across the internet add a variable delay on both ends.</li>
+<li><strong>Prompt caching:</strong> some providers reuse work for prompts they have seen recently. A cache hit can start the answer sooner than a cache miss for the same prompt.</li>
+<li><strong>Answer length:</strong> unless the output is fixed, the same prompt can produce longer or shorter answers, and longer answers take longer to generate.</li>
+<li><strong>Retries and errors:</strong> client libraries may retry failed requests automatically, which hides a failure inside one long request. Our benchmark disables such retries so each request is measured once.</li>
+</ul>
