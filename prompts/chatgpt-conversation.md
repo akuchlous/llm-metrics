@@ -582,3 +582,14 @@ The user asked for a separate, maintained Markdown guide to the project's Google
 - an update protocol and safety rules
 
 No cloud changes were made.
+
+
+## Step 023 progress update (2026-11-07T09:31Z)
+
+The user asked for an updated status report.
+
+**Audit at 09:30:45Z:** 62 of 62 completed slots claimed and recorded. 61 successes and 1 recorded `provider_error` (21:30Z). 0 claims without a record, 0 duplicates, 0 late starts, 0 failed executions. The 09:30Z slot was still starting at audit time.
+
+**So far:** TTFT p50 1649 ms, total latency p50 4293 ms, 115 tokens/s p50. Model cost so far $0.0200.
+
+The window still ends 2026-11-07T18:00Z, and indefinite collection was not enabled. Step 023 remains PARTIAL pending the post-window audit and `stop`.

@@ -123,6 +123,29 @@ Before activating I checked that no collector execution was running. Pricing was
 
 **Not observed:** any slot after 18:00Z, the final count, any alert email, the missed-run alert, and the billed amount.
 
+## Progress update — 2026-11-07T09:31Z (window still active; not final)
+
+These are observed mid-window figures. The 96-slot result is still pending, with 33 slots left (09:45Z–17:45Z).
+
+- **Audit at 09:30:45Z** (`scripts/gcp/023_collector.sh audit 2026-11-06T18:00:00Z`):
+  - expected 63, claimed 62
+  - `recorded_success` 61, `recorded_failure` 1
+  - `missing` 1: the **09:30Z slot, which was still in progress**. The scheduler delivered it at 09:30:18Z, and the container had not yet started or claimed by 09:31:41Z. That is normal startup latency (about 2 min), not a missed slot. Its outcome will appear in the next audit.
+  - claim_without_record 0, records without a claim 0, invalid records 0, claims outside the policy 0
+- **Executions since 18:00Z:** 63; 62 succeeded, 0 failed, 1 running at audit time. The scheduler is ENABLED; next delivery 09:45Z.
+- **Failures:** still only the 21:30Z `provider_error` (attempt `18e49063…`): nulls kept, no retry.
+- **The 61 successful requests** (descriptive only, not statistics):
+
+  | Metric | min | p50 | p90 | max | mean |
+  |---|---|---|---|---|---|
+  | TTFT (ms) | 929 | 1649 | 2265 | 12343 | 1928 |
+  | Total latency (ms) | 3462 | 4293 | 5218 | 15236 | 4651 |
+  | Output (tokens/s) | 77 | 115 | 132 | 136 | 114 |
+
+  Input was always 1795 tokens with 0 cached; output ranged from 266 to 300 tokens. Derived model cost: **$0.020027**.
+- **No events of these types so far:** duplicate skip, late start, claim failure, clock skew, not persisted.
+- **Unchanged:** expiry 2026-11-07T18:00Z; the key reference is attached to `llm-metrics-collector` only; indefinite collection is not enabled.
+
 ## Progress update — 2026-11-07T05:14Z (window still active; not final)
 
 These are observed mid-window figures. The 96-slot result is still pending.

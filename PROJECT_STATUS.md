@@ -1,10 +1,10 @@
 # Project status
 
-_Last updated: Step 023 PARTIAL (pilot active, progress 2026-11-07T05:14Z) — 2026-11-07_
+_Last updated: Step 023 PARTIAL (pilot active, progress 2026-11-07T09:31Z) — 2026-11-07_
 
 ## Current state
 
-**Progress 2026-11-07T05:14Z:** 45 of 45 begun slots claimed and recorded. The 04:56Z audit found 43 successes and 1 recorded `provider_error` (21:30Z), with 0 missing, 0 claims without a record, 0 duplicates and 0 late starts. TTFT p50 1685 ms, total latency p50 4219 ms, 117 tokens/s p50. Model cost so far $0.0141. The window still ends 2026-11-07T18:00Z (the interrupted request to make it indefinite was not acted on).
+**Progress 2026-11-07T09:31Z:** 62 of 62 completed slots claimed and recorded; the 09:30Z slot was in progress at audit time. 61 successes and 1 recorded `provider_error` (21:30Z), with 0 claims without a record, 0 duplicates, 0 late starts and 0 failed executions. TTFT p50 1649 ms, total latency p50 4293 ms, 115 tokens/s p50. Model cost so far $0.0200. Window ends 2026-11-07T18:00Z; indefinite collection not enabled.
 
 **Step 023 PARTIAL — bounded 15-minute OpenAI collector deployed and ACTIVE; 24-hour results pending.**
 - **Code:**
