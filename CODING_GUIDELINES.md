@@ -147,6 +147,7 @@ HTML belongs in templates once Step 014b performs that extraction. Python should
 - **Homepage is a reverse-chronological question list, 50 per page**, with static `/page/N` pagination, no empty pages, and no dashboard hero. The `/questions` directory, stable question URLs, related-question links, canonical/SEO metadata, and immutable dated editions must remain consistent with the registry.
 - Prefer one shared Q&A page design/template and consistent responsive, accessible typography for prose and rich evidence. A chart is supporting evidence with labels, context and accessible text/table fallback; it does not replace the answer. Keep static Cloudflare delivery lightweight, safe, and crawlable.
 - Preserve existing published URLs, redirects, editorial approval, archival immutability, staging `noindex`, and production metrics gates. Do not add a standalone dashboard page for new data when an existing or new question page answers it.
+- **No data downloads (D091):** never link to or publish data files (analytics summaries, per-slot series, CSV/JSON) from public pages. Show the validated numbers, charts and tables, with SHA-256 fingerprints as plain text.
 - Before a staging deploy: build with `./run.sh site-preview`, review the local page visually, run tests and content/provenance/safety checks, and obtain the operator's explicit staging approval. Cloudflare publication and GCP operations require their own approvals.
 
 This is a durable **frontend architecture rule**, not a requirement to refactor unrelated Flask endpoints or existing historic prompts.
