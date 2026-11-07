@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src &#39;none&#39;; style-src &#39;self&#39;; img-src &#39;self&#39;; base-uri &#39;none&#39;; form-action &#39;none&#39;">
+<title>How Output Token Count Affects LLM Response Time (7 November 2026 edition)</title>
+<meta name="description" content="7 November 2026 edition of this answer: Models generate answers one token at a time, so total response time grows with output length while TTFT changes much less.">
+<link rel="canonical" href="https://llmxchange.com/output-tokens-and-llm-response-time">
+<meta property="og:type" content="article">
+<meta property="og:title" content="How Output Token Count Affects LLM Response Time (7 November 2026 edition)">
+<meta property="og:description" content="7 November 2026 edition of this answer: Models generate answers one token at a time, so total response time grows with output length while TTFT changes much less.">
+<meta property="og:url" content="https://llmxchange.com/output-tokens-and-llm-response-time">
+<meta property="og:site_name" content="LLM Xchange">
+<link rel="stylesheet" href="/assets/site.css">
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"Article","datePublished":"2026-11-07T16:41:02Z","description":"7 November 2026 edition of this answer: Models generate answers one token at a time, so total response time grows with output length while TTFT changes much less.","headline":"How Output Token Count Affects LLM Response Time (7 November 2026 edition)","inLanguage":"en","mainEntityOfPage":"https://llmxchange.com/reports/2026-11-07/output-tokens-and-llm-response-time","url":"https://llmxchange.com/reports/2026-11-07/output-tokens-and-llm-response-time"}</script>
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","item":"https://llmxchange.com/","name":"Home","position":1},{"@type":"ListItem","item":"https://llmxchange.com/questions","name":"Questions","position":2},{"@type":"ListItem","item":"https://llmxchange.com/output-tokens-and-llm-response-time","name":"Output tokens and response time","position":3},{"@type":"ListItem","item":"https://llmxchange.com/reports/2026-11-07/output-tokens-and-llm-response-time","name":"7 November 2026 edition","position":4}]}</script>
+</head>
+<body>
+<a class="skip-link" href="#content">Skip to content</a>
+<header class="site-header">
+<div class="header-inner">
+<a class="brand" href="/"><span class="brand-mark" aria-hidden="true">◆</span><span class="brand-name">LLM Xchange</span></a>
+<nav aria-label="Main" class="main-nav">
+<ul>
+<li><a href="/questions">Questions</a></li>
+<li><a href="/llm-performance">Metrics</a></li>
+<li><a href="/costs">Costs</a></li>
+</ul>
+</nav>
+</div>
+</header>
+
+<nav aria-label="Breadcrumb" class="breadcrumb">
+<ol>
+<li><a href="/">Home</a></li>
+<li><a href="/questions">Questions</a></li>
+<li><a href="/output-tokens-and-llm-response-time">Output tokens and response time</a></li>
+<li><a href="/reports/2026-11-07/output-tokens-and-llm-response-time" aria-current="page">7 November 2026 edition</a></li>
+</ol>
+</nav>
+
+<main id="content">
+
+<article class="page page-edition">
+
+<header class="q-header">
+<p class="eyebrow">Question</p>
+<h1>How does output token count affect LLM response time?</h1>
+<p class="q-meta">Archived edition, published <time datetime="2026-11-07T16:41:02Z">7 November 2026</time> (UTC). <a href="/output-tokens-and-llm-response-time">Read the current answer</a>.</p>
+
+</header>
+
+
+
+<section id="answer">
+<h2>Answer</h2>
+<p>For most LLM APIs, output token count is the biggest single driver of total response time. Models generate text one token at a time, so an answer twice as long takes roughly twice as long to generate. Time to first token (TTFT) is affected much less, because it ends as soon as the first token is produced.</p>
+
+</section>
+
+<section id="explanation">
+<h2>Why longer answers take longer</h2>
+<p>A model reads the whole prompt in one pass, which can be done largely in parallel. Generating the answer is different: each new token depends on the tokens before it, so they are produced in sequence. The speed of that sequence is often reported as output tokens per second.</p>
+<p>A useful approximation is: total response time ≈ TTFT + (output tokens ÷ output tokens per second). The approximation is rough, because the generation rate is not constant and varies with load, but it explains why answer length matters so much.</p>
+
+</section>
+
+<section id="control">
+<h2>How to control it</h2>
+<ul>
+<li><strong>Ask for less:</strong> clear instructions about length and format usually shorten answers more than any setting.</li>
+<li><strong>Set an output limit:</strong> a maximum output token setting caps the worst case. A capped answer can be cut off mid-sentence, so check whether the response says it stopped because of the limit.</li>
+<li><strong>Stream the answer:</strong> streaming does not make generation faster, but people can start reading after the first token instead of waiting for the last.</li>
+<li><strong>Watch reasoning tokens:</strong> some models generate internal reasoning tokens before the visible answer. These take generation time and are usually billed, even though they are not shown.</li>
+</ul>
+
+</section>
+
+<section id="cost">
+<h2>Effect on cost</h2>
+<p>Output tokens are usually billed per token, and often at a higher price than input tokens. Longer answers therefore cost more as well as taking longer. The authoritative token counts are the ones the provider reports in its usage data, not an estimate made from the text.</p>
+
+</section>
+
+<section id="limitations">
+<h2>Limitations</h2>
+<p>The relationship between output length and time is an approximation. Generation speed differs by model, provider, time of day and request settings, and it can change without notice. Any comparison should hold the prompt, model, settings and answer length fixed.</p>
+
+</section>
+
+<section id="related">
+<h2>Related pages</h2>
+<ul>
+<li><a href="/how-to-measure-openai-ttft">How do you measure OpenAI API time to first token (TTFT)?</a> explains exactly where our timer starts and stops.</li>
+<li><a href="/questions">All questions</a>.</li>
+</ul>
+
+</section>
+
+
+
+
+
+
+
+</article>
+
+</main>
+<footer class="site-footer">
+<div class="footer-inner">
+<p>LLM Xchange answers questions about LLM APIs with evidence. No rankings, no trackers, no invented numbers.</p>
+<p><a href="/">Latest questions</a> · <a href="/questions">All questions</a> · <a href="/llm-performance">Metrics</a> · <a href="/costs">Project costs</a> · <a href="https://github.com/akuchlous/llm-metrics">Source code on GitHub</a></p>
+</div>
+</footer>
+</body>
+</html>

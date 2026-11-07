@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src &#39;none&#39;; style-src &#39;self&#39;; img-src &#39;self&#39;; base-uri &#39;none&#39;; form-action &#39;none&#39;">
+<title>Which LLM API Metrics Are Useful, and Why? (7 November 2026 edition)</title>
+<meta name="description" content="7 November 2026 edition of this answer: TTFT, total response time, output speed, reliability, token usage and cost per request: what each tells you and how to report it.">
+<link rel="canonical" href="https://llmxchange.com/useful-llm-api-metrics">
+<meta property="og:type" content="article">
+<meta property="og:title" content="Which LLM API Metrics Are Useful, and Why? (7 November 2026 edition)">
+<meta property="og:description" content="7 November 2026 edition of this answer: TTFT, total response time, output speed, reliability, token usage and cost per request: what each tells you and how to report it.">
+<meta property="og:url" content="https://llmxchange.com/useful-llm-api-metrics">
+<meta property="og:site_name" content="LLM Xchange">
+<link rel="stylesheet" href="/assets/site.css">
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"Article","datePublished":"2026-11-07T16:41:02Z","description":"7 November 2026 edition of this answer: TTFT, total response time, output speed, reliability, token usage and cost per request: what each tells you and how to report it.","headline":"Which LLM API Metrics Are Useful, and Why? (7 November 2026 edition)","inLanguage":"en","mainEntityOfPage":"https://llmxchange.com/reports/2026-11-07/useful-llm-api-metrics","url":"https://llmxchange.com/reports/2026-11-07/useful-llm-api-metrics"}</script>
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","item":"https://llmxchange.com/","name":"Home","position":1},{"@type":"ListItem","item":"https://llmxchange.com/questions","name":"Questions","position":2},{"@type":"ListItem","item":"https://llmxchange.com/useful-llm-api-metrics","name":"Useful LLM API metrics","position":3},{"@type":"ListItem","item":"https://llmxchange.com/reports/2026-11-07/useful-llm-api-metrics","name":"7 November 2026 edition","position":4}]}</script>
+</head>
+<body>
+<a class="skip-link" href="#content">Skip to content</a>
+<header class="site-header">
+<div class="header-inner">
+<a class="brand" href="/"><span class="brand-mark" aria-hidden="true">◆</span><span class="brand-name">LLM Xchange</span></a>
+<nav aria-label="Main" class="main-nav">
+<ul>
+<li><a href="/questions">Questions</a></li>
+<li><a href="/llm-performance">Metrics</a></li>
+<li><a href="/costs">Costs</a></li>
+</ul>
+</nav>
+</div>
+</header>
+
+<nav aria-label="Breadcrumb" class="breadcrumb">
+<ol>
+<li><a href="/">Home</a></li>
+<li><a href="/questions">Questions</a></li>
+<li><a href="/useful-llm-api-metrics">Useful LLM API metrics</a></li>
+<li><a href="/reports/2026-11-07/useful-llm-api-metrics" aria-current="page">7 November 2026 edition</a></li>
+</ol>
+</nav>
+
+<main id="content">
+
+<article class="page page-edition">
+
+<header class="q-header">
+<p class="eyebrow">Question</p>
+<h1>Which LLM API metrics are useful, and why?</h1>
+<p class="q-meta">Archived edition, published <time datetime="2026-11-07T16:41:02Z">7 November 2026</time> (UTC). <a href="/useful-llm-api-metrics">Read the current answer</a>.</p>
+
+</header>
+
+
+
+<section id="answer">
+<h2>Answer</h2>
+<p>The useful LLM API metrics are the ones that describe what a caller actually experiences: how long until the answer starts, how long until it finishes, how fast text is generated, how often requests fail, and what each request costs. Each one needs its sample size, time window and setup next to it, or it cannot be trusted.</p>
+
+</section>
+
+<section id="metrics">
+<h2>The metrics and why each matters</h2>
+<ul>
+<li><strong>Time to first token (TTFT):</strong> how long until the first piece of answer text arrives. It is what people feel in chat and other streaming interfaces, and it captures connection time, queueing and prompt processing.</li>
+<li><strong>Total response time:</strong> how long until the whole answer has arrived. It matters for batch jobs, tool calls and structured output, where nothing is usable until the end.</li>
+<li><strong>Output tokens per second:</strong> how fast the answer is generated after it starts. It explains why long answers take longer, and it is only meaningful when the provider reports the output token count.</li>
+<li><strong>Reliability:</strong> how many requests succeed, and how the rest fail (for example rate limits, timeouts or server errors). A fast service that often fails is not fast in practice.</li>
+<li><strong>Token usage:</strong> input, cached input and output tokens as reported by the provider. These drive both cost and latency, so they are recorded rather than estimated from the text.</li>
+<li><strong>Cost per request:</strong> computed from the reported tokens and stored per-token prices. Estimated cost is not the same as billed cost, and the cost of a failed request is unknown rather than zero.</li>
+</ul>
+
+</section>
+
+<section id="summaries">
+<h2>How to summarize them</h2>
+<p>Single requests vary, so latency is reported as percentiles over many requests. The median (p50) shows a typical request; the 95th percentile (p95) shows how slow the slow ones are. Averages hide slow outliers and are easy to distort.</p>
+<p>Failed requests are counted separately and never included as fast latency values. Every published figure should state how many successful requests it is based on, the time window, the model, the prompt and settings, and where the requests were sent from.</p>
+
+</section>
+
+<section id="ours">
+<h2>What our benchmark records</h2>
+<p>Our open benchmark records each of these for one OpenAI model with one fixed workload from one Google Cloud region: TTFT, total response time, output token rate where the token count is known, success or failure with an error category, reported token usage including cached input, and an estimated cost from stored prices. No validated measurements have been published yet; when they are, they appear on the <a href="/metrics/openai/ttft">OpenAI TTFT metric page</a> with their sample size and window. Actual project spending is tracked separately on <a href="/costs">Project costs</a>.</p>
+
+</section>
+
+<section id="limitations">
+<h2>Limitations</h2>
+<p>These metrics describe one setup. Results from a different prompt, answer length, model, region or account can differ, and providers change their infrastructure over time. Metrics measured from the client include network time, so they are not the provider's internal numbers.</p>
+
+</section>
+
+<section id="related">
+<h2>Related pages</h2>
+<ul>
+<li><a href="/how-to-measure-openai-ttft">How do you measure OpenAI API time to first token (TTFT)?</a> explains exactly where our timer starts and stops.</li>
+<li><a href="/metrics/openai/ttft">OpenAI TTFT measurements</a>.</li>
+<li><a href="/questions">All questions</a>.</li>
+</ul>
+
+</section>
+
+
+
+
+
+
+
+</article>
+
+</main>
+<footer class="site-footer">
+<div class="footer-inner">
+<p>LLM Xchange answers questions about LLM APIs with evidence. No rankings, no trackers, no invented numbers.</p>
+<p><a href="/">Latest questions</a> · <a href="/questions">All questions</a> · <a href="/llm-performance">Metrics</a> · <a href="/costs">Project costs</a> · <a href="https://github.com/akuchlous/llm-metrics">Source code on GitHub</a></p>
+</div>
+</footer>
+</body>
+</html>

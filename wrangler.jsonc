@@ -1,23 +1,36 @@
 // Cloudflare Workers Static Assets configuration for llmxchange.com.
 // Assets only: there is no Worker script ("main"), so every request is
 // served as a static asset and nothing is billed per request.
-// Staging (Approval A) is deployed at https://llmxchange.akuchlous.workers.dev
-// from a `--staging` build; production (custom domain, Approval B) is not.
+//
+// Production (Approval B, 2026-11-07): Worker "llmxchange" on the custom
+// domain llmxchange.com only (no workers.dev URL, so no duplicate host),
+// built with `--site-url https://llmxchange.com --publish-at <UTC>`.
+// Staging: `npx wrangler deploy --env staging` deploys Worker
+// "llmxchange-staging" on workers.dev, from a `--staging` build only.
 // Every deploy needs explicit approval; see prompts/027-output.md.
 {
   "name": "llmxchange",
   "compatibility_date": "2026-11-07",
-  // Serve only on the account's workers.dev hostname; no per-version
-  // preview hostnames and no routes or custom domains.
-  "workers_dev": true,
+  "workers_dev": false,
   "preview_urls": false,
+  "routes": [
+    { "pattern": "llmxchange.com", "custom_domain": true }
+  ],
   "assets": {
-    // Output of `python -m llm_metrics.publish_runner ... --output site_build`.
+    // Output of the site generator (`--output site_build`).
     "directory": "./site_build",
     // Canonical URLs have no trailing slash: /slug serves slug/index.html
     // with 200; /slug/ and /slug/index.html redirect (307) to /slug.
     "html_handling": "drop-trailing-slash",
     // Unknown paths get 404.html with status 404 (never an SPA fallback).
     "not_found_handling": "404-page"
+  },
+  "env": {
+    "staging": {
+      "name": "llmxchange-staging",
+      "workers_dev": true,
+      "preview_urls": false,
+      "routes": []
+    }
   }
 }

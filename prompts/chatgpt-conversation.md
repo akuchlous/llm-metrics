@@ -695,3 +695,7 @@ The user asked for a reusable local preview so the whole site can be checked on 
 
 The owner wanted graphs of the real OpenAI measurements and an easy, safe way to start another 24-hour run. Per-request charts (TTFT, total response time, tokens/s, slot outcomes) were added to the metric page from a sanitized per-slot series that carries the analytics summary's record manifest hash; they are previewed locally with `./run.sh site-preview` and not deployed until the owner says "deploy staging". `./run.sh pilot-plan` prints a bounded 96-slot plan with cost and stop/audit commands and refuses unsafe windows; launching remains a separate Approval C after the original pilot is stopped and audited. No new paid calls, GCS reads or collector changes.
 
+## Production launch on llmxchange.com (2026-11-07)
+
+The owner approved four educational drafts, asked for subscription costs (ChatGPT and Claude, USD 20/month each from 2026-10-20) and the domain on `/costs`, bought `llmxchange.com` through Cloudflare and asked to host the site. Production was built with `--publish-at`, freezing six approved answers as dated editions, and deployed to the custom domain on the existing Worker; workers.dev was turned off to avoid a duplicate host. No benchmark numbers are in production until Step 028. The owner also set two standing rules: every page is a question (D090) and no data downloads (D091).
+

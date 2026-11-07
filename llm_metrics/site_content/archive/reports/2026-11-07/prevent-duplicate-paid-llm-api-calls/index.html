@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src &#39;none&#39;; style-src &#39;self&#39;; img-src &#39;self&#39;; base-uri &#39;none&#39;; form-action &#39;none&#39;">
+<title>How to Prevent Duplicate Paid LLM API Calls in Benchmarks (7 November 2026 edition)</title>
+<meta name="description" content="7 November 2026 edition of this answer: The controls our scheduled collector uses to make at most one paid request per time slot, and where those controls stop.">
+<link rel="canonical" href="https://llmxchange.com/prevent-duplicate-paid-llm-api-calls">
+<meta property="og:type" content="article">
+<meta property="og:title" content="How to Prevent Duplicate Paid LLM API Calls in Benchmarks (7 November 2026 edition)">
+<meta property="og:description" content="7 November 2026 edition of this answer: The controls our scheduled collector uses to make at most one paid request per time slot, and where those controls stop.">
+<meta property="og:url" content="https://llmxchange.com/prevent-duplicate-paid-llm-api-calls">
+<meta property="og:site_name" content="LLM Xchange">
+<link rel="stylesheet" href="/assets/site.css">
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"Article","datePublished":"2026-11-07T16:41:02Z","description":"7 November 2026 edition of this answer: The controls our scheduled collector uses to make at most one paid request per time slot, and where those controls stop.","headline":"How to Prevent Duplicate Paid LLM API Calls in Benchmarks (7 November 2026 edition)","inLanguage":"en","mainEntityOfPage":"https://llmxchange.com/reports/2026-11-07/prevent-duplicate-paid-llm-api-calls","url":"https://llmxchange.com/reports/2026-11-07/prevent-duplicate-paid-llm-api-calls"}</script>
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","item":"https://llmxchange.com/","name":"Home","position":1},{"@type":"ListItem","item":"https://llmxchange.com/questions","name":"Questions","position":2},{"@type":"ListItem","item":"https://llmxchange.com/prevent-duplicate-paid-llm-api-calls","name":"Preventing duplicate paid LLM calls","position":3},{"@type":"ListItem","item":"https://llmxchange.com/reports/2026-11-07/prevent-duplicate-paid-llm-api-calls","name":"7 November 2026 edition","position":4}]}</script>
+</head>
+<body>
+<a class="skip-link" href="#content">Skip to content</a>
+<header class="site-header">
+<div class="header-inner">
+<a class="brand" href="/"><span class="brand-mark" aria-hidden="true">◆</span><span class="brand-name">LLM Xchange</span></a>
+<nav aria-label="Main" class="main-nav">
+<ul>
+<li><a href="/questions">Questions</a></li>
+<li><a href="/llm-performance">Metrics</a></li>
+<li><a href="/costs">Costs</a></li>
+</ul>
+</nav>
+</div>
+</header>
+
+<nav aria-label="Breadcrumb" class="breadcrumb">
+<ol>
+<li><a href="/">Home</a></li>
+<li><a href="/questions">Questions</a></li>
+<li><a href="/prevent-duplicate-paid-llm-api-calls">Preventing duplicate paid LLM calls</a></li>
+<li><a href="/reports/2026-11-07/prevent-duplicate-paid-llm-api-calls" aria-current="page">7 November 2026 edition</a></li>
+</ol>
+</nav>
+
+<main id="content">
+
+<article class="page page-edition">
+
+<header class="q-header">
+<p class="eyebrow">Question</p>
+<h1>How do we prevent duplicate paid LLM API calls in scheduled benchmarks?</h1>
+<p class="q-meta">Archived edition, published <time datetime="2026-11-07T16:41:02Z">7 November 2026</time> (UTC). <a href="/prevent-duplicate-paid-llm-api-calls">Read the current answer</a>.</p>
+
+</header>
+
+
+
+<section id="answer">
+<h2>Answer</h2>
+<p>Our scheduled benchmark avoids duplicate paid LLM API calls by making each 15-minute time slot claimable exactly once. Before any paid request, the job creates a claim object for that slot in Cloud Storage with a create-only condition. Only the first creation can succeed. Any other run for the same slot sees the existing claim and stops without calling the provider.</p>
+<p>A claimed slot is never retried, and a paid request is never repeated. If something fails after the claim, that slot stays empty rather than paid for twice.</p>
+<p>These are controls on one code path, not a guarantee about total spend. The last section explains what they do not cover.</p>
+
+</section>
+
+<section id="claims">
+<h2>One atomic claim per time slot</h2>
+<p>The collector runs on Google Cloud Run, triggered every 15 minutes by Cloud Scheduler. Each run works out its slot, such as 18:00 or 18:15 UTC, from its own clock. It never takes the slot from an argument, and the command accepts no arguments at all.</p>
+<p>The claim's object name is built from the mode, request profile, workload, origin and slot, for example <code>…/claims/prod/openai.gpt-6-luna.v1/interactive-chat-v1/gcp-us-central1/2026-11-06/1800.json</code>. It is written with Cloud Storage's <code>ifGenerationMatch=0</code> precondition, which means "create only if no object of this name exists". The storage service enforces that rule itself, so two runs that start at the same moment cannot both create it.</p>
+<p>After creating the claim, the job reads it back and checks that it is unchanged. It also compares the claim's creation time on the server with its own clock and refuses to continue if they differ by more than 120 seconds. When the claim already exists, the run logs a <code>duplicate_skip</code> event and exits without a provider call. When the claim attempt fails or its result is unclear, the run refuses to make the request.</p>
+<p>The claim contains the attempt ID that the measurement record will use. A separate audit tool can therefore match every claim to its record and report any slot that was claimed but never recorded.</p>
+
+</section>
+
+<section id="retries">
+<h2>No retries of a paid request</h2>
+<p>Retries are a common source of duplicate charges, so the paid path has none:</p>
+<ul>
+<li>Cloud Scheduler is configured with zero retries. A missed delivery is a missed slot, never made up later.</li>
+<li>Each provider request is exactly one HTTP request. We call the API directly instead of through the provider's SDK, partly because the SDK retries by default.</li>
+<li>Saving the measurement record retries only the storage write, a bounded number of times, and never repeats the provider request. By the time a record exists, the measurement is over.</li>
+<li>A slot stays consumed after a crash, a provider failure or a failed write. A later run for that slot finds the claim and skips.</li>
+</ul>
+
+</section>
+
+<section id="scope">
+<h2>A fixed, bounded schedule</h2>
+<p>The collector can only run one fixed measurement: request profile <code>openai.gpt-6-luna.v1</code>, workload <code>interactive-chat-v1</code>, from Google Cloud. Nothing about the target can be chosen by the caller.</p>
+<p>Its activation window comes from the job's configuration and must start on a quarter-hour and last exactly 24 hours, which allows exactly 96 slots. Missing, shorter, longer or misaligned windows are refused. The scheduler's identity may only start the job; it cannot change the window. A run that starts more than 7 minutes after its slot began is refused, and the window's end and the late limit are checked again immediately before the request.</p>
+<p>Before claiming a slot, the job also checks that it can create and read objects in its results bucket and that overwrites are refused, so it does not spend money on a request it could not record.</p>
+
+</section>
+
+<section id="testing">
+<h2>How the controls are tested</h2>
+<p>The controls are covered by offline tests that use a simulated storage service and provider, so they cost nothing. In one test, eight runs for the same slot start at the same instant: exactly one provider call, one claim and one record result. In another, a delivery arrives every minute from 30 minutes before the window to 30 minutes after it: exactly 96 provider calls are made.</p>
+<p>These tests show that the code behaves as designed against a simulated store. They do not prove how the real cloud services behave in every failure case.</p>
+
+</section>
+
+<section id="limits">
+<h2>What these controls do not guarantee</h2>
+<ul>
+<li><strong>It limits this code path only.</strong> Anyone with owner rights on the cloud project could change the job, delete claims (which would reopen slots), change permissions or run other code with the same API key.</li>
+<li><strong>It limits requests, not money.</strong> Budget alerts notify us but do not stop spending.</li>
+<li><strong>A crash can lose a measurement.</strong> If the job stops after a paid response but before the record is saved, that request was paid for but not recorded. The audit reports it as a claim without a record. It is not retried.</li>
+<li><strong>Some slots are given up on purpose.</strong> An unclear claim result or a clock disagreement uses up the slot without a request. That reduces coverage in exchange for never paying twice.</li>
+<li><strong>It depends on the clock and the scheduler.</strong> Slot timing relies on the container clock, checked against the storage service's time, and on Cloud Scheduler delivering runs.</li>
+<li><strong>Not every cloud behaviour has been observed.</strong> The code handles both of the refusal responses Cloud Storage may return when an object already exists, but which one it actually returns has not been confirmed.</li>
+</ul>
+
+</section>
+
+<section id="related">
+<h2>Related pages</h2>
+<ul>
+<li><a href="/how-to-measure-openai-ttft">How we measure OpenAI API time to first token</a>, the measurement these scheduled runs collect.</li>
+<li><a href="/questions">All questions</a>.</li>
+<li><a href="https://github.com/akuchlous/llm-metrics">The open-source code on GitHub</a>: the collector (<code>llm_metrics/scheduled_collector.py</code>), the record store (<code>llm_metrics/object_results.py</code>) and the audit (<code>llm_metrics/collector_audit.py</code>).</li>
+</ul>
+
+</section>
+
+
+
+
+
+
+
+</article>
+
+</main>
+<footer class="site-footer">
+<div class="footer-inner">
+<p>LLM Xchange answers questions about LLM APIs with evidence. No rankings, no trackers, no invented numbers.</p>
+<p><a href="/">Latest questions</a> · <a href="/questions">All questions</a> · <a href="/llm-performance">Metrics</a> · <a href="/costs">Project costs</a> · <a href="https://github.com/akuchlous/llm-metrics">Source code on GitHub</a></p>
+</div>
+</footer>
+</body>
+</html>

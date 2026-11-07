@@ -1,0 +1,168 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src &#39;none&#39;; style-src &#39;self&#39;; img-src &#39;self&#39;; base-uri &#39;none&#39;; form-action &#39;none&#39;">
+<title>How Do You Measure OpenAI API Time to First Token? (7 November 2026 edition)</title>
+<meta name="description" content="7 November 2026 edition of this answer: Where our TTFT timer starts and stops, the fixed workload and settings, and how failures and small samples are handled.">
+<link rel="canonical" href="https://llmxchange.com/how-to-measure-openai-ttft">
+<meta property="og:type" content="article">
+<meta property="og:title" content="How Do You Measure OpenAI API Time to First Token? (7 November 2026 edition)">
+<meta property="og:description" content="7 November 2026 edition of this answer: Where our TTFT timer starts and stops, the fixed workload and settings, and how failures and small samples are handled.">
+<meta property="og:url" content="https://llmxchange.com/how-to-measure-openai-ttft">
+<meta property="og:site_name" content="LLM Xchange">
+<link rel="stylesheet" href="/assets/site.css">
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"Article","datePublished":"2026-11-07T16:41:02Z","description":"7 November 2026 edition of this answer: Where our TTFT timer starts and stops, the fixed workload and settings, and how failures and small samples are handled.","headline":"How Do You Measure OpenAI API Time to First Token? (7 November 2026 edition)","inLanguage":"en","mainEntityOfPage":"https://llmxchange.com/reports/2026-11-07/how-to-measure-openai-ttft","url":"https://llmxchange.com/reports/2026-11-07/how-to-measure-openai-ttft"}</script>
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","item":"https://llmxchange.com/","name":"Home","position":1},{"@type":"ListItem","item":"https://llmxchange.com/questions","name":"Questions","position":2},{"@type":"ListItem","item":"https://llmxchange.com/how-to-measure-openai-ttft","name":"How to measure OpenAI TTFT","position":3},{"@type":"ListItem","item":"https://llmxchange.com/reports/2026-11-07/how-to-measure-openai-ttft","name":"7 November 2026 edition","position":4}]}</script>
+</head>
+<body>
+<a class="skip-link" href="#content">Skip to content</a>
+<header class="site-header">
+<div class="header-inner">
+<a class="brand" href="/"><span class="brand-mark" aria-hidden="true">◆</span><span class="brand-name">LLM Xchange</span></a>
+<nav aria-label="Main" class="main-nav">
+<ul>
+<li><a href="/questions">Questions</a></li>
+<li><a href="/llm-performance">Metrics</a></li>
+<li><a href="/costs">Costs</a></li>
+</ul>
+</nav>
+</div>
+</header>
+
+<nav aria-label="Breadcrumb" class="breadcrumb">
+<ol>
+<li><a href="/">Home</a></li>
+<li><a href="/questions">Questions</a></li>
+<li><a href="/how-to-measure-openai-ttft">How to measure OpenAI TTFT</a></li>
+<li><a href="/reports/2026-11-07/how-to-measure-openai-ttft" aria-current="page">7 November 2026 edition</a></li>
+</ol>
+</nav>
+
+<main id="content">
+
+<article class="page page-edition">
+
+<header class="q-header">
+<p class="eyebrow">Question</p>
+<h1>How do you measure OpenAI API time to first token (TTFT)?</h1>
+<p class="q-meta">Archived edition, published <time datetime="2026-11-07T16:41:02Z">7 November 2026</time> (UTC). <a href="/how-to-measure-openai-ttft">Read the current answer</a>.</p>
+
+</header>
+
+
+
+<section id="answer">
+<h2>Answer</h2>
+<p>Time to first token (TTFT) is how long an API caller waits from sending a request until the first piece of generated text arrives. We measure it on the client: a monotonic timer starts just before the streaming request is made and stops when the first output-text event from OpenAI's streaming Responses API reaches our code.</p>
+<p>That makes our TTFT the time to the first <em>text chunk</em>, not the time to the first network byte and not a token-exact count. It includes connecting to the API, queueing and processing the prompt, because a real caller waits for all of those.</p>
+<p>Every measurement uses the same fixed, versioned prompt and settings, from the same cloud region, and is recorded whether it succeeds or fails. We report percentiles over successful requests only and count failures separately, so a failed request never appears as a fast one.</p>
+
+</section>
+
+<section id="findings">
+<h2>What our measurements show</h2>
+
+
+
+<div class="notice" role="status">
+<p><strong>No validated measurements have been published yet.</strong></p>
+<p>This section shows numbers only from a validated analytics dataset. None is included here, so no values are shown.</p>
+</div>
+
+
+<p><a href="/metrics/openai/ttft">Explore measured OpenAI TTFT</a>, with the full table, reliability, cost and data provenance.</p>
+
+</section>
+
+<section id="method">
+<h2>How the measurement works</h2>
+<h3>Where the timer starts and stops</h3>
+<p>Our code reads the timer with Python's <code>time.perf_counter()</code>, which cannot jump when the system clock is adjusted. The timer starts immediately before the request is sent, so DNS lookup, TCP and TLS connection setup, request upload, server-side queueing and prompt processing are all inside the measurement.</p>
+<p>OpenAI streams its answer as server-sent events. Several events arrive before any text, such as the event announcing that the response was created. We ignore those. The timer stops at the first <code>response.output_text.delta</code> event, which carries the first chunk of answer text.</p>
+<p>So there are three different moments a benchmark could call "first":</p>
+<ul>
+<li><strong>First byte:</strong> the first bytes of the HTTP response. These usually arrive before any text, so a first-byte timer would read lower than ours. We do not measure it.</li>
+<li><strong>First content chunk:</strong> the first streamed text event. This is what we report as TTFT.</li>
+<li><strong>First token:</strong> a chunk may hold one or several tokens, and the stream does not tell us how many. We do not claim token-level precision for this moment.</li>
+</ul>
+<h3>The same request every time</h3>
+<p>Each measurement sends the same benchmark input, called <code>interactive-chat-v1</code>. It is a synthetic product-support conversation about a fictional notes app, Lumen Notes, and a question about how its offline sync handles conflicting edits. The answer needs a moderate, step-by-step explanation. The prompt text is built deterministically in our open-source code, and a test pins its SHA-256 hash, so it cannot change silently. Any change would get a new workload version.</p>
+<p>The request asks for at most 300 output tokens, turns reasoning off (<code>reasoning.effort</code> set to <code>none</code>), asks OpenAI not to store the response, and uses OpenAI's explicit prompt-cache mode with no cache breakpoints, so no prompt caching is requested. These settings are stored together under one versioned request profile, <code>openai.gpt-6-luna.v1</code>.</p>
+<h3>Schedule, failures and storage</h3>
+<p>A scheduled job on Google Cloud Run in the <code>us-central1</code> region makes at most one request per 15-minute slot. A slot is never retried: if a request fails, the failure is recorded with its category, such as provider error or timeout, and the next measurement waits for the next slot.</p>
+<p>Each attempt is saved as one immutable JSON record that cannot be overwritten. It holds the timings, the token counts OpenAI reported, the prices used and the outcome. We do not store the prompt, the generated answer or raw error messages.</p>
+<h3>From records to published numbers</h3>
+<p>A separate offline step reads those records, checks every one against the record schema, and computes a summary for one exact population: one model, request profile, workload and region over a stated time window. It also lists a SHA-256 hash for every record used, so the summary can be reproduced and checked.</p>
+<p>Percentiles use the nearest-rank method. Each reported value is one that was actually observed, and with fewer than 20 successful requests the 95th percentile is simply the largest value.</p>
+
+</section>
+
+<section id="setup">
+<h2>Exact measurement setup</h2>
+
+<table>
+<caption>Measurement setup, read from the benchmark's source code</caption>
+<tbody>
+<tr><th scope="row">Provider and model</th><td>openai gpt-6-luna</td></tr>
+<tr><th scope="row">Request profile</th><td>openai.gpt-6-luna.v1</td></tr>
+<tr><th scope="row">Endpoint</th><td>POST https://api.openai.com/v1/responses (streaming SSE)</td></tr>
+<tr><th scope="row">Request settings</th><td>store=false, reasoning.effort=&#34;none&#34;, prompt_cache_options.mode=&#34;explicit&#34;</td></tr>
+<tr><th scope="row">Reasoning</th><td>reasoning.effort=none (reasoning off)</td></tr>
+<tr><th scope="row">Cache policy</th><td>disabled</td></tr>
+<tr><th scope="row">Workload</th><td>interactive-chat-v1 (Interactive chat)</td></tr>
+<tr><th scope="row">Requested output cap</th><td>300 tokens</td></tr>
+<tr><th scope="row">Designed input size</th><td>about 2,000 tokens (a design target, not a provider count)</td></tr>
+<tr><th scope="row">Prompt SHA-256</th><td>db88e2b5d4062156947121340cc2e6c7424af437ee11ad50b11cf04397a0b625</td></tr>
+<tr><th scope="row">Timer</th><td>time.perf_counter() from just before the streaming request to the first response.output_text.delta event</td></tr>
+<tr><th scope="row">Percentiles</th><td>nearest rank, successful requests only</td></tr>
+<tr><th scope="row">List prices used for cost (USD per 1M tokens)</th><td>input 0.1, cached input 0.01, output 0.5</td></tr>
+<tr><th scope="row">Methodology version</th><td>llm-metrics.ttft-methodology.v1</td></tr>
+</tbody>
+</table>
+
+
+</section>
+
+<section id="limitations">
+<h2>Limitations</h2>
+<ul>
+<li><strong>One model, one workload, one region.</strong> Results describe <code>gpt-6-luna</code> answering one kind of chat request from Google Cloud <code>us-central1</code>. Other prompts, output lengths, regions or networks can behave differently.</li>
+<li><strong>No rankings.</strong> We measure a single provider today, so nothing here says which model or provider is fastest.</li>
+<li><strong>Client-observed time.</strong> Our TTFT includes the network path and connection setup from our region. It is not OpenAI's internal processing time.</li>
+<li><strong>No quality grading.</strong> We measure speed, reliability, tokens and cost, not whether the answers are good.</li>
+<li><strong>Small samples.</strong> Early datasets have few requests. Percentiles from them are unstable, and the metric page flags this.</li>
+<li><strong>Observed reliability, not uptime.</strong> The success rate is what our requests experienced, not a statement about the provider's availability.</li>
+<li><strong>Estimated cost.</strong> Costs are calculated from reported token counts and list prices, not from invoices. The cost of a failed request is unknown and is counted as unknown, not as zero.</li>
+</ul>
+
+</section>
+
+<section id="related">
+<h2>Related pages</h2>
+<ul>
+<li><a href="/metrics/openai/ttft">Explore measured OpenAI TTFT</a>: the latest validated measurements, sample size and data window.</li>
+<li><a href="/llm-performance">All LLM performance questions and metrics</a>.</li>
+<li><a href="https://github.com/akuchlous/llm-metrics">The open-source benchmark code on GitHub</a>, including the timer (<code>llm_metrics/latency.py</code>), the workload (<code>llm_metrics/workloads.py</code>) and the request profile (<code>llm_metrics/targets.py</code>).</li>
+</ul>
+
+</section>
+
+
+
+
+
+
+
+</article>
+
+</main>
+<footer class="site-footer">
+<div class="footer-inner">
+<p>LLM Xchange answers questions about LLM APIs with evidence. No rankings, no trackers, no invented numbers.</p>
+<p><a href="/">Latest questions</a> · <a href="/questions">All questions</a> · <a href="/llm-performance">Metrics</a> · <a href="/costs">Project costs</a> · <a href="https://github.com/akuchlous/llm-metrics">Source code on GitHub</a></p>
+</div>
+</footer>
+</body>
+</html>
