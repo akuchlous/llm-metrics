@@ -582,6 +582,14 @@ Try it on the committed synthetic fixture (not real measurements):
 
 `llm_metrics.pilot_plan` prints the proposed window and its 96 slot times, the existing Step 023 resources it reuses, the exact changes a launch would make, prerequisites, a model-API cost estimate from a reviewed pilot summary, and the `activate`, `audit` and `stop` commands. It reads local files only, runs no gcloud command and makes no provider call; there is no execute mode. It refuses a start that is not a UTC quarter hour, is less than 30 minutes or more than 14 days ahead, overlaps or repeats a run in `scripts/gcp/pilot_runs.json`, or follows a run that is not yet closed (stopped and audited). Launching stays the Step 023 `activate` stage under a separate, explicit approval.
 
+## Public website content model — one question, one answer
+
+LLM Xchange is a **question-first knowledge and measurement website** (D086, D090). **Every public content page** — including metrics, dashboards, comparisons, cost reporting and methodology — has a question as its H1, a concise direct answer first, and then supporting evidence (charts, tables, measurement details, caveats and related questions). Metrics are answers backed by verified analytics, **not a separate dashboard product**. If measured data is unavailable or incomplete, say so instead of inventing a result.
+
+The home page lists newest questions first, **50 per page**, with `/page/N` static pagination. Keep the established question registry, stable question URLs, SEO/canonicals and immutable dated publication history; all new pages should participate in this shared discovery and Q&A presentation. The project costs page must distinguish actual verified charges from estimates and unknowns. The current exception handling for utility/error pages remains applicable.
+
+This rule lives in [`CODING_GUIDELINES.md`](CODING_GUIDELINES.md#public-website-question-first-frontend-contract-d086-d090), which new Claude sessions and frontend contributors must read. For local visual review run `./run.sh site-preview` before approving a Cloudflare staging deploy.
+
 ## Static question and metric pages (local only)
 
 `python -m llm_metrics.static_site` builds the public website's pages as
