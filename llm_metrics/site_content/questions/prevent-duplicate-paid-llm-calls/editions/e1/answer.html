@@ -1,0 +1,3 @@
+<p>Our scheduled benchmark avoids duplicate paid LLM API calls by making each 15-minute time slot claimable exactly once. Before any paid request, the job creates a claim object for that slot in Cloud Storage with a create-only condition. Only the first creation can succeed. Any other run for the same slot sees the existing claim and stops without calling the provider.</p>
+<p>A claimed slot is never retried, and a paid request is never repeated. If something fails after the claim, that slot stays empty rather than paid for twice.</p>
+<p>These are controls on one code path, not a guarantee about total spend. The last section explains what they do not cover.</p>

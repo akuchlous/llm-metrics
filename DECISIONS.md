@@ -96,6 +96,33 @@ Every step must preserve `./run.sh`, keep secrets/runtime artifacts out of Git, 
   `real_smoke` now delegates to `real_benchmark.run` (the OpenAI target with the smoke workload), so both paid commands share one refusal, announce, attempt and report path. `OpenAIProvider` lost its unused `model` override (the profile fixes the model), and `run_attempt` lost a cache-policy check that profile matching already covers. Test fakes (`sse`, `FakeResponse`, `FakeOpener`, `no_network`) live in `tests/fakes.py`.
 
   Kept separate on purpose, because each provider has its own contract: event dispatch, usage field extraction, request-id source, error-code tables, and request bodies. The OpenAI and xAI Responses parsers stay separate despite similar shapes, because their account errors, ids and documented fields differ. Wire requests, profiles, stored facts, outcomes and output are unchanged, except that the `real_smoke` pre-request announcement now uses `real_benchmark`'s multi-line format.
+- **D083 — Question registry and immutable dated editions on the Step 025 content system (Step 026).**
+  - **Registry:** there is no second content system. A question directory listed in `site.json` holds `question.json`:
+    - an opaque `question_id` such as `q0001` (titles are not identity);
+    - its stable path, `related_metrics` and `aliases` (reviewed, collision-checked);
+    - `reviewed_distinct_from`;
+    - an ordered list of editions.
+  - **Similar questions:** two questions whose latest H1s are ≥ 0.85 similar (difflib) are refused until one lists the other in `reviewed_distinct_from`. Distinct intents are never merged automatically.
+  - **Editions:** `editions/eN/` reuses the Step 025 `page.json` and fragments, plus:
+    - `status` `draft`/`approved`, `summary`, `source_commit`;
+    - `what_changed`, required exactly for editions after the first;
+    - a new `answer_revision` for every new edition.
+  - **Publication dates:** content files hold no dates. `--publish-at` assigns the UTC time once and records it in `site_content/archive/manifest.json` (`llm-metrics.publication.v1`). Each entry has route, question and edition ids, `published_at`, answer/editorial revision, basis, `dataset_sha256` (null), methodology version, edition content SHA-256, HTML SHA-256, source commit and site URL.
+  - **Routes:** `/reports/<UTC date of published_at>/<slug>`, with `/rN` for the Nth edition on the same date. Editions must be published in registry order, at increasing times.
+  - **Immutability:**
+    - Published HTML is frozen into `site_content/archive/` (committed) and later served byte-for-byte, never re-rendered.
+    - Building refuses: a modified archive file; changed edition source content after publication; unlisted archive files; manifest entries without an edition; a site URL other than the archive's.
+    - Old editions never link to newer ones. Discovery is via the stable page, `/` and `/questions`.
+    - Archive pages are written create-only before the manifest, and the output directory is replaced last. An interrupted freeze is adopted on re-run only if the bytes are identical.
+  - **Pages:**
+    - `/`: chronological feed of editions, newest first; the same question can appear several times.
+    - `/questions`: a directory grouped by `question_id`.
+    - Stable question page: the latest published edition's answer (Article `datePublished` = first edition, `dateModified` = latest edition), an "Answer updated" note, edition history and related metric links.
+    - Dated edition pages: "Published on", "What changed?", earlier editions, and a link to the current answer. They are canonical to the stable page and stay browseable (not noindex).
+  - **Indexing:** a metric page with no real dataset (none, or synthetic) is `noindex`. Educational pages are never noindexed for lack of data. `--preview-at` renders drafts noindex with a banner and never archives.
+  - **Empirical claims:** a `methodology` edition whose prose contains a number with ms, tokens/s or % is refused. Dataset-based editions are refused until immutable metric snapshots exist.
+  - **Redirect plan:** `redirects.json` with `<slug>-latest` and aliases → stable path (301), checked for collisions and chains. Host implementation is Step 027.
+  - **Deferred, not implemented:** dated metric snapshots, sample-size publication thresholds for metrics, and a site-wide release manifest of output HTML/CSS hashes.
 - **D082 — Static question and metric pages from reviewed content plus a validated summary; answer revisions separate from data (Step 025).**
   - **Generator:** `llm_metrics.static_site` uses Jinja2 (already pinned through Flask; autoescape, `StrictUndefined`) with its own templates in `site_templates/`. It is not coupled to Flask, SQL or GCS.
     - Amends the D056 import guard: Flask/Werkzeug remain `web.py`-only. Jinja2/MarkupSafe are allowed only in `web.py` and `static_site.py` (the two HTML boundaries); `tests/test_web.py` enforces this. Output is deterministic files with clean URLs (`<path>/index.html`), one stylesheet, and a content-addressed copy of the dataset (`/data/analytics/<sha256>.json`).

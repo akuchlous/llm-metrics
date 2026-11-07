@@ -4,7 +4,9 @@
   "pages": [
     "pages/home",
     "pages/llm-performance",
+    "pages/questions",
     "questions/how-to-measure-openai-ttft",
+    "questions/prevent-duplicate-paid-llm-calls",
     "metrics/openai-ttft"
   ]
 }

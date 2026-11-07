@@ -3,12 +3,20 @@
 {% block main %}
 <article>
 <h1>{{ page.h1 }}</h1>
-{% if page.kind == "question" %}
+{% if page.kind == "edition" %}
+<dl class="revision">
+<div><dt>Published on</dt><dd><time datetime="{{ extra.edition.date }}">{{ answer.date_published_text }}</time> (UTC)</dd></div>
+<div><dt>Answer revision</dt><dd>{{ answer.revision }}</dd></div>
+<div><dt>Answer based on</dt><dd>{{ answer.basis_text }}</dd></div>
+</dl>
+<p class="notice">This is an archived edition and is never changed after publication. <a href="{{ extra.current_path }}">Read the current answer</a>.</p>
+{% if extra.edition.what_changed %}<section id="what-changed"><h2>What changed?</h2><p>{{ extra.edition.what_changed }}</p></section>{% endif %}
+{% elif page.kind == "question" %}
 <dl class="revision">
 <div><dt>Answer revision</dt><dd>{{ answer.revision }}</dd></div>
 <div><dt>Answer based on</dt><dd>{{ answer.basis_text }}</dd></div>
-<div><dt>Published</dt><dd>{% if answer.date_published %}<time datetime="{{ answer.date_published }}">{{ answer.date_published_text }}</time>{% else %}Not yet published (draft){% endif %}</dd></div>
-{% if answer.date_modified %}<div><dt>Updated</dt><dd><time datetime="{{ answer.date_modified }}">{{ answer.date_modified_text }}</time></dd></div>{% endif %}
+<div><dt>First published</dt><dd><time datetime="{{ answer.date_published }}">{{ answer.date_published_text }}</time></dd></div>
+{% if extra.updated %}<div><dt>Answer updated</dt><dd><time datetime="{{ answer.date_modified }}">{{ answer.date_modified_text }}</time>: {{ extra.updated.what_changed }}</dd></div>{% endif %}
 </dl>
 {% endif %}
 {% for section in sections %}
@@ -17,6 +25,42 @@
 {% if section.html is not none %}{{ section.html }}{% else %}{% include "_" ~ section.generated ~ ".html" %}{% endif %}
 </section>
 {% endfor %}
+{% if page.kind == "question" %}
+<section id="editions">
+<h2>Edition history</h2>
+<ul class="page-list">
+{% for item in extra.history %}<li><a href="{{ item.path }}">{{ item.label }}</a> ({{ item.revision }})<p>{{ item.what_changed or item.summary }}</p></li>
+{% endfor %}</ul>
+</section>
+{% endif %}
+{% if page.kind == "edition" and extra.earlier %}
+<section id="earlier">
+<h2>Earlier editions</h2>
+<ul class="page-list">
+{% for item in extra.earlier %}<li><a href="{{ item.path }}">{{ item.label }}</a></li>
+{% endfor %}</ul>
+</section>
+{% endif %}
+{% if feed or page.kind == "home" %}
+<section id="latest">
+<h2>Published questions, newest first</h2>
+{% if feed %}<ul class="page-list">
+{% for item in feed %}<li><a href="{{ item.path }}">{{ item.h1 }}</a> <time datetime="{{ item.date }}">{{ item.label }}</time><p>{{ item.summary }}</p></li>
+{% endfor %}</ul>{% else %}<p>No questions have been published yet.</p>{% endif %}
+</section>
+{% endif %}
+{% if page.kind == "directory" %}
+<section id="all-questions">
+<h2>All questions</h2>
+{% if directory %}{% for question in directory %}
+<h3><a href="{{ question.path }}">{{ question.h1 }}</a></h3>
+<p>{{ question.description }}</p>
+<ul>
+{% for item in question.editions %}<li><a href="{{ item.path }}">{{ item.label }}</a></li>
+{% endfor %}</ul>
+{% endfor %}{% else %}<p>No questions have been published yet.</p>{% endif %}
+</section>
+{% endif %}
 {% if links %}
 <ul class="page-list">
 {% for link in links %}<li><a href="{{ link.path }}">{{ link.h1 }}</a><p>{{ link.description }}</p></li>

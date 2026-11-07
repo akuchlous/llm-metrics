@@ -1,0 +1,7 @@
+<p>Retries are a common source of duplicate charges, so the paid path has none:</p>
+<ul>
+<li>Cloud Scheduler is configured with zero retries. A missed delivery is a missed slot, never made up later.</li>
+<li>Each provider request is exactly one HTTP request. We call the API directly instead of through the provider's SDK, partly because the SDK retries by default.</li>
+<li>Saving the measurement record retries only the storage write, a bounded number of times, and never repeats the provider request. By the time a record exists, the measurement is over.</li>
+<li>A slot stays consumed after a crash, a provider failure or a failed write. A later run for that slot finds the claim and skips.</li>
+</ul>

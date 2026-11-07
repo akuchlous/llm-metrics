@@ -637,3 +637,22 @@ The user changed priority slightly: publish useful educational content on llmxch
 6. deploy the no-data build and verify it in Search Console.
 
 **Not done.** No hosting, DNS or cloud changes were made. Stopped for ChatGPT review; Steps 026 and 027 not started; Step 023 untouched.
+
+
+## Step 026 implemented locally: question registry and immutable dated editions (2026-11-07)
+
+ChatGPT reviewed Step 025 and approved proceeding. The user's priority is to make llmxchange.com ready to publish as soon as possible.
+
+**What was built.** Claude implemented Step 026 minimally on the Step 025 `site.json`/`page.json` system:
+- **Registry and editions:** per-question `question.json` with an opaque `question_id`. Editions reuse the Step 025 page format, with draft/approved status.
+- **Publishing:** `--publish-at` assigns the UTC publication time and freezes edition HTML into a committed archive at `/reports/<date>/<slug>[/rN]`, with manifest `llm-metrics.publication.v1`. Archived bytes are served verbatim and modifications are refused.
+- **Pages:** a chronological home feed, a `/questions` directory, and stable question pages with edition history. Editions are canonical to the stable page.
+- **Indexing:** the empty metric page is `noindex`; educational pages stay indexable.
+- **Redirects:** a `redirects.json` plan for `-latest`.
+- **New article:** a draft, "How do we prevent duplicate paid LLM API calls in scheduled benchmarks?". Its facts are tested against the code, and it separates controls from guarantees.
+
+**Testing.** Docker `./run.sh test`: 622 tests, 5 skipped, 0 failures.
+
+**Deliberately deferred.** Dated metric snapshots and sample thresholds were deferred to keep the step minimal, so the prompt's two-dataset metric acceptance check is not met. Data-based answers are refused until snapshots exist.
+
+**Not done.** Nothing has been published (the archive is empty); no hosting, DNS or cloud changes. Stopped for ChatGPT review; Step 027 not started; Step 023 untouched.

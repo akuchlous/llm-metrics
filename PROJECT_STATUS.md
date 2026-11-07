@@ -1,8 +1,23 @@
 # Project status
 
-_Last updated: Step 025 complete locally (static Q&A + TTFT metric pages; awaiting ChatGPT review); Step 024 awaiting review; Step 023 PARTIAL (pilot active) — 2026-11-07_
+_Last updated: Step 026 complete locally (question registry + immutable dated Q&A editions; awaiting ChatGPT review); Step 023 PARTIAL — 2026-11-07_
 
 ## Current state
+
+**Step 026 complete (local only), awaiting ChatGPT review: question registry and immutable dated Q&A editions.**
+- **Registry:** each question directory has a `question.json` (opaque `question_id`, stable path, editions). Editions reuse the Step 025 `page.json` and fragments, with `status` draft/approved.
+- **Publishing:**
+  - `--publish-at` freezes approved editions into `site_content/archive/` at `/reports/<UTC date>/<slug>[/rN]`, recorded in manifest `llm-metrics.publication.v1`.
+  - Archived bytes are served verbatim; any modification is refused.
+- **Pages:** home feed (newest first), `/questions` directory, and stable question pages with edition history. Editions are canonical to the stable page. A `redirects.json` plan is produced.
+- **Indexing:** the empty metric page is `noindex`.
+- **Content:**
+  - New draft article "How do we prevent duplicate paid LLM API calls in scheduled benchmarks?", with facts tested against the code.
+  - The TTFT article edition is approved.
+  - **Nothing is published yet** (the archive is empty).
+- **Tests:** 27 new; Docker `./run.sh test`: 622 tests, 5 skipped, 0 failures.
+- **Deferred:** dated metric snapshots and sample thresholds (D083).
+- **No hosting, DNS or cloud changes.**
 
 **Step 025 complete (local only), awaiting ChatGPT review: first static question and metric pages.**
 - **Command:** new `llm_metrics.static_site` (`--output DIR --site-url https://llmxchange.com [--analytics F --data-source real|synthetic] [--report R]`).
@@ -194,7 +209,7 @@ llm_metrics/
   object_results.py  immutable llm-metrics.attempt.v1 records: schema, canonical encoding, create-only GCS writes, read/validate
   scheduled_collector.py / collector_audit.py  bounded 15-minute collector with slot claims; read-only claims-vs-records audit
   record_analytics.py  offline read-only analytics over a local mirror of prod records -> canonical llm-metrics.analytics.v1 summary
-  static_site.py   offline static site generator: reviewed site_content/ + validated analytics summary -> HTML pages (site_templates/, site_static/)
+  static_site.py   offline static site generator (Step 026: question registry, dated editions frozen into site_content/archive/): reviewed site_content/ + validated analytics summary -> HTML pages (site_templates/, site_static/)
   config.py        environment, DB path, dashboard port
   __main__.py      CLI
 tests/             automated tests
@@ -266,7 +281,9 @@ A unique index on observations (`recorded_at`, `environment`, `provider`, `model
 
 ## Next step
 
-**Recommended (after ChatGPT review of Step 025):** decide the publication order under the new "publish educational content early" priority. The shortest safe path is in `prompts/025-output.md`: review the article, then an approved, minimal hosting step that serves the no-data build, before or alongside Step 026.
+**Recommended (after ChatGPT review of Step 026):** review and approve the draft duplicate-calls article, then follow the minimum publication steps in `prompts/026-output.md`: publish with `--publish-at`, commit the archive, then an approved hosting step (027).
+
+_Previous:_ **Recommended (after ChatGPT review of Step 025):** decide the publication order under the new "publish educational content early" priority. The shortest safe path is in `prompts/025-output.md`: review the article, then an approved, minimal hosting step that serves the no-data build, before or alongside Step 026.
 
 _Previous recommendation:_ **Recommended (after ChatGPT review of Step 024):**
 1. Close Step 023 once the window ends at 2026-11-07T18:00Z: run the post-window audit and the stop.

@@ -27,7 +27,7 @@
 </nav>
 {% endif %}
 <main>
-{% if page.robots %}<p class="notice" role="note"><strong>Synthetic test data.</strong> The numbers in this build are not real measurements.</p>
+{% if banner %}<p class="notice" role="note"><strong>{{ banner[0] }}</strong> {{ banner[1] }}</p>
 {% endif %}{% block main %}{% endblock %}
 </main>
 <footer class="site-footer">

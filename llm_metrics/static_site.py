@@ -4,6 +4,26 @@ Usage:
     python -m llm_metrics.static_site --output DIR --site-url https://HOST
         [--analytics SUMMARY.json --data-source real|synthetic]
         [--report REPORT.json]
+        [--publish-at YYYY-MM-DDTHH:MM:SSZ | --preview-at YYYY-MM-DDTHH:MM:SSZ]
+
+Questions and editions (Step 026):
+- A question is a directory with `question.json`: a permanent opaque
+  `question_id` (q0001), its stable path (e.g. /how-to-measure-openai-ttft),
+  related metric pages, reviewed aliases and an ordered list of editions.
+- Each edition (`editions/eN/`) is a Step 025 question `page.json` plus
+  fragments, with `status` draft or approved. It carries no date: the
+  publication time is assigned once, by `--publish-at`, and recorded in the
+  archive manifest (`site_content/archive/manifest.json`, schema
+  `llm-metrics.publication.v1`).
+- Publishing freezes each approved, unarchived edition's HTML into
+  `site_content/archive/reports/<UTC date>/<slug>[/rN]/index.html`. From
+  then on those bytes are served verbatim; a changed archive file, changed
+  edition content, unlisted archive file or other site URL stops the build.
+- The stable question page shows the latest published edition with its
+  edition history; `/` lists editions newest first; `/questions` groups them
+  by question. Dated editions are canonical to the stable page. Educational
+  questions need no dataset; an empty or synthetic metric page is noindex.
+- `--preview-at` shows drafts at a provisional time, noindex, never archived.
 
 Builds every page listed in `site_content/site.json` into `DIR` (clean URLs
 as `<path>/index.html`), plus `assets/site.css` and, when a dataset is
@@ -39,6 +59,7 @@ Exit codes: 0 built, 1 invalid content or dataset or failed page checks
 import argparse
 import dataclasses
 import datetime
+import difflib
 import hashlib
 import html.parser
 import json
@@ -87,10 +108,19 @@ CSP = (
 
 DATA_SOURCES = ("real", "synthetic")
 MAX_SUMMARY_BYTES = 4 * 1024 * 1024
-PAGE_KINDS = ("home", "hub", "question", "metric")
+PAGE_KINDS = ("home", "hub", "directory", "question", "metric")
+# Breadcrumb parent of each loaded page kind; editions hang under their
+# question's stable page.
+_PARENTS = {
+    "home": None,
+    "hub": "/",
+    "directory": "/",
+    "question": "/questions",
+    "metric": "/llm-performance",
+}
 GENERATED_SECTIONS = {
     "question": ("findings", "setup"),
-    "metric": ("measurements", "setup", "provenance"),
+    "metric": ("measurements", "setup", "provenance", "methodology"),
 }
 # Order shown on the TTFT metric page: TTFT first, then the related latency
 # and throughput metrics from the same requests.
@@ -187,6 +217,12 @@ class Page:
     breadcrumb_name: str
     sections: tuple[Section, ...]
     meta: dict
+    parent: str | None = None
+    # Where rel=canonical points; None means the page itself. Dated editions
+    # point at their question's stable page (near-duplicate policy, D083).
+    canonical_path: str | None = None
+    robots: str | None = None
+    extra: dict = dataclasses.field(default_factory=dict)
 
     @property
     def output_file(self) -> str:
@@ -195,10 +231,8 @@ class Page:
         )
 
     @property
-    def parent(self) -> str | None:
-        if self.kind == "home":
-            return None
-        return "/" if self.kind == "hub" else "/llm-performance"
+    def canonical(self) -> str:
+        return self.canonical_path or self.path
 
 
 @dataclasses.dataclass(frozen=True)
@@ -327,6 +361,7 @@ def _load_page(directory: pathlib.Path, content_dir: pathlib.Path) -> Page:
         breadcrumb_name=_string(meta, "breadcrumb_name", source, limit=80),
         sections=tuple(sections),
         meta=meta,
+        parent=_PARENTS[kind],
     )
 
 
@@ -371,38 +406,423 @@ def _check_question_meta(meta: dict, source: str) -> None:
             or not str(author.get("url", "https://")).startswith("https://")
         ):
             raise SiteError(f"{source}: invalid author.")
-    if not _PATH_RE.match(str(meta.get("related_metric"))):
+    related = meta.get("related_metric")
+    if related is not None and not _PATH_RE.match(str(related)):
         raise SiteError(f"{source}: related_metric must be a page path.")
+    if basis == "dataset":
+        # Dated editions are immutable, so a data-backed answer needs an
+        # immutable metrics snapshot to cite; that is not implemented yet.
+        raise SiteError(
+            f"{source}: dataset-based answers need metric snapshots, which"
+            " are not supported yet."
+        )
 
 
 def load_pages(
     content_dir: pathlib.Path = CONTENT_DIR,
-) -> tuple[dict, list[Page]]:
-    """Loads `site.json` and every listed page, in listed order."""
+) -> tuple[dict, list[Page], list["Question"]]:
+    """Loads `site.json`: plain pages and registered questions, in order.
+
+    A listed directory holding `question.json` is a question (see
+    `load_question`); any other holds one `page.json`.
+    """
     try:
         site = json.loads((content_dir / "site.json").read_text("utf-8"))
     except (OSError, ValueError):
         raise SiteError(
             "site_content/site.json is missing or not JSON."
         ) from None
-    pages = [
-        _load_page(content_dir / entry, content_dir)
-        for entry in site.get("pages", [])
-    ]
-    paths = [page.path for page in pages]
+    pages, questions = [], []
+    for entry in site.get("pages", []):
+        directory = content_dir / entry
+        if (directory / "question.json").is_file():
+            questions.append(load_question(directory, content_dir))
+        else:
+            pages.append(_load_page(directory, content_dir))
+    paths = [page.path for page in pages] + [q.path for q in questions]
+    paths += [alias for q in questions for alias in q.aliases]
     if len(set(paths)) != len(paths):
-        raise SiteError("Two pages share a path.")
+        raise SiteError("Two pages, questions or aliases share a path.")
     for field in ("title", "description", "h1"):
         values = [getattr(page, field) for page in pages]
         if len(set(values)) != len(values):
             raise SiteError(f"Page {field}s must be unique.")
-    if [p.kind for p in pages].count(
-        "home"
-    ) != 1 or "/llm-performance" not in paths:
+    kinds = [p.kind for p in pages]
+    if (
+        kinds.count("home") != 1
+        or "/llm-performance" not in paths
+        or [p.path for p in pages if p.kind == "directory"] != ["/questions"]
+    ):
         raise SiteError(
-            "The site needs one home page and the /llm-performance hub."
+            "The site needs one home page, the /llm-performance hub and the"
+            " /questions directory."
         )
-    return site, pages
+    _check_registry(questions)
+    return site, pages, questions
+
+
+# ---------------------------------------------------------------------------
+# Question registry and immutable editions
+
+_QUESTION_ID_RE = re.compile(r"^q[0-9]{4}$")
+_EDITION_ID_RE = re.compile(r"^e[0-9]+$")
+_PUBLISHED_AT_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
+_COMMIT_RE = re.compile(r"^[0-9a-f]{7,40}$")
+EDITION_STATUSES = ("draft", "approved")
+PUBLICATION_SCHEMA = "llm-metrics.publication.v1"
+MANIFEST_NAME = "manifest.json"
+# Above this title similarity two questions must be explicitly reviewed as
+# distinct intents (TTFT vs total latency, other workload or region...).
+_SIMILAR_TITLE_RATIO = 0.85
+# Numbers with measurement units in an answer that cites no dataset would
+# be unverified empirical claims; such editions are refused.
+_EMPIRICAL_RE = re.compile(
+    r"\b\d[\d,.]*\s?(?:ms|milliseconds|tokens/s|%)", re.IGNORECASE
+)
+
+
+@dataclasses.dataclass(frozen=True)
+class Edition:
+    """One reviewed answer edition of a question (`editions/<id>/`).
+
+    Its content is a Step 025 question `page.json` plus fragments. The
+    publication time is not in the content: it is assigned once, when the
+    edition is frozen into the archive, and recorded in the manifest.
+    """
+
+    edition_id: str
+    status: str
+    summary: str
+    what_changed: str | None
+    source_commit: str | None
+    page: Page
+    content_sha256: str
+
+
+@dataclasses.dataclass(frozen=True)
+class Question:
+    """A permanent question identity from `question.json`."""
+
+    question_id: str
+    path: str
+    breadcrumb_name: str
+    related_metrics: tuple[str, ...]
+    aliases: tuple[str, ...]
+    reviewed_distinct_from: tuple[str, ...]
+    editions: tuple[Edition, ...]
+
+
+def _content_sha256(directory: pathlib.Path) -> str:
+    digest = hashlib.sha256()
+    for path in sorted(directory.iterdir()):
+        if path.is_file():
+            digest.update(
+                path.name.encode() + b"\0" + path.read_bytes() + b"\0"
+            )
+    return digest.hexdigest()
+
+
+def load_question(
+    directory: pathlib.Path, content_dir: pathlib.Path
+) -> Question:
+    """Loads one registry entry and its editions, validating identity rules."""
+    source = f"site_content/{directory.relative_to(content_dir)}/question.json"
+    try:
+        meta = json.loads((directory / "question.json").read_text("utf-8"))
+    except (OSError, ValueError):
+        raise SiteError(f"{source}: missing or not JSON.") from None
+    question_id = meta.get("question_id")
+    if not isinstance(question_id, str) or not _QUESTION_ID_RE.match(
+        question_id
+    ):
+        raise SiteError(f"{source}: question_id must look like q0001.")
+    path = _string(meta, "path", source)
+    if not _PATH_RE.match(path) or path == "/" or path.startswith("/reports"):
+        raise SiteError(f"{source}: invalid question path.")
+    lists = {}
+    for key in ("related_metrics", "aliases", "reviewed_distinct_from"):
+        value = meta.get(key, [])
+        if not isinstance(value, list) or not all(
+            isinstance(v, str) for v in value
+        ):
+            raise SiteError(f"{source}: {key} must be a list of strings.")
+        lists[key] = tuple(value)
+    for alias in lists["aliases"]:
+        if not _PATH_RE.match(alias) or alias == path:
+            raise SiteError(f"{source}: invalid alias.")
+    editions = []
+    for edition_id in meta.get("editions") or []:
+        if not isinstance(edition_id, str) or not _EDITION_ID_RE.match(
+            edition_id
+        ):
+            raise SiteError(f"{source}: invalid edition id.")
+        edition_dir = directory / "editions" / edition_id
+        page = _load_page(edition_dir, content_dir)
+        esource = (
+            f"site_content/{edition_dir.relative_to(content_dir)}/page.json"
+        )
+        if page.kind != "question" or page.path != path:
+            raise SiteError(f"{esource}: must be a question page at {path}.")
+        info = page.meta
+        if info.get("status") not in EDITION_STATUSES:
+            raise SiteError(f"{esource}: status must be draft or approved.")
+        for key in ("date_published", "date_modified", "published_at"):
+            if key in info:
+                raise SiteError(
+                    f"{esource}: {key} is assigned at publication, not in"
+                    " content."
+                )
+        what_changed = info.get("what_changed")
+        if (what_changed is None) != (not editions):
+            raise SiteError(
+                f"{esource}: what_changed is required for every edition"
+                " after the first, and only then."
+            )
+        commit = info.get("source_commit")
+        if commit is not None and not _COMMIT_RE.match(str(commit)):
+            raise SiteError(f"{esource}: invalid source_commit.")
+        if (
+            editions
+            and info["answer_revision"]
+            == editions[-1].page.meta["answer_revision"]
+        ):
+            raise SiteError(
+                f"{esource}: a new edition needs a new answer_revision."
+            )
+        if info["answer_basis"] == "methodology":
+            for section in page.sections:
+                if section.html is not None and _EMPIRICAL_RE.search(
+                    section.html.striptags()
+                ):
+                    raise SiteError(
+                        f"{esource}: section {section.id} states a measured"
+                        " value but the answer cites no dataset."
+                    )
+        editions.append(
+            Edition(
+                edition_id=edition_id,
+                status=info["status"],
+                summary=_string(info, "summary", esource),
+                what_changed=what_changed,
+                source_commit=commit,
+                page=page,
+                content_sha256=_content_sha256(edition_dir),
+            )
+        )
+    if not editions:
+        raise SiteError(f"{source}: a question needs at least one edition.")
+    return Question(
+        question_id=question_id,
+        path=path,
+        breadcrumb_name=_string(meta, "breadcrumb_name", source, limit=80),
+        editions=tuple(editions),
+        **lists,
+    )
+
+
+def _check_registry(questions: list[Question]) -> None:
+    ids = [q.question_id for q in questions]
+    if len(set(ids)) != len(ids):
+        raise SiteError("Duplicate question_id in the registry.")
+    known = set(ids)
+    for question in questions:
+        if set(question.reviewed_distinct_from) - known:
+            raise SiteError(
+                f"{question.question_id}: reviewed_distinct_from names an"
+                " unknown question."
+            )
+    for i, first in enumerate(questions):
+        for second in questions[i + 1 :]:
+            ratio = difflib.SequenceMatcher(
+                None,
+                first.editions[-1].page.h1.lower(),
+                second.editions[-1].page.h1.lower(),
+            ).ratio()
+            reviewed = (
+                second.question_id in first.reviewed_distinct_from
+                or first.question_id in second.reviewed_distinct_from
+            )
+            if ratio >= _SIMILAR_TITLE_RATIO and not reviewed:
+                raise SiteError(
+                    f"{first.question_id} and {second.question_id} look like"
+                    " the same question; merge them or record an explicit"
+                    " reviewed_distinct_from."
+                )
+
+
+@dataclasses.dataclass(frozen=True)
+class Published:
+    """An edition with its publication time and dated route."""
+
+    question: Question
+    edition: Edition
+    published_at: str
+    route: str
+    frozen: bytes | None  # archived HTML, served verbatim when present
+
+
+def edition_route(
+    question_path: str, published_at: str, same_day_index: int
+) -> str:
+    """`/reports/<UTC date>/<slug>`, then `/r2`, `/r3` for the same date."""
+    route = f"/reports/{published_at[:10]}{question_path}"
+    return route if same_day_index == 1 else f"{route}/r{same_day_index}"
+
+
+def _canonical_json(value) -> bytes:
+    return (
+        json.dumps(value, sort_keys=True, indent=2, ensure_ascii=False) + "\n"
+    ).encode("utf-8")
+
+
+def load_manifest(archive_dir: pathlib.Path) -> dict:
+    """Reads the publication manifest; an absent archive is an empty one."""
+    path = archive_dir / MANIFEST_NAME
+    if not path.exists():
+        return {"schema_version": PUBLICATION_SCHEMA, "editions": []}
+    try:
+        manifest = json.loads(path.read_text("utf-8"))
+    except ValueError:
+        raise SiteError("Archive manifest is not JSON.") from None
+    if (
+        manifest.get("schema_version") != PUBLICATION_SCHEMA
+        or not isinstance(manifest.get("editions"), list)
+        or path.read_bytes() != _canonical_json(manifest)
+    ):
+        raise SiteError("Archive manifest is malformed or not canonical.")
+    return manifest
+
+
+def plan_editions(
+    questions: list[Question],
+    config: SiteConfig,
+    archive_dir: pathlib.Path,
+    *,
+    freeze_at: str | None = None,
+    preview_at: str | None = None,
+) -> tuple[list[Published], list[dict]]:
+    """Decides which editions are published and where.
+
+    - Archived editions (in the manifest) are published at their recorded
+      time and served from their archived bytes, which must still match the
+      recorded SHA-256, as must the edition's source content.
+    - With `freeze_at`, approved editions not yet archived are published at
+      that time (new manifest entries are returned for the caller to write).
+    - With `preview_at`, every unarchived edition, drafts included, is shown
+      at that time for review only (never written to the archive).
+
+    Returns:
+        (published editions, new manifest entries).
+
+    Raises:
+        SiteError: Orphaned or modified archive content, out-of-order or
+            unapproved publication, or a site URL other than the archive's.
+    """
+    manifest = load_manifest(archive_dir)
+    entries = manifest["editions"]
+    by_key = {
+        (q.question_id, e.edition_id): (q, e)
+        for q in questions
+        for e in q.editions
+    }
+    seen = set()
+    published, new_entries = [], []
+    for entry in entries:
+        key = (entry.get("question_id"), entry.get("edition_id"))
+        if key not in by_key or key in seen:
+            raise SiteError(
+                f"Archive entry {entry.get('route')} has no edition."
+            )
+        seen.add(key)
+        question, edition = by_key[key]
+        if entry.get("site_url") != config.origin:
+            raise SiteError(
+                "Archived editions were published for"
+                f" {entry.get('site_url')}; build with that --site-url."
+            )
+        if edition.status != "approved" or edition.content_sha256 != entry.get(
+            "content_sha256"
+        ):
+            raise SiteError(
+                f"Edition {key} changed after publication; add a new edition"
+                " instead."
+            )
+        path = archive_dir / entry["route"][1:] / "index.html"
+        if path.is_symlink() or not path.is_file():
+            raise SiteError(f"Archived page missing: {entry['route']}")
+        data = path.read_bytes()
+        if hashlib.sha256(data).hexdigest() != entry.get("html_sha256"):
+            raise SiteError(f"Archived page was modified: {entry['route']}")
+        published.append(
+            Published(
+                question, edition, entry["published_at"], entry["route"], data
+            )
+        )
+    archived_files = (
+        {
+            str(p.relative_to(archive_dir))
+            for p in archive_dir.rglob("*")
+            if p.is_file()
+        }
+        if archive_dir.exists()
+        else set()
+    )
+    expected_files = {MANIFEST_NAME} | {
+        f"{e['route'][1:]}/index.html" for e in entries
+    }
+    stray = archived_files - expected_files
+    moment = freeze_at or preview_at
+    pending = [
+        (q, e)
+        for q in questions
+        for e in q.editions
+        if (q.question_id, e.edition_id) not in seen
+        and (
+            preview_at is not None
+            or (freeze_at is not None and e.status == "approved")
+        )
+    ]
+    for question, edition in pending:
+        earlier = [p for p in published if p.question is question]
+        if earlier and moment <= max(p.published_at for p in earlier):
+            raise SiteError(
+                "A new edition must be published after the previous one."
+            )
+        later = question.editions.index(edition)
+        if any(question.editions.index(p.edition) > later for p in earlier):
+            raise SiteError("Editions must be published in registry order.")
+        same_day = sum(p.published_at[:10] == moment[:10] for p in earlier) + 1
+        route = edition_route(question.path, moment, same_day)
+        published.append(Published(question, edition, moment, route, None))
+        if freeze_at is not None:
+            new_entries.append(
+                {
+                    "question_id": question.question_id,
+                    "edition_id": edition.edition_id,
+                    "route": route,
+                    "published_at": moment,
+                    "answer_revision": edition.page.meta["answer_revision"],
+                    "editorial_revision": edition.page.meta[
+                        "editorial_revision"
+                    ],
+                    "answer_basis": edition.page.meta["answer_basis"],
+                    "dataset_sha256": None,
+                    "methodology_version": METHODOLOGY_VERSION,
+                    "content_sha256": edition.content_sha256,
+                    "source_commit": edition.source_commit,
+                    "site_url": config.origin,
+                }
+            )
+    if stray:
+        # A freeze interrupted after writing pages but before the manifest
+        # leaves pages without entries; re-running the same freeze adopts
+        # them only if they are byte-identical (checked by the caller).
+        new_routes = {f"{e['route'][1:]}/index.html" for e in new_entries}
+        if stray - new_routes:
+            raise SiteError(
+                f"Archive has unlisted files: {sorted(stray - new_routes)}"
+            )
+    return published, new_entries
 
 
 # ---------------------------------------------------------------------------
@@ -856,7 +1276,7 @@ def structured_data(
                 "url": url,
             }
         )
-    elif page.kind == "question":
+    elif page.kind in ("question", "edition"):
         article = {
             "@context": "https://schema.org",
             "@type": "Article",
@@ -881,7 +1301,11 @@ def structured_data(
         blocks.append(
             {
                 "@context": "https://schema.org",
-                "@type": "CollectionPage" if page.kind == "hub" else "WebPage",
+                "@type": (
+                    "CollectionPage"
+                    if page.kind in ("hub", "directory")
+                    else "WebPage"
+                ),
                 "name": page.title,
                 "description": page.description,
                 "url": url,
@@ -927,62 +1351,219 @@ def _date_text(value: str | None) -> str | None:
     return f"{moment.day} {moment:%B %Y}"
 
 
-def render_site(
+def _answer_view(meta: dict) -> dict:
+    return {
+        "revision": meta["answer_revision"],
+        "basis_text": (
+            "the measurement method and source code only; it states no"
+            " measured values"
+            if meta["answer_basis"] == "methodology"
+            else "a review of dataset"
+            f" {meta['answer_reviewed_dataset_sha256'][:12]}…"
+        ),
+        "date_published": meta.get("date_published"),
+        "date_published_text": _date_text(meta.get("date_published")),
+        "date_modified": meta.get("date_modified"),
+        "date_modified_text": _date_text(meta.get("date_modified")),
+    }
+
+
+def _edition_label(item: Published) -> str:
+    suffix = item.route.rsplit("/", 1)[-1]
+    revision = f", {suffix}" if re.match(r"^r\d+$", suffix) else ""
+    return f"{_date_text(item.published_at)} edition{revision}"
+
+
+def _edition_link(item: Published) -> dict:
+    return {
+        "path": item.route,
+        "label": _edition_label(item),
+        "date": item.published_at,
+        "h1": item.edition.page.h1,
+        "summary": item.edition.summary,
+        "what_changed": item.edition.what_changed,
+        "revision": item.edition.page.meta["answer_revision"],
+    }
+
+
+def _question_pages(question: Question, items: list[Published]) -> list[Page]:
+    """The stable question page (latest edition) and one page per edition."""
+    items = sorted(items, key=lambda i: i.published_at)
+    latest = items[-1]
+    history = [_edition_link(i) for i in reversed(items)]
+    hub_meta = {
+        **latest.edition.page.meta,
+        "date_published": items[0].published_at,
+        "date_modified": latest.published_at if len(items) > 1 else None,
+    }
+    pages = [
+        dataclasses.replace(
+            latest.edition.page,
+            path=question.path,
+            breadcrumb_name=question.breadcrumb_name,
+            parent="/questions",
+            meta=hub_meta,
+            extra={
+                "history": history,
+                "updated": history[0] if len(items) > 1 else None,
+                "related_metrics": question.related_metrics,
+            },
+        )
+    ]
+    for index, item in enumerate(items):
+        page = item.edition.page
+        label = _edition_label(item)
+        pages.append(
+            dataclasses.replace(
+                page,
+                kind="edition",
+                path=item.route,
+                title=f"{page.title} ({label})",
+                description=f"{label} of this answer: {item.edition.summary}"[
+                    :300
+                ],
+                breadcrumb_name=label,
+                parent=question.path,
+                canonical_path=question.path,
+                meta={**page.meta, "date_published": item.published_at},
+                extra={
+                    "edition": _edition_link(item),
+                    "earlier": [
+                        _edition_link(i) for i in reversed(items[:index])
+                    ],
+                    "current_path": question.path,
+                    "frozen": item.frozen,
+                },
+            )
+        )
+    return pages
+
+
+def plan_site(
     config: SiteConfig,
     dataset: Dataset | None = None,
     content_dir: pathlib.Path = CONTENT_DIR,
-) -> dict[str, bytes]:
-    """Renders every page. Returns output path -> bytes (deterministic)."""
-    site, pages = load_pages(content_dir)
-    by_path = {page.path: page for page in pages}
-    environment = _environment()
-    metric_pages = [p for p in pages if p.kind == "metric"]
-    for page in metric_pages:
-        if dataset is not None:
-            validate_summary(
-                dataset.summary, page.meta.get("expected_population")
+    *,
+    archive_dir: pathlib.Path | None = None,
+    freeze_at: str | None = None,
+    preview_at: str | None = None,
+) -> tuple[dict[str, bytes], dict[str, bytes], dict | None, list[Page]]:
+    """Renders and checks the whole site without writing anything.
+
+    Returns:
+        (output files, archive files to create, new manifest or None,
+        every page).
+    """
+    if freeze_at and preview_at:
+        raise SiteError("A preview can never be frozen.")
+    for moment in (freeze_at, preview_at):
+        if moment is not None and not _PUBLISHED_AT_RE.match(moment):
+            raise SiteError(
+                "Publication time must be UTC YYYY-MM-DDTHH:MM:SSZ."
             )
+    archive_dir = (
+        content_dir / "archive" if archive_dir is None else archive_dir
+    )
+    site, base_pages, questions = load_pages(content_dir)
+    published, new_entries = plan_editions(
+        questions,
+        config,
+        archive_dir,
+        freeze_at=freeze_at,
+        preview_at=preview_at,
+    )
+    if dataset is not None:
+        for page in base_pages:
+            if page.kind == "metric":
+                validate_summary(
+                    dataset.summary, page.meta.get("expected_population")
+                )
     data = data_view(dataset) if dataset is not None else None
-    files = {}
+    real_data = dataset is not None and dataset.source == "real"
+    banner = None
+    if preview_at:
+        banner = (
+            "Draft preview.",
+            "These pages are not published and may change.",
+        )
+    elif data and data["source"] == "synthetic":
+        banner = (
+            "Synthetic test data.",
+            "The numbers in this build are not real measurements.",
+        )
+    pages = list(base_pages)
+    hubs = {}
+    for question in questions:
+        items = [p for p in published if p.question is question]
+        if items:
+            question_pages = _question_pages(question, items)
+            hubs[question.question_id] = question_pages[0]
+            pages.extend(question_pages)
+    by_path = {page.path: page for page in pages}
+    feed = [
+        _edition_link(i)
+        for i in sorted(
+            published, key=lambda i: (i.published_at, i.route), reverse=True
+        )
+    ]
+    directory = [
+        {
+            "path": q.path,
+            "h1": hubs[q.question_id].h1,
+            "description": hubs[q.question_id].description,
+            "editions": hubs[q.question_id].extra["history"],
+        }
+        for q in questions
+        if q.question_id in hubs
+    ]
+    methodology = {}
+    for question in questions:
+        for metric_path in question.related_metrics:
+            if (
+                metric_path not in by_path
+                or by_path[metric_path].kind != "metric"
+            ):
+                raise SiteError(
+                    f"{question.question_id}: unknown related metric"
+                    f" {metric_path}."
+                )
+            if question.question_id in hubs:
+                methodology.setdefault(metric_path, hubs[question.question_id])
+    environment = _environment()
+    files, frozen_paths = {}, set()
     for page in pages:
+        if page.kind == "edition" and page.extra["frozen"] is not None:
+            # Published history is served byte-for-byte, never re-rendered.
+            files[page.output_file] = page.extra["frozen"]
+            frozen_paths.add(page.path)
+            continue
+        robots = None
+        if banner or (page.kind == "metric" and not real_data):
+            # An empty or synthetic metric page is not indexable content;
+            # educational pages stay indexable without any dataset.
+            robots = "noindex"
+        page = dataclasses.replace(page, robots=robots)
+        by_path[page.path] = page
         crumbs = breadcrumbs(page, by_path)
-        robots = "noindex" if data and data["source"] == "synthetic" else None
         view = {
             "kind": page.kind,
             "path": page.path,
             "title": page.title,
             "h1": page.h1,
             "description": page.description,
-            "canonical": config.absolute(page.path),
-            "og_type": "article" if page.kind == "question" else "website",
+            "canonical": config.absolute(page.canonical),
+            "og_type": "article"
+            if page.kind in ("question", "edition")
+            else "website",
             "breadcrumbs": crumbs,
             "json_ld": structured_data(page, crumbs, config, site),
             "robots": robots,
         }
-        answer = None
-        if page.kind == "question":
-            meta = page.meta
-            answer = {
-                "revision": meta["answer_revision"],
-                "basis_text": (
-                    "the measurement method only; it was not reviewed against"
-                    " measured data"
-                    if meta["answer_basis"] == "methodology"
-                    else "a review of dataset"
-                    f" {meta['answer_reviewed_dataset_sha256'][:12]}…"
-                ),
-                "date_published": meta.get("date_published"),
-                "date_published_text": _date_text(meta.get("date_published")),
-                "date_modified": meta.get("date_modified"),
-                "date_modified_text": _date_text(meta.get("date_modified")),
-            }
-        if page.kind in ("home", "hub"):
-            links = [p for p in pages if p.kind in ("question", "metric")]
-            if page.kind == "home":
-                links = [by_path["/llm-performance"], *links]
-            links = [
-                {"path": p.path, "h1": p.h1, "description": p.description}
-                for p in links
+        if page.kind == "home":
+            links = [by_path["/questions"], by_path["/llm-performance"]]
+        elif page.kind == "hub":
+            links = list(hubs.values()) + [
+                p for p in base_pages if p.kind == "metric"
             ]
         else:
             links = []
@@ -990,12 +1571,23 @@ def render_site(
             site={"name": site["site_name"], "language": site["language"]},
             page=view,
             sections=page.sections,
-            answer=answer,
-            links=links,
-            data=data,
+            answer=_answer_view(page.meta)
+            if page.kind in ("question", "edition")
+            else None,
+            extra=page.extra,
+            links=[
+                {"path": p.path, "h1": p.h1, "description": p.description}
+                for p in links
+            ],
+            feed=feed if page.kind == "home" else [],
+            directory=directory if page.kind == "directory" else [],
+            # Editions are immutable, so they never embed changing numbers.
+            data=None if page.kind == "edition" else data,
             setup=setup_rows(),
-            related_metric=page.meta.get("related_metric", page.path),
+            related_metric=page.meta.get("related_metric") or page.path,
+            methodology_page=methodology.get(page.path),
             methodology_version=METHODOLOGY_VERSION,
+            banner=banner,
             csp=CSP,
             stylesheet=STYLESHEET_PATH,
         )
@@ -1003,8 +1595,76 @@ def render_site(
     files[STYLESHEET_PATH[1:]] = STYLESHEET_SOURCE.read_bytes()
     if dataset is not None:
         files[dataset.json_path[1:]] = dataset.data
-    check_site(files, config, pages)
-    return dict(sorted(files.items()))
+    redirects = [
+        {"from": source, "to": q.path, "status": 301}
+        for q in questions
+        if q.question_id in hubs
+        for source in (f"{q.path}-latest", *q.aliases)
+    ]
+    for rule in redirects:
+        if _route_exists(rule["from"], files) or not _route_exists(
+            rule["to"], files
+        ):
+            raise SiteError(
+                f"Redirect {rule['from']} collides or has no target."
+            )
+    files["redirects.json"] = _canonical_json({"redirects": redirects})
+    check_site(files, config, pages, frozen_paths)
+    archive_files, manifest = {}, None
+    if new_entries:
+        manifest = load_manifest(archive_dir)
+        manifest = {
+            **manifest,
+            "editions": manifest["editions"]
+            + [
+                {
+                    **entry,
+                    "html_sha256": hashlib.sha256(
+                        files[f"{entry['route'][1:]}/index.html"]
+                    ).hexdigest(),
+                }
+                for entry in new_entries
+            ],
+        }
+        for entry in new_entries:
+            name = f"{entry['route'][1:]}/index.html"
+            archive_files[name] = files[name]
+    return dict(sorted(files.items())), archive_files, manifest, pages
+
+
+def render_site(
+    config: SiteConfig,
+    dataset: Dataset | None = None,
+    content_dir: pathlib.Path = CONTENT_DIR,
+    **options,
+) -> dict[str, bytes]:
+    """Renders every page. Returns output path -> bytes (deterministic)."""
+    return plan_site(config, dataset, content_dir, **options)[0]
+
+
+def freeze(
+    archive_dir: pathlib.Path, archive_files: dict, manifest: dict
+) -> None:
+    """Adds newly published editions to the archive, create-only.
+
+    Pages are written before the manifest that lists them, so an
+    interruption leaves at worst unlisted pages, which a re-run of the same
+    freeze adopts only if byte-identical. Existing pages are never touched.
+    """
+    for name, data in archive_files.items():
+        path = archive_dir / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            with open(path, "xb") as handle:
+                handle.write(data)
+        except FileExistsError:
+            if path.read_bytes() != data:
+                raise SiteError(
+                    f"Archive already holds different bytes: {name}"
+                ) from None
+    temporary = archive_dir / f".{MANIFEST_NAME}.tmp"
+    temporary.write_bytes(_canonical_json(manifest))
+    os.replace(temporary, archive_dir / MANIFEST_NAME)
 
 
 # ---------------------------------------------------------------------------
@@ -1102,8 +1762,17 @@ def _route_exists(href: str, files: dict) -> bool:
     return f"{path[1:]}/index.html" in files or path[1:] in files
 
 
-def check_site(files: dict, config: SiteConfig, pages: list[Page]) -> None:
-    """Hard checks on every generated page; any failure stops the build."""
+def check_site(
+    files: dict,
+    config: SiteConfig,
+    pages: list[Page],
+    frozen_paths: set = frozenset(),
+) -> None:
+    """Hard checks on every generated page; any failure stops the build.
+
+    Archived (frozen) editions are only checked for links that still
+    resolve: their metadata was checked when they were published.
+    """
     for page in pages:
         parsed = parse_page(files[page.output_file])
         where = page.path
@@ -1112,7 +1781,13 @@ def check_site(files: dict, config: SiteConfig, pages: list[Page]) -> None:
             if not condition:
                 raise SiteError(f"Page {where}: {message}")
 
-        canonical = config.absolute(page.path)
+        if page.path in frozen_paths:
+            for href in parsed.hrefs:
+                if href.startswith("/"):
+                    require(_route_exists(href, files), f"broken link {href}")
+            continue
+        canonical = config.absolute(page.canonical)
+        own_url = config.absolute(page.path)
         require(parsed.lang == "en", "missing lang")
         require(parsed.meta.get("charset") == ["utf-8"], "missing charset")
         require(
@@ -1179,25 +1854,32 @@ def check_site(files: dict, config: SiteConfig, pages: list[Page]) -> None:
                 "breadcrumb positions",
             )
             require(
-                listed[-1][1] == canonical, "last breadcrumb is not this page"
+                listed[-1][1] == own_url, "last breadcrumb is not this page"
             )
-        if page.kind == "question":
+        if page.kind in ("question", "edition"):
             articles = [b for b in blocks if b.get("@type") == "Article"]
             require(len(articles) == 1, "needs one Article")
             require(
                 articles[0]["url"]
-                == canonical
+                == own_url
                 == articles[0]["mainEntityOfPage"],
                 "Article URL",
             )
             require(articles[0]["headline"] == page.title, "Article headline")
+            related = page.meta.get("related_metric")
             require(
-                page.meta["related_metric"] in parsed.hrefs,
+                related is None or related in parsed.hrefs,
                 "no link to its metric page",
             )
-        if page.kind == "metric":
-            methodology = page.meta.get("methodology_page")
-            require(methodology in parsed.hrefs, "no link to its methodology")
+            require(
+                bool(page.meta.get("date_published")),
+                "a published article needs its publication date",
+            )
+        if page.kind == "edition":
+            require(
+                page.extra["current_path"] in parsed.hrefs,
+                "an edition must link to the current answer",
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -1265,7 +1947,7 @@ def editorial_report(files: dict, pages: list[Page]) -> list[dict]:
             "keyphrase or topic in a subheading",
             any(
                 word in " ".join(h2s).lower()
-                for word in ("measure", "ttft", phrase)
+                for word in (*page.meta.get("slug_terms", []), phrase)
             ),
             f"{len(h2s)} H2 subheadings",
         )
@@ -1382,23 +2064,47 @@ def build(
     analytics: pathlib.Path | None = None,
     data_source: str | None = None,
     content_dir: pathlib.Path = CONTENT_DIR,
-) -> tuple[dict, list[dict]]:
-    """Validates, renders, checks and writes the site.
+    *,
+    archive_dir: pathlib.Path | None = None,
+    freeze_at: str | None = None,
+    preview_at: str | None = None,
+) -> tuple[dict, list[dict], list[str]]:
+    """Validates, renders and checks everything, then writes.
+
+    Order: the whole site is built and checked in memory first; then newly
+    published editions are added to the archive (create-only); the output
+    directory is replaced last, so a failure at any point leaves the
+    previous output and archive intact.
 
     Returns:
-        (files, editorial report findings).
+        (files, editorial report findings, newly published routes).
     """
     config = SiteConfig(site_url)
-    _, pages = load_pages(content_dir)
+    archive_dir = (
+        content_dir / "archive" if archive_dir is None else archive_dir
+    )
+    _, base_pages, _ = load_pages(content_dir)
     dataset = None
     if analytics is not None:
-        expected = next(p for p in pages if p.kind == "metric").meta[
+        expected = next(p for p in base_pages if p.kind == "metric").meta[
             "expected_population"
         ]
         dataset = load_dataset(analytics, data_source, expected)
-    files = render_site(config, dataset, content_dir)
+    files, archive_files, manifest, pages = plan_site(
+        config,
+        dataset,
+        content_dir,
+        archive_dir=archive_dir,
+        freeze_at=freeze_at,
+        preview_at=preview_at,
+    )
+    if manifest is not None:
+        freeze(archive_dir, archive_files, manifest)
     write_site(output, files)
-    return files, editorial_report(files, pages)
+    published = sorted(
+        "/" + name.removesuffix("/index.html") for name in archive_files
+    )
+    return files, editorial_report(files, pages), published
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -1426,17 +2132,30 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--report", help="also write the editorial report JSON here"
     )
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument(
+        "--publish-at",
+        help="publish approved, unarchived editions at this UTC time"
+        " (YYYY-MM-DDTHH:MM:SSZ) and freeze them into the archive",
+    )
+    mode.add_argument(
+        "--preview-at",
+        help="show every unarchived edition, drafts included, at this UTC"
+        " time for review; noindex and never archived",
+    )
     options = parser.parse_args(argv)
     if (options.analytics is None) != (options.data_source is None):
         parser.error("--analytics and --data-source must be given together")
     try:
-        files, report = build(
+        files, report, published = build(
             pathlib.Path(options.output),
             options.site_url,
             None
             if options.analytics is None
             else pathlib.Path(options.analytics),
             options.data_source,
+            freeze_at=options.publish_at,
+            preview_at=options.preview_at,
         )
     except SiteError as error:
         print(f"Error: {error} Nothing written.", file=sys.stderr)
@@ -1452,6 +2171,8 @@ def main(argv: list[str] | None = None) -> int:
         else f"{options.data_source} dataset"
     )
     print(f"Built {pages} pages into {options.output} ({data_label}).")
+    for route in published:
+        print(f"  Published and archived: {route}")
     for finding in report:
         print(
             f"  [{finding['status']:6}] {finding['page']}:"

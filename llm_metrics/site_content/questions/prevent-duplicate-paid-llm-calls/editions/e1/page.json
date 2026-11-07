@@ -1,0 +1,29 @@
+{
+  "kind": "question",
+  "path": "/prevent-duplicate-paid-llm-api-calls",
+  "title": "How to Prevent Duplicate Paid LLM API Calls in Benchmarks",
+  "h1": "How do we prevent duplicate paid LLM API calls in scheduled benchmarks?",
+  "meta_description": "How our scheduled LLM benchmark avoids duplicate paid LLM API calls: one atomic claim per time slot, no retries, a fixed scope, and their limits.",
+  "breadcrumb_name": "Preventing duplicate paid LLM calls",
+  "focus_keyphrase": "duplicate paid LLM API calls",
+  "slug_terms": ["prevent", "duplicate", "paid", "llm"],
+  "editorial_revision": "r1",
+  "answer_revision": "prevent-duplicate-paid-llm-api-calls/answer-r1",
+  "answer_basis": "methodology",
+  "answer_reviewed_dataset_sha256": null,
+  "authors": [],
+  "related_metric": null,
+  "status": "draft",
+  "summary": "The controls our scheduled collector uses to make at most one paid request per time slot, and where those controls stop.",
+  "what_changed": null,
+  "source_commit": "2058c24",
+  "sections": [
+    {"id": "answer", "heading": "Short answer", "file": "answer.html"},
+    {"id": "claims", "heading": "One atomic claim per time slot", "file": "claims.html"},
+    {"id": "retries", "heading": "No retries of a paid request", "file": "retries.html"},
+    {"id": "scope", "heading": "A fixed, bounded schedule", "file": "scope.html"},
+    {"id": "testing", "heading": "How the controls are tested", "file": "testing.html"},
+    {"id": "limits", "heading": "What these controls do not guarantee", "file": "limits.html"},
+    {"id": "related", "heading": "Related pages", "file": "related.html"}
+  ]
+}

@@ -607,3 +607,24 @@ deployed by this command.
   - every internal link resolves; no executable scripts;
   - question ↔ metric cross-links.
 - **Editorial report:** advisory pass/warn/manual findings inspired by Yoast's checks (keyphrase placement, lengths, sentence length, links). It is not a ranking score.
+
+### Questions, dated editions and publishing (Step 026)
+
+Each question in `llm_metrics/site_content/questions/<name>/` has a `question.json` registry entry: a permanent `question_id`, its stable URL, related metric pages and an ordered list of editions. Each edition `editions/eN/` uses the Step 025 `page.json` and fragment format, plus `status` (`draft` or `approved`), a feed `summary`, `what_changed` (every edition after the first), and `source_commit`.
+
+```bash
+# Review drafts (noindex, nothing archived):
+.venv/bin/python -m llm_metrics.static_site --output /tmp/site \
+  --site-url https://llmxchange.com --preview-at 2026-11-08T09:00:00Z
+
+# Publish approved editions: freezes their HTML into site_content/archive/
+# (commit it), then builds the site.
+.venv/bin/python -m llm_metrics.static_site --output /tmp/site \
+  --site-url https://llmxchange.com --publish-at 2026-11-08T09:00:00Z
+```
+
+- **Dated editions:** each edition lives at `/reports/<UTC publication date>/<slug>`, and a second edition on the same day gets `/r2`. Once published, the bytes never change: the build serves the archived file and refuses if it, or the edition's source, was modified.
+- **Indexes:** the home page lists editions newest first, and `/questions` groups them by question. The stable question page shows the latest answer, its edition history and related metrics.
+- **Canonicals:** dated editions are canonical to the stable page.
+- **Redirect plan:** the output's `redirects.json` lists `<slug>-latest` → `<slug>` (301) for the hosting step.
+- **Indexing:** an empty or synthetic metric page is `noindex`. Educational questions need no dataset and stay indexable.

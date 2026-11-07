@@ -1,0 +1,8 @@
+<ul>
+<li><strong>It limits this code path only.</strong> Anyone with owner rights on the cloud project could change the job, delete claims (which would reopen slots), change permissions or run other code with the same API key.</li>
+<li><strong>It limits requests, not money.</strong> Budget alerts notify us but do not stop spending.</li>
+<li><strong>A crash can lose a measurement.</strong> If the job stops after a paid response but before the record is saved, that request was paid for but not recorded. The audit reports it as a claim without a record. It is not retried.</li>
+<li><strong>Some slots are given up on purpose.</strong> An unclear claim result or a clock disagreement uses up the slot without a request. That reduces coverage in exchange for never paying twice.</li>
+<li><strong>It depends on the clock and the scheduler.</strong> Slot timing relies on the container clock, checked against the storage service's time, and on Cloud Scheduler delivering runs.</li>
+<li><strong>Not every cloud behaviour has been observed.</strong> The code handles both of the refusal responses Cloud Storage may return when an object already exists, but which one it actually returns has not been confirmed.</li>
+</ul>

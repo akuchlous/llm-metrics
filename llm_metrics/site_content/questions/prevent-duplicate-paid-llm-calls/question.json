@@ -1,0 +1,9 @@
+{
+  "question_id": "q0002",
+  "path": "/prevent-duplicate-paid-llm-api-calls",
+  "breadcrumb_name": "Preventing duplicate paid LLM calls",
+  "related_metrics": [],
+  "aliases": [],
+  "reviewed_distinct_from": [],
+  "editions": ["e1"]
+}

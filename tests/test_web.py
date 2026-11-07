@@ -377,7 +377,9 @@ class AppFactoryTest(unittest.TestCase):
                 # the SQLite path derived from LLM_METRICS_DB_PATH.
                 os.environ.pop("LLM_METRICS_DATABASE_URL", None)
                 app = web.create_app()
-            self.assertEqual(app.config[web.DB_PATH_KEY], f"sqlite:///{db_path}")
+            self.assertEqual(
+                app.config[web.DB_PATH_KEY], f"sqlite:///{db_path}"
+            )
         with mock.patch.dict(os.environ, {}, clear=False):
             os.environ.pop("LLM_METRICS_DB_PATH", None)
             os.environ.pop("LLM_METRICS_DATABASE_URL", None)
@@ -588,7 +590,8 @@ class ServerProcessTest(unittest.TestCase):
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
         self.env = {
-            k: v for k, v in os.environ.items()
+            k: v
+            for k, v in os.environ.items()
             # Remove Compose-injected vars that would redirect the server to
             # PostgreSQL or change the bind address.
             if k != "LLM_METRICS_DATABASE_URL"

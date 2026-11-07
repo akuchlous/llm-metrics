@@ -6,7 +6,6 @@
   "meta_description": "Validated time-to-first-token measurements for OpenAI gpt-6-luna: p50 and p95, sample size, failures, cost and the exact data window and source fingerprint.",
   "breadcrumb_name": "OpenAI TTFT metrics",
   "metric": "ttft",
-  "methodology_page": "/how-to-measure-openai-ttft",
   "expected_population": {
     "environment": "prod",
     "provider": "openai",
@@ -17,10 +16,30 @@
     "origin_region": "us-central1"
   },
   "sections": [
-    {"id": "about", "heading": "What this page measures", "file": "about.html"},
-    {"id": "measurements", "heading": "Latest validated measurements", "generated": "measurements"},
-    {"id": "setup", "heading": "Measurement setup", "generated": "setup"},
-    {"id": "provenance", "heading": "Data provenance", "generated": "provenance"},
-    {"id": "methodology", "heading": "Methodology", "file": "methodology.html"}
+    {
+      "id": "about",
+      "heading": "What this page measures",
+      "file": "about.html"
+    },
+    {
+      "id": "measurements",
+      "heading": "Latest validated measurements",
+      "generated": "measurements"
+    },
+    {
+      "id": "setup",
+      "heading": "Measurement setup",
+      "generated": "setup"
+    },
+    {
+      "id": "provenance",
+      "heading": "Data provenance",
+      "generated": "provenance"
+    },
+    {
+      "id": "methodology",
+      "heading": "Methodology",
+      "generated": "methodology"
+    }
   ]
 }

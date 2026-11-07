@@ -1,4 +1,8 @@
-"""Tests for the static question and metric pages (Step 025). Offline only.
+"""Tests for the static question and metric pages (Steps 025-026). Offline.
+
+Question pages exist only once an edition is published, so most tests
+render a temporary copy of `site_content` whose editions were approved and
+published (frozen into a temporary archive) at `PUBLISHED_AT`.
 
 Datasets are built by `record_analytics` from the committed synthetic mirror
 (`tests/fixtures/gcs_mirror/`), so every number here is synthetic. Nothing
@@ -26,8 +30,57 @@ from tests.test_workloads import PROMPT_SHA256
 SITE = "https://llmxchange.com"
 QUESTION = "how-to-measure-openai-ttft/index.html"
 METRIC = "metrics/openai/ttft/index.html"
-PAGES = ("index.html", "llm-performance/index.html", QUESTION, METRIC)
+DUPLICATE = "prevent-duplicate-paid-llm-api-calls/index.html"
+EDITION = "reports/2026-11-08/how-to-measure-openai-ttft/index.html"
+DUP_R1 = "reports/2026-11-08/prevent-duplicate-paid-llm-api-calls/index.html"
+PAGES = (
+    "index.html",
+    "llm-performance/index.html",
+    "questions/index.html",
+    QUESTION,
+    DUPLICATE,
+    METRIC,
+)
 CONFIG = ss.SiteConfig(SITE)
+PUBLISHED_AT = "2026-11-08T09:00:00Z"
+TTFT_EDITION = "questions/how-to-measure-openai-ttft/editions/e1"
+_PUBLISHED = {}
+
+
+def setUpModule():  # pylint: disable=invalid-name
+    tmp = pathlib.Path(tempfile.mkdtemp())
+    _PUBLISHED["tmp"] = tmp
+    root = tmp / "site_content"
+    shutil.copytree(ss.CONTENT_DIR, root)
+    publish(root)
+    _PUBLISHED["root"] = root
+
+
+def tearDownModule():  # pylint: disable=invalid-name
+    shutil.rmtree(_PUBLISHED["tmp"])
+
+
+def approve_all(root: pathlib.Path) -> None:
+    for path in root.glob("questions/*/editions/*/page.json"):
+        meta = json.loads(path.read_text())
+        meta["status"] = "approved"
+        path.write_text(json.dumps(meta))
+
+
+def publish(root: pathlib.Path, at: str = PUBLISHED_AT) -> list[str]:
+    """Approves every edition and freezes the unarchived ones at `at`."""
+    approve_all(root)
+    _, archive_files, manifest, _ = ss.plan_site(
+        CONFIG, None, root, freeze_at=at
+    )
+    if manifest is not None:
+        ss.freeze(root / "archive", archive_files, manifest)
+    return sorted(archive_files)
+
+
+def render(dataset_=None, **options):
+    """Renders the published copy of the real content."""
+    return ss.render_site(CONFIG, dataset_, _PUBLISHED["root"], **options)
 
 
 def summary_bytes(policy=True, **overrides) -> bytes:
@@ -48,7 +101,7 @@ def dataset(data=None, source="synthetic") -> ss.Dataset:
 
 
 def expected_population():
-    _, pages = ss.load_pages()
+    _, pages, _ = ss.load_pages()
     return next(p for p in pages if p.kind == "metric").meta[
         "expected_population"
     ]
@@ -73,6 +126,11 @@ class ContentCopy:
         self.root = tmp / "site_content"
         shutil.copytree(ss.CONTENT_DIR, self.root)
 
+    def render(self, dataset_=None):
+        """Publishes every edition of this copy, then renders it."""
+        publish(self.root)
+        return ss.render_site(CONFIG, dataset_, self.root)
+
     def edit_json(self, page_dir: str, **changes):
         path = self.root / page_dir / "page.json"
         meta = json.loads(path.read_text())
@@ -87,11 +145,16 @@ class NoDatasetTest(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        cls.files = ss.render_site(CONFIG)
+        cls.files = render()
 
     def test_pages_and_assets(self):
+        reports = [
+            EDITION,
+            DUP_R1,
+        ]
         self.assertEqual(
-            sorted(self.files), sorted([*PAGES, "assets/site.css"])
+            sorted(self.files),
+            sorted([*PAGES, *reports, "assets/site.css", "redirects.json"]),
         )
 
     def test_unavailable_state_without_numbers(self):
@@ -101,12 +164,17 @@ class NoDatasetTest(unittest.TestCase):
                 "No validated measurements have been published yet", html_text
             )
             self.assertNotRegex(html_text, r"\d ms\b")
-            self.assertNotIn("noindex", html_text)
             self.assertNotIn("Synthetic test data", html_text)
+        # The empty metric page is noindex; educational pages never are.
+        self.assertEqual(
+            ss.parse_page(self.files[METRIC]).meta.get("robots"), ["noindex"]
+        )
+        for name in (QUESTION, DUPLICATE, EDITION, "index.html"):
+            self.assertNotIn("noindex", self.files[name].decode())
         self.assertNotIn("<svg", self.files[METRIC].decode())
 
     def test_render_is_deterministic(self):
-        self.assertEqual(ss.render_site(CONFIG), self.files)
+        self.assertEqual(render(), self.files)
 
     def test_head_metadata(self):
         titles = set()
@@ -127,11 +195,17 @@ class NoDatasetTest(unittest.TestCase):
             self.assertEqual([lvl for lvl, _ in parsed.headings].count(1), 1)
             self.assertIn("Content-Security-Policy", parsed.meta)
             titles.add(parsed.title)
-        self.assertEqual(len(titles), 4)
+        self.assertEqual(len(titles), len(PAGES))
 
     def test_breadcrumbs_match_json_ld_and_exist(self):
         expected = {
-            QUESTION: ["Home", "LLM Performance", "How to measure OpenAI TTFT"],
+            QUESTION: ["Home", "Questions", "How to measure OpenAI TTFT"],
+            EDITION: [
+                "Home",
+                "Questions",
+                "How to measure OpenAI TTFT",
+                "8 November 2026 edition",
+            ],
             METRIC: ["Home", "LLM Performance", "OpenAI TTFT metrics"],
             "llm-performance/index.html": ["Home", "LLM Performance"],
         }
@@ -166,17 +240,15 @@ class NoDatasetTest(unittest.TestCase):
             "How Do You Measure OpenAI API Time to First Token?",
         )
         self.assertEqual(article["url"], SITE + "/how-to-measure-openai-ttft")
+        # The date comes from publication, never from content or build time.
+        self.assertEqual(article["datePublished"], PUBLISHED_AT)
         for key in (
-            "datePublished",
             "dateModified",
             "author",
             "publisher",
             "image",
         ):
             self.assertNotIn(key, article)
-        self.assertIn(
-            "Not yet published (draft)", self.files[QUESTION].decode()
-        )
 
     def test_cross_links(self):
         question = self.files[QUESTION].decode()
@@ -219,6 +291,7 @@ class NoDatasetTest(unittest.TestCase):
                 "Exact measurement setup",
                 "Limitations",
                 "Related pages",
+                "Edition history",
             ],
         )
 
@@ -237,7 +310,7 @@ class MethodologyMatchesCodeTest(unittest.TestCase):
         self.assertEqual(rows["Methodology version"], ss.METHODOLOGY_VERSION)
 
     def test_article_prose_matches_code_definitions(self):
-        directory = ss.CONTENT_DIR / "questions/how-to-measure-openai-ttft"
+        directory = ss.CONTENT_DIR / TTFT_EDITION
         prose = " ".join(p.read_text() for p in directory.glob("*.html"))
         workload = workloads.get_workload("interactive-chat-v1")
         self.assertIn(
@@ -266,7 +339,7 @@ class DatasetTest(unittest.TestCase):
     def setUpClass(cls):
         cls.data = summary_bytes()
         cls.dataset = dataset(cls.data)
-        cls.files = ss.render_site(CONFIG, cls.dataset)
+        cls.files = render(cls.dataset)
 
     def test_values_units_provenance_and_copy(self):
         metric = self.files[METRIC].decode()
@@ -299,11 +372,11 @@ class DatasetTest(unittest.TestCase):
             parsed = ss.parse_page(self.files[name])
             self.assertEqual(parsed.meta.get("robots"), ["noindex"])
             self.assertIn("Synthetic test data", self.files[name].decode())
-        real = ss.render_site(CONFIG, dataset(self.data, source="real"))
+        real = render(dataset(self.data, source="real"))
         self.assertNotIn("noindex", real[METRIC].decode())
 
     def test_data_refresh_never_changes_the_answer(self):
-        without = ss.render_site(CONFIG)
+        without = render()
         for section_id in ("answer", "method", "limitations"):
             self.assertEqual(
                 section(self.files[QUESTION], section_id),
@@ -318,7 +391,7 @@ class DatasetTest(unittest.TestCase):
         )
 
     def test_records_only_dataset_has_no_slot_table(self):
-        files = ss.render_site(CONFIG, dataset(summary_bytes(policy=False)))
+        files = render(dataset(summary_bytes(policy=False)))
         self.assertIn(
             "Slot completeness was not supplied", files[METRIC].decode()
         )
@@ -329,7 +402,7 @@ class DatasetTest(unittest.TestCase):
             start=fx.POLICY_START.replace(minute=30),
             end=fx.POLICY_START.replace(minute=45),
         )
-        metric = ss.render_site(CONFIG, dataset(data))[METRIC].decode()
+        metric = render(dataset(data))[METRIC].decode()
         self.assertNotIn("<svg", metric)
         self.assertNotRegex(metric, r">0 ms<")
         self.assertIn('<span class="unknown">unknown</span>', metric)
@@ -406,7 +479,7 @@ class EscapingTest(unittest.TestCase):
         data = DatasetRefusalTest().reencoded(
             lambda s: s["caveats"].append({"code": "x", "detail": attack})
         )
-        files = ss.render_site(CONFIG, dataset(data))
+        files = render(dataset(data))
         metric = files[METRIC].decode()
         self.assertNotIn("<script>alert", metric)
         self.assertNotIn("<img", metric)
@@ -419,11 +492,11 @@ class EscapingTest(unittest.TestCase):
             " first token?"
         )
         content.edit_json(
-            "questions/how-to-measure-openai-ttft",
+            TTFT_EDITION,
             title=title,
             h1=title + " (h1)",
         )
-        files = ss.render_site(CONFIG, content_dir=content.root)
+        files = content.render()
         text = files[QUESTION].decode()
         self.assertEqual(text.count("<script"), 2)  # the two JSON-LD blocks
         self.assertNotIn("<script>alert", text)
@@ -452,20 +525,18 @@ class EscapingTest(unittest.TestCase):
             ("<!-- note --><p>x</p>", "comments"),
         ):
             content = ContentCopy(self)
-            content.write(
-                "questions/how-to-measure-openai-ttft/answer.html", fragment
-            )
+            content.write(f"{TTFT_EDITION}/answer.html", fragment)
             with self.assertRaisesRegex(ss.SiteError, re.escape(message)):
-                ss.render_site(CONFIG, content_dir=content.root)
+                content.render()
 
     def test_broken_internal_link_is_refused(self):
         content = ContentCopy(self)
         content.write(
-            "questions/how-to-measure-openai-ttft/related.html",
+            f"{TTFT_EDITION}/related.html",
             '<ul><li><a href="/metrics/openai/total-latency">x</a></li></ul>',
         )
         with self.assertRaisesRegex(ss.SiteError, "broken internal link"):
-            ss.render_site(CONFIG, content_dir=content.root)
+            content.render()
 
 
 class AnswerMetadataTest(unittest.TestCase):
@@ -473,21 +544,19 @@ class AnswerMetadataTest(unittest.TestCase):
     def test_known_dates_and_authors_are_rendered(self):
         content = ContentCopy(self)
         content.edit_json(
-            "questions/how-to-measure-openai-ttft",
-            date_published="2026-11-08T09:00:00Z",
-            date_modified="2026-11-09T10:30:00+00:00",
+            TTFT_EDITION,
             authors=[
                 {"name": "Example Author", "url": "https://example.com/a"}
             ],
         )
-        files = ss.render_site(CONFIG, content_dir=content.root)
+        files = content.render()
         (article,) = [
             b
             for b in json_ld_blocks(files[QUESTION])
             if b["@type"] == "Article"
         ]
         self.assertEqual(article["datePublished"], "2026-11-08T09:00:00Z")
-        self.assertEqual(article["dateModified"], "2026-11-09T10:30:00+00:00")
+        self.assertNotIn("dateModified", article)  # one edition only
         self.assertEqual(article["author"][0]["name"], "Example Author")
         text = files[QUESTION].decode()
         self.assertIn(
@@ -498,27 +567,25 @@ class AnswerMetadataTest(unittest.TestCase):
         for changes, message in (
             ({"answer_basis": "dataset"}, "SHA-256"),
             ({"answer_basis": "guess"}, "answer_basis"),
-            ({"date_published": "yesterday"}, "ISO 8601"),
-            ({"date_modified": "2026-11-09T10:30:00Z"}, "needs date_published"),
+            ({"date_published": "2026-11-08T09:00:00Z"}, "assigned at"),
+            ({"status": "maybe"}, "draft or approved"),
             ({"authors": [{"name": ""}]}, "invalid author"),
             ({"answer_revision": "r1<script>"}, "unsafe"),
         ):
             content = ContentCopy(self)
-            content.edit_json("questions/how-to-measure-openai-ttft", **changes)
+            content.edit_json(TTFT_EDITION, **changes)
             with self.assertRaisesRegex(ss.SiteError, message):
-                ss.render_site(CONFIG, content_dir=content.root)
+                ss.load_pages(content.root)
 
-    def test_dataset_based_answer_names_its_dataset(self):
+    def test_dataset_based_answers_wait_for_metric_snapshots(self):
         content = ContentCopy(self)
         content.edit_json(
-            "questions/how-to-measure-openai-ttft",
+            TTFT_EDITION,
             answer_basis="dataset",
             answer_reviewed_dataset_sha256="a" * 64,
         )
-        files = ss.render_site(CONFIG, content_dir=content.root)
-        self.assertIn(
-            "a review of dataset aaaaaaaaaaaa", files[QUESTION].decode()
-        )
+        with self.assertRaisesRegex(ss.SiteError, "metric snapshots"):
+            content.render()
 
 
 class ConfigAndOutputTest(unittest.TestCase):
@@ -597,7 +664,6 @@ class ConfigAndOutputTest(unittest.TestCase):
                 {f["status"] for f in findings} - {"pass", "warn", "manual"},
                 set(),
             )
-            self.assertIn("manual", {f["status"] for f in findings})
             with contextlib.redirect_stderr(io.StringIO()):
                 with self.assertRaises(SystemExit) as exit_:
                     ss.main(
@@ -632,8 +698,8 @@ class ConfigAndOutputTest(unittest.TestCase):
 class EditorialReportTest(unittest.TestCase):
 
     def test_report_checks_are_advisory(self):
-        files = ss.render_site(CONFIG)
-        _, pages = ss.load_pages()
+        files = render()
+        _, _, pages = ss.plan_site(CONFIG, None, _PUBLISHED["root"])[1:]
         report = ss.editorial_report(files, pages)
         checks = {f["check"]: f["status"] for f in report}
         for check in (
