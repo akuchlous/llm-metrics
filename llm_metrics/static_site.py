@@ -703,6 +703,7 @@ def plan_editions(
     *,
     freeze_at: str | None = None,
     preview_at: str | None = None,
+    staging: bool = False,
 ) -> tuple[list[Published], list[dict]]:
     """Decides which editions are published and where.
 
@@ -713,6 +714,9 @@ def plan_editions(
       that time (new manifest entries are returned for the caller to write).
     - With `preview_at`, every unarchived edition, drafts included, is shown
       at that time for review only (never written to the archive).
+    - With `staging` (a preview for a temporary public host), only approved
+      editions are shown, and only on their stable question page: no dated
+      `/reports/...` edition is generated, so no artificial history exists.
 
     Returns:
         (published editions, new manifest entries).
@@ -781,8 +785,8 @@ def plan_editions(
         for e in q.editions
         if (q.question_id, e.edition_id) not in seen
         and (
-            preview_at is not None
-            or (freeze_at is not None and e.status == "approved")
+            (preview_at is not None and not staging)
+            or ((freeze_at is not None or staging) and e.status == "approved")
         )
     ]
     for question, edition in pending:
@@ -795,7 +799,11 @@ def plan_editions(
         if any(question.editions.index(p.edition) > later for p in earlier):
             raise SiteError("Editions must be published in registry order.")
         same_day = sum(p.published_at[:10] == moment[:10] for p in earlier) + 1
-        route = edition_route(question.path, moment, same_day)
+        route = (
+            question.path
+            if staging
+            else edition_route(question.path, moment, same_day)
+        )
         published.append(Published(question, edition, moment, route, None))
         if freeze_at is not None:
             new_entries.append(
@@ -1371,7 +1379,12 @@ def _answer_view(meta: dict) -> dict:
     }
 
 
+STAGING_LABEL = "Staging preview, not yet published"
+
+
 def _edition_label(item: Published) -> str:
+    if not item.route.startswith("/reports/"):
+        return STAGING_LABEL
     suffix = item.route.rsplit("/", 1)[-1]
     revision = f", {suffix}" if re.match(r"^r\d+$", suffix) else ""
     return f"{_date_text(item.published_at)} edition{revision}"
@@ -1414,6 +1427,8 @@ def _question_pages(question: Question, items: list[Published]) -> list[Page]:
         )
     ]
     for index, item in enumerate(items):
+        if item.route == question.path:
+            continue  # staging: no dated edition page
         page = item.edition.page
         label = _edition_label(item)
         pages.append(
@@ -1450,6 +1465,7 @@ def plan_site(
     archive_dir: pathlib.Path | None = None,
     freeze_at: str | None = None,
     preview_at: str | None = None,
+    staging: bool = False,
     costs: dict | None = None,
     forbidden: tuple[str, ...] = (),
 ) -> tuple[dict[str, bytes], dict[str, bytes], dict | None, list[Page]]:
@@ -1461,6 +1477,8 @@ def plan_site(
     """
     if freeze_at and preview_at:
         raise SiteError("A preview can never be frozen.")
+    if staging and not preview_at:
+        raise SiteError("A staging build needs a preview time.")
     for moment in (freeze_at, preview_at):
         if moment is not None and not _PUBLISHED_AT_RE.match(moment):
             raise SiteError(
@@ -1476,6 +1494,7 @@ def plan_site(
         archive_dir,
         freeze_at=freeze_at,
         preview_at=preview_at,
+        staging=staging,
     )
     if dataset is not None:
         for page in base_pages:
@@ -1486,7 +1505,12 @@ def plan_site(
     data = data_view(dataset) if dataset is not None else None
     real_data = dataset is not None and dataset.source == "real"
     banner = None
-    if preview_at:
+    if staging:
+        banner = (
+            "Staging preview.",
+            "This temporary site is not published and may change.",
+        )
+    elif preview_at:
         banner = (
             "Draft preview.",
             "These pages are not published and may change.",
@@ -1558,7 +1582,7 @@ def plan_site(
         ):
             # Empty or synthetic metric and cost pages are not indexable
             # content; educational pages stay indexable without any data.
-            robots = "noindex"
+            robots = "noindex, nofollow" if preview_at else "noindex"
         page = dataclasses.replace(page, robots=robots)
         by_path[page.path] = page
         crumbs = breadcrumbs(page, by_path)
@@ -2255,6 +2279,7 @@ def build(
     archive_dir: pathlib.Path | None = None,
     freeze_at: str | None = None,
     preview_at: str | None = None,
+    staging: bool = False,
     cost_ledger_path: pathlib.Path | None = None,
 ) -> tuple[dict, list[dict], list[str]]:
     """Validates, renders and checks everything, then writes.
@@ -2297,6 +2322,7 @@ def build(
         archive_dir=archive_dir,
         freeze_at=freeze_at,
         preview_at=preview_at,
+        staging=staging,
         costs=costs,
         forbidden=forbidden,
     )
@@ -2349,7 +2375,15 @@ def main(argv: list[str] | None = None) -> int:
         help="show every unarchived edition, drafts included, at this UTC"
         " time for review; noindex and never archived",
     )
+    parser.add_argument(
+        "--staging",
+        action="store_true",
+        help="with --preview-at: approved editions only, on stable pages,"
+        " with no dated edition pages (for a temporary public host)",
+    )
     options = parser.parse_args(argv)
+    if options.staging and not options.preview_at:
+        parser.error("--staging requires --preview-at")
     if (options.analytics is None) != (options.data_source is None):
         parser.error("--analytics and --data-source must be given together")
     try:
@@ -2362,6 +2396,7 @@ def main(argv: list[str] | None = None) -> int:
             options.data_source,
             freeze_at=options.publish_at,
             preview_at=options.preview_at,
+            staging=options.staging,
             cost_ledger_path=None
             if options.cost_ledger is None
             else pathlib.Path(options.cost_ledger),

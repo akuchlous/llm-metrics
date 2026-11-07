@@ -190,4 +190,50 @@ After ChatGPT review: request **Approval A**, the Cloudflare `workers.dev` stagi
   - Answer: yes for a trust product. Independent lanes keep it credible.
   - Risks: visible gaps, no audience plan, no named author.
 
-**STOP: awaiting ChatGPT review. Step 028 not started.**
+## Approval A: staging deployment (executed 2026-11-07)
+
+**Public staging URL:** https://llmxchange.akuchlous.workers.dev (temporary; `noindex, nofollow`).
+
+**Source changes:** a `--staging` build mode (D085): approved answers only, no dated editions, nothing archived, `noindex, nofollow` on every page including 404; `wrangler.jsonc` gains `workers_dev: true` and `preview_urls: false`.
+
+**Before deploy:** Docker `./run.sh test` ran 649 tests, OK (6 skipped). The build passed the generator's link and forbidden-content checks, plus a grep scan for keys, GCP project/bucket names, account ids, emails and private ledger fields: no hits. The one "synthetic" match is the article describing the synthetic benchmark prompt. `wrangler deploy --dry-run` passed with no bindings. `git status` showed no archive changes.
+
+**Commands run:**
+```bash
+python -m llm_metrics.static_site --output site_build \
+  --site-url https://llmxchange.akuchlous.workers.dev \
+  --preview-at <UTC now> --staging        # in the app Docker image, --network none
+npx wrangler@4.152.0 deploy --dry-run
+npx wrangler@4.152.0 deploy
+```
+
+**Actual resource configuration (read back from the Cloudflare API):**
+- One Worker `llmxchange`, assets only (`has_assets: true`, no modules, no bindings), compatibility date 2026-11-07, version 34fc2545-0f58-4b06-abbf-7d6e1f3a25a9 at 100%.
+- workers.dev enabled, preview URLs disabled; no custom domains, no routes, no DNS changes.
+- 12 assets uploaded (`_headers`/`_redirects` are host config, not served).
+- No paid plan or service was added. The OAuth token cannot read billing, so the plan tier was not read back via API; the account is the owner's Free account.
+
+**Live verification:**
+
+| Request | Result |
+|---|---|
+| `/`, `/questions`, `/llm-performance`, `/metrics/openai/ttft`, `/costs`, `/how-to-measure-openai-ttft` | 200 |
+| `/questions/`, `/how-to-measure-openai-ttft/`, `/questions/index.html`, `/costs/index.html`, `/index.html` | 307 to the slashless URL |
+| `/how-to-measure-openai-ttft-latest` | 301 to the stable page |
+| `/nope`, `/prevent-duplicate-paid-llm-api-calls` (draft), `/reports/2026-11-07/...` | 404 with the site's 404 page |
+| `/_headers`, `/_redirects` | 404 (not exposed) |
+| `robots.txt` | `Allow: /`, no sitemap line; `sitemap.xml` has no URLs |
+
+- Security headers present on 200, 307 and 404 responses: CSP, `X-Content-Type-Options`, `Referrer-Policy`, `Permissions-Policy`, `X-Robots-Tag: noindex, nofollow`.
+- Every live page and the stylesheet are byte-identical to the build. The metric page says "No validated measurements have been published yet." and contains no millisecond values. `/costs` says "No verified billing data has been published yet." No private billing record exists or was used.
+- Static accessibility checks on every live page: `lang`, viewport, `<main>`, one `h1`, skip link (not on 404), no images without alt text, dark-mode and width media queries.
+
+**Issues:**
+- The first request to `/questions/index.html` returned a plain-text 404 during propagation; repeated requests return 307.
+- `/.llm-metrics-site` (the build marker, text "llm-metrics static site build") and `/redirects.json` (the public redirect plan) are served. Neither is sensitive; they can be excluded later with an `.assetsignore`.
+- Desktop/mobile screenshots, Lighthouse and axe were **not run**: the local headless-Chrome container was denied by the session's permission classifier. Visual review is still needed in a browser.
+- The workers.dev hostname contains the account's subdomain `akuchlous`.
+
+**Rollback:** `npx wrangler@4.152.0 deployments list`, then `npx wrangler@4.152.0 rollback <version-id>`; full removal: `npx wrangler@4.152.0 delete --name llmxchange`.
+
+**STOP: staging deployed and verified; awaiting ChatGPT review. Production (Approval B) and Step 028 not started.**

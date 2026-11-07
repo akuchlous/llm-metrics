@@ -1,6 +1,6 @@
 # Project status
 
-_Last updated: Step 027 complete offline (Cloudflare-ready site, costs ledger, release lanes; awaiting ChatGPT review and Approvals A/B); Step 023 PARTIAL — 2026-11-07_
+_Last updated: Step 027 staging deployed to workers.dev (Approval A); awaiting ChatGPT review; Approval B not started; Step 023 PARTIAL — 2026-11-07_
 
 ## Current state
 
@@ -17,12 +17,11 @@ _Last updated: Step 027 complete offline (Cloudflare-ready site, costs ledger, r
   - **Step 028** must deliver immutable dated metric snapshots, sample-size thresholds and the weekly metrics Q&A workflow **before any real benchmark result is published**.
 - **Tests:** Docker `./run.sh test` (see 027 output).
 - **Not done:** no screenshots (the headless browser image was not permitted).
-- **Cloudflare status (2026-11-07):**
-  - Cloudflare's agent plugin (`cloudflare@cloudflare` from the `cloudflare/skills` marketplace) is installed in Claude Code at user scope, following https://developers.cloudflare.com/agent-setup/prompt.md. OAuth to the Cloudflare account has not been done yet; it happens on first Cloudflare tool use.
-  - Not installed: Node.js, Wrangler and the optional `cf` CLI. No API token has been created.
-  - Nothing deployed: no Worker, no workers.dev staging, no DNS or account changes. `llmxchange.com` is not purchased.
-  - A deploy still requires explicit Approval A (staging) or B (domain).
-- **No cloud, DNS or Cloudflare account actions.**
+- **Cloudflare status (2026-11-07): staging deployed (Approval A).**
+  - https://llmxchange.akuchlous.workers.dev: one assets-only Worker `llmxchange` (version 34fc2545), workers.dev only, preview URLs off, no custom domain, routes or DNS. Built with `--staging`: approved answers only, no dated editions, nothing archived, `noindex, nofollow` everywhere.
+  - Live routing, redirects, 404s, security headers, robots and content checks passed; see `prompts/027-output.md`. Screenshots/Lighthouse not run (headless browser not permitted).
+  - Wrangler 4.152.0 via OAuth login; Cloudflare agent plugin installed. `llmxchange.com` not purchased; production (Approval B) not started.
+- **No GCP, DNS or paid Cloudflare actions.**
 
 **Step 026 complete (local only), awaiting ChatGPT review: question registry and immutable dated Q&A editions.**
 - **Registry:** each question directory has a `question.json` (opaque `question_id`, stable path, editions). Editions reuse the Step 025 `page.json` and fragments, with `status` draft/approved.
@@ -303,7 +302,9 @@ A unique index on observations (`recorded_at`, `environment`, `provider`, `model
 
 ## Next step
 
-**Recommended (after ChatGPT review of Step 027):** Approval A, a Cloudflare `*.workers.dev` staging deploy with route, header and visual verification; see `prompts/027-output.md`.
+**Recommended (after ChatGPT review of the staging deploy):** a browser visual and accessibility review of https://llmxchange.akuchlous.workers.dev, then Approval B (domain, publication, Search Console) when ready.
+
+_Previous:_ **Recommended (after ChatGPT review of Step 027):** Approval A, a Cloudflare `*.workers.dev` staging deploy; done 2026-11-07.
 
 _Previous:_ **Recommended (after ChatGPT review of Step 026):** review and approve the draft duplicate-calls article, then follow the minimum publication steps in `prompts/026-output.md`: publish with `--publish-at`, commit the archive, then an approved hosting step (027).
 

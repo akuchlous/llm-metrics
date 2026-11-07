@@ -1,11 +1,16 @@
 // Cloudflare Workers Static Assets configuration for llmxchange.com.
 // Assets only: there is no Worker script ("main"), so every request is
 // served as a static asset and nothing is billed per request.
-// NOT DEPLOYED. Deploying needs a Cloudflare account, an API token and
-// explicit approval (Step 027 Approval A/B); see prompts/027-output.md.
+// Staging (Approval A) is deployed at https://llmxchange.akuchlous.workers.dev
+// from a `--staging` build; production (custom domain, Approval B) is not.
+// Every deploy needs explicit approval; see prompts/027-output.md.
 {
   "name": "llmxchange",
   "compatibility_date": "2026-11-07",
+  // Serve only on the account's workers.dev hostname; no per-version
+  // preview hostnames and no routes or custom domains.
+  "workers_dev": true,
+  "preview_urls": false,
   "assets": {
     // Output of `python -m llm_metrics.publish_runner ... --output site_build`.
     "directory": "./site_build",

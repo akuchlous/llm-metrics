@@ -413,7 +413,9 @@ class PreviewTest(unittest.TestCase):
         for name, data in files.items():
             if name.endswith(".html") and name != "404.html":
                 self.assertEqual(
-                    ss.parse_page(data).meta.get("robots"), ["noindex"], name
+                    ss.parse_page(data).meta.get("robots"),
+                    ["noindex, nofollow"],
+                    name,
                 )
                 self.assertIn("Draft preview", data.decode())
         self.assertFalse(content.archive.exists())

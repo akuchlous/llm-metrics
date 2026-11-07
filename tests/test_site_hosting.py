@@ -308,7 +308,7 @@ class HostingFilesTest(unittest.TestCase):
             self.files["_redirects"].decode(),
         )
         not_found = ss.parse_page(self.files["404.html"])
-        self.assertEqual(not_found.meta["robots"], ["noindex"])
+        self.assertEqual(not_found.meta["robots"], ["noindex, nofollow"])
         self.assertNotIn("canonical", not_found.links_rel)
 
     def test_cloudflare_route_emulation(self):
@@ -408,12 +408,39 @@ class StagingTest(unittest.TestCase):
         self.assertNotIn("Sitemap:", files["robots.txt"].decode())
         self.assertNotIn("<loc>", files["sitemap.xml"].decode())
         home = ss.parse_page(files["index.html"])
-        self.assertEqual(home.meta["robots"], ["noindex"])
+        self.assertEqual(home.meta["robots"], ["noindex, nofollow"])
         self.assertEqual(home.links_rel["canonical"], [host + "/"])
         self.assertNotIn(b"https://llmxchange.com", files["index.html"])
         self.assertFalse(content.archive.exists())
         production = ss.render_site(CONFIG)["_headers"].decode()
         self.assertNotIn("X-Robots-Tag", production)
+
+    def test_staging_build_has_approved_answers_only_and_no_editions(self):
+        host = "https://llmxchange.example.workers.dev"
+        files = ss.render_site(
+            ss.SiteConfig(host),
+            preview_at="2026-11-07T20:00:00Z",
+            staging=True,
+        )
+        self.assertFalse(any(n.startswith("reports/") for n in files))
+        self.assertIn("how-to-measure-openai-ttft/index.html", files)
+        # The draft (unapproved) article is absent everywhere.
+        self.assertFalse(
+            any(b"prevent-duplicate" in data for data in files.values())
+        )
+        for name, data in files.items():
+            if name.endswith(".html"):
+                self.assertEqual(
+                    ss.parse_page(data).meta["robots"],
+                    ["noindex, nofollow"],
+                    name,
+                )
+        self.assertIn(b"Staging preview", files["index.html"])
+        self.assertFalse((ss.CONTENT_DIR / "archive").exists())
+
+    def test_staging_needs_a_preview_time(self):
+        with self.assertRaises(ss.SiteError):
+            ss.render_site(CONFIG, staging=True)
 
 
 class ScheduleTest(unittest.TestCase):

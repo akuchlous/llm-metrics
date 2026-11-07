@@ -96,6 +96,12 @@ Every step must preserve `./run.sh`, keep secrets/runtime artifacts out of Git, 
   `real_smoke` now delegates to `real_benchmark.run` (the OpenAI target with the smoke workload), so both paid commands share one refusal, announce, attempt and report path. `OpenAIProvider` lost its unused `model` override (the profile fixes the model), and `run_attempt` lost a cache-policy check that profile matching already covers. Test fakes (`sse`, `FakeResponse`, `FakeOpener`, `no_network`) live in `tests/fakes.py`.
 
   Kept separate on purpose, because each provider has its own contract: event dispatch, usage field extraction, request-id source, error-code tables, and request bodies. The OpenAI and xAI Responses parsers stay separate despite similar shapes, because their account errors, ids and documented fields differ. Wire requests, profiles, stored facts, outcomes and output are unchanged, except that the `real_smoke` pre-request announcement now uses `real_benchmark`'s multi-line format.
+- **D085 — Approval A: one staging Worker on workers.dev from a `--staging` build (Step 027).**
+  - `static_site --preview-at T --staging` shows approved editions only, on their stable question pages. It generates no dated `/reports/...` edition and writes nothing to the archive. Drafts are absent, including from links and `_redirects`.
+  - Every preview/staging page is `noindex, nofollow` (meta and `X-Robots-Tag`); the sitemap is empty; the banner reads "Staging preview."
+  - `wrangler.jsonc`: `workers_dev: true`, `preview_urls: false`; assets only, no routes or custom domain. Wrangler pinned to 4.152.0.
+  - Deployed 2026-11-07 to https://llmxchange.akuchlous.workers.dev (version 34fc2545-0f58-4b06-abbf-7d6e1f3a25a9). Production (Approval B) not started.
+
 - **D084 — One static llmxchange.com on Cloudflare Workers Static Assets; private cost ledger; two release lanes (Step 027, offline).**
   - **Scope decisions recorded (ChatGPT review of Step 026):**
     - Step 026 is accepted for educational Q&A.
