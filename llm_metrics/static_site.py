@@ -78,6 +78,7 @@ import markupsafe
 from llm_metrics import cost_ledger
 from llm_metrics import latency
 from llm_metrics import outcomes
+from llm_metrics import pilot_series
 from llm_metrics import pricing
 from llm_metrics import record_analytics
 from llm_metrics import targets
@@ -129,7 +130,7 @@ _PARENTS = {
 }
 GENERATED_SECTIONS = {
     "question": ("findings", "setup"),
-    "metric": ("measurements", "setup", "provenance", "methodology"),
+    "metric": ("measurements", "charts", "setup", "provenance", "methodology"),
     "costs": ("costs",),
 }
 # Order shown on the TTFT metric page: TTFT first, then the related latency
@@ -1056,6 +1057,287 @@ def _format_count(value) -> str | None:
     return None if value is None else f"{value:,}"
 
 
+# ---------------------------------------------------------------------------
+# Per-request time series charts (Step 027c)
+
+
+@dataclasses.dataclass(frozen=True)
+class Series:
+    """A validated `llm-metrics.pilot-series.v1` file (already sanitized)."""
+
+    summary: dict
+    data: bytes
+    sha256: str
+
+    @property
+    def json_path(self) -> str:
+        return f"/data/series/{self.sha256}.json"
+
+
+_SERIES_KEYS = {
+    "success": {"slot", "state", "ttft_ms", "total_latency_ms",
+                "output_tokens_per_s"},
+    "failure": {"slot", "state", "failure_category"},
+}  # fmt: skip
+
+
+def load_series(path: pathlib.Path, dataset: Dataset) -> Series:
+    """Reads a series and checks it describes exactly `dataset`'s evidence.
+
+    Raises:
+        SiteError: Malformed, non-canonical, unsafe or inconsistent series.
+    """
+    path = pathlib.Path(path)
+    if path.is_symlink() or not path.is_file():
+        raise SiteError(f"Series is not a regular file: {path}")
+    data = path.read_bytes()
+    if len(data) > MAX_SUMMARY_BYTES:
+        raise SiteError("Series file is too large.")
+    try:
+        series = json.loads(data, object_pairs_hook=_reject_duplicates)
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        raise SiteError("Series is not UTF-8 JSON.") from None
+    if record_analytics.encode_summary(series) != data:
+        raise SiteError("Series is not in canonical form.")
+    if series.get("schema_version") != pilot_series.SCHEMA_VERSION:
+        raise SiteError("Not an llm-metrics.pilot-series.v1 file.")
+    summary = dataset.summary
+    if series.get("population") != summary["population"]:
+        raise SiteError("Series population differs from the dataset.")
+    if (
+        series.get("record_manifest_sha256")
+        != summary["evidence"]["manifest_sha256"]
+    ):
+        raise SiteError("Series and dataset describe different records.")
+    rows = series.get("slots")
+    policy = series.get("policy") or {}
+    if not isinstance(rows, list) or len(rows) != policy.get("max_slots"):
+        raise SiteError("Series must have one row per policy slot.")
+    start = datetime.datetime.strptime(
+        policy["start"], "%Y-%m-%dT%H:%M:%SZ"
+    ).replace(tzinfo=datetime.timezone.utc)
+    cutoff = summary["population"]["end_exclusive"]
+    counts = dict.fromkeys(pilot_series.STATES, 0)
+    for index, row in enumerate(rows):
+        expected = (start + datetime.timedelta(minutes=15 * index)).strftime(
+            "%Y-%m-%dT%H:%M:%SZ"
+        )
+        state = row.get("state") if isinstance(row, dict) else None
+        if row.get("slot") != expected or state not in counts:
+            raise SiteError("Series slots are out of order or unknown.")
+        if (state == "not_due") != (row["slot"] >= cutoff):
+            raise SiteError("Series future slots disagree with the cutoff.")
+        allowed = _SERIES_KEYS.get(state, {"slot", "state"})
+        if set(row) - allowed:
+            raise SiteError("Series row has fields outside the allowlist.")
+        if state == "success":
+            for key in ("ttft_ms", "total_latency_ms"):
+                _number_or_none(row.get(key), key)
+                if row.get(key) is None:
+                    raise SiteError("A successful slot needs its latency.")
+            _number_or_none(row.get("output_tokens_per_s"), "tokens/s")
+        counts[state] += 1
+    reliability = summary["reliability"]
+    if (
+        series.get("counts") != counts
+        or counts["success"] != reliability["successes"]
+        or counts["failure"] != reliability["failures"]
+    ):
+        raise SiteError("Series counts disagree with the dataset.")
+    return Series(series, data, hashlib.sha256(data).hexdigest())
+
+
+def _nice_max(value: float) -> float:
+    """Smallest round number (1, 1.5, 2 ... 8 x 10^k) at or above `value`."""
+    if value <= 0:
+        return 1.0
+    exponent = math.floor(math.log10(value))
+    for step in (1, 1.5, 2, 2.5, 3, 4, 5, 6, 8, 10):
+        top = step * 10**exponent
+        if top >= value:
+            return top
+    return 10 ** (exponent + 1)
+
+
+_CHART = {"width": 640, "height": 230, "left": 56, "right": 14, "top": 14,
+          "bottom": 40}  # fmt: skip
+
+
+def _x(index: int, count: int) -> float:
+    plot = _CHART["width"] - _CHART["left"] - _CHART["right"]
+    return round(_CHART["left"] + plot * index / max(count - 1, 1), 1)
+
+
+def _time_ticks(rows: list[dict]) -> list[dict]:
+    ticks = []
+    for index, row in enumerate(rows):
+        slot = row["slot"]
+        if slot[14:16] == "00" and int(slot[11:13]) % 6 == 0:
+            label = slot[11:16]
+            if slot[11:13] == "00":
+                label = f"{label} {int(slot[8:10])} {_MONTHS[int(slot[5:7])]}"
+            ticks.append({"x": _x(index, len(rows)), "label": label})
+    return ticks
+
+
+_MONTHS = (None, "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug",
+           "Sep", "Oct", "Nov", "Dec")  # fmt: skip
+
+
+def _line_chart(rows, key, unit, title, summary_metric) -> dict:
+    """One per-request chart: dots, gap-aware lines, failure/missing marks."""
+    count = len(rows)
+    values = [r.get(key) for r in rows if r["state"] == "success"]
+    known = [v for v in values if v is not None]
+    peak = max(known) if known else 1
+    p95 = summary_metric["p95"]
+    # A few slow outliers would flatten every other point; above twice the
+    # p95 the axis is capped and those points are drawn at the top edge
+    # with their value written next to them (never hidden).
+    capped = p95 is not None and peak > 2 * p95
+    top = _nice_max(2 * p95 if capped else peak)
+    plot_h = _CHART["height"] - _CHART["top"] - _CHART["bottom"]
+    base = _CHART["top"] + plot_h
+
+    def fmt(value):
+        return (
+            f"{value:,.0f} {unit}" if unit == "ms" else (f"{value:,.1f} {unit}")
+        )
+
+    def y(value):
+        return round(_CHART["top"] + plot_h * (1 - value / top), 1)
+
+    points, segments, current, marks, clipped = [], [], [], [], []
+    for index, row in enumerate(rows):
+        value = row.get(key) if row["state"] == "success" else None
+        if value is None:
+            if len(current) > 1:
+                segments.append(" ".join(current))
+            current = []
+            if row["state"] in ("failure", "missing", "claim_without_record"):
+                marks.append(
+                    {"x": _x(index, count), "y": base, "state": row["state"]}
+                )
+            continue
+        shown = min(value, top)
+        point = f"{_x(index, count)},{y(shown)}"
+        current.append(point)
+        if value > top:
+            clipped.append(
+                {"x": _x(index, count), "y": y(top), "label": fmt(value)}
+            )
+        else:
+            points.append({"x": _x(index, count), "y": y(value)})
+    if len(current) > 1:
+        segments.append(" ".join(current))
+    future = [i for i, r in enumerate(rows) if r["state"] == "not_due"]
+    median = summary_metric["p50"]
+    return {
+        "title": title,
+        "unit": unit,
+        **_CHART,
+        "base": base,
+        "y_ticks": [
+            {"y": y(top * i / 4), "label": fmt(top * i / 4)} for i in range(5)
+        ],
+        "x_ticks": _time_ticks(rows),
+        "points": points,
+        "clipped": clipped,
+        "axis_top": fmt(top),
+        "segments": segments,
+        "marks": marks,
+        "future": None
+        if not future
+        else {
+            "x": _x(future[0], count) - 3,
+            "width": _x(count - 1, count) - _x(future[0], count) + 6,
+        },
+        "median": None
+        if median is None
+        else {"y": y(median), "label": f"median {fmt(median)}"},
+        "n": len(known),
+        "missing_values": len(values) - len(known),
+        "max": fmt(max(known)) if known else None,
+        "min": fmt(min(known)) if known else None,
+    }
+
+
+_STATE_LABELS = {
+    "success": "Successful request",
+    "failure": "Failed request",
+    "missing": "Due, no request (missing)",
+    "claim_without_record": "Claimed, no record",
+    "not_due": "Not yet due",
+}
+
+
+def series_view(series: Series, dataset: Dataset) -> dict:
+    """Template values for the charts (geometry and labels only)."""
+    data = series.summary
+    rows = data["slots"]
+    metrics = dataset.summary["metrics"]
+    count = len(rows)
+    cell = (_CHART["width"] - _CHART["left"] - _CHART["right"]) / count
+    return {
+        "json_path": series.json_path,
+        "sha256": series.sha256,
+        "cutoff": _utc_text(data["cutoff"]),
+        "start": _utc_text(data["policy"]["start"]),
+        "expires": _utc_text(data["policy"]["expires"]),
+        "due": data["due_slots"],
+        "total": count,
+        "counts": data["counts"],
+        "charts": [
+            _line_chart(rows, "ttft_ms", "ms", "Time to first token",
+                        metrics["ttft"]),
+            _line_chart(rows, "total_latency_ms", "ms", "Total response time",
+                        metrics["total_latency"]),
+            _line_chart(rows, "output_tokens_per_s", "tokens/s",
+                        "Output tokens per second",
+                        metrics["output_tokens_per_s"]),
+        ],  # fmt: skip
+        "outcomes": {
+            **_CHART,
+            "height": 70,
+            "cells": [
+                {
+                    "x": round(_CHART["left"] + i * cell, 1),
+                    "width": round(max(cell - 1, 1), 1),
+                    "state": r["state"],
+                }
+                for i, r in enumerate(rows)
+            ],
+            "x_ticks": _time_ticks(rows),
+            "legend": [
+                {"state": s, "label": label, "count": data["counts"][s]}
+                for s, label in _STATE_LABELS.items()
+            ],
+        },
+        "table": [
+            {
+                "slot": _utc_text(r["slot"])[:-7].replace(" ", " ", 1),
+                "slot_iso": r["slot"],
+                "state": _STATE_LABELS[r["state"]]
+                + (
+                    f" ({outcomes.FAILURE_CATEGORIES[r['failure_category']]})"
+                    if r.get("failure_category")
+                    else ""
+                ),
+                "ttft": _fmt_cell(r.get("ttft_ms"), "ms"),
+                "total": _fmt_cell(r.get("total_latency_ms"), "ms"),
+                "tps": _fmt_cell(r.get("output_tokens_per_s"), "tokens/s"),
+            }
+            for r in rows
+        ],
+    }
+
+
+def _fmt_cell(value, unit):
+    if value is None:
+        return ""
+    return f"{value:,.0f}" if unit == "ms" else f"{value:,.1f}"
+
+
 # Step 027b pilot gates for a provisional (partial-window) staging preview.
 # They are deliberately separate from the production path (publish_runner's
 # metrics lane, which never passes `provisional`).
@@ -1593,6 +1875,7 @@ def plan_site(
     preview_at: str | None = None,
     staging: bool = False,
     provisional: bool = False,
+    series: Series | None = None,
     costs: dict | None = None,
     forbidden: tuple[str, ...] = (),
 ) -> tuple[dict[str, bytes], dict[str, bytes], dict | None, list[Page]]:
@@ -1632,6 +1915,9 @@ def plan_site(
     if dataset is not None:
         dataset = _provisional_gate(dataset, provisional, staging)
     data = data_view(dataset) if dataset is not None else None
+    if series is not None and dataset is None:
+        raise SiteError("A series needs its analytics dataset.")
+    charts = None if series is None else series_view(series, dataset)
     real_data = dataset is not None and dataset.source == "real"
     banner = None
     if staging:
@@ -1794,6 +2080,7 @@ def plan_site(
             related_metric=page.meta.get("related_metric") or page.path,
             methodology_page=methodology.get(page.path),
             methodology_version=METHODOLOGY_VERSION,
+            charts=None if page.kind == "edition" else charts,
             banner=banner,
             nav=nav,
             costs=costs,
@@ -1804,6 +2091,8 @@ def plan_site(
     files[STYLESHEET_PATH[1:]] = STYLESHEET_SOURCE.read_bytes()
     if dataset is not None:
         files[dataset.json_path[1:]] = dataset.public_bytes
+    if series is not None:
+        files[series.json_path[1:]] = series.data
     redirects = [
         {"from": source, "to": q.path, "status": 301}
         for q in questions
@@ -2563,6 +2852,7 @@ def build(
     preview_at: str | None = None,
     staging: bool = False,
     provisional: bool = False,
+    series_path: pathlib.Path | None = None,
     cost_ledger_path: pathlib.Path | None = None,
 ) -> tuple[dict, list[dict], list[str]]:
     """Validates, renders and checks everything, then writes.
@@ -2586,6 +2876,11 @@ def build(
             "expected_population"
         ]
         dataset = load_dataset(analytics, data_source, expected)
+    series = None
+    if series_path is not None:
+        if dataset is None:
+            raise SiteError("--series needs --analytics.")
+        series = load_series(series_path, dataset)
     costs, forbidden = None, ()
     if cost_ledger_path is not None:
         try:
@@ -2607,6 +2902,7 @@ def build(
         preview_at=preview_at,
         staging=staging,
         provisional=provisional,
+        series=series,
         costs=costs,
         forbidden=forbidden,
     )
@@ -2660,6 +2956,11 @@ def main(argv: list[str] | None = None) -> int:
         " time for review; noindex and never archived",
     )
     parser.add_argument(
+        "--series",
+        help="llm-metrics.pilot-series.v1 file for per-request charts"
+        " (needs --analytics over the same records)",
+    )
+    parser.add_argument(
         "--provisional-metrics",
         action="store_true",
         help="with --staging and a real dataset: allow a partial pilot"
@@ -2688,6 +2989,9 @@ def main(argv: list[str] | None = None) -> int:
             preview_at=options.preview_at,
             staging=options.staging,
             provisional=options.provisional_metrics,
+            series_path=None
+            if options.series is None
+            else pathlib.Path(options.series),
             cost_ledger_path=None
             if options.cost_ledger is None
             else pathlib.Path(options.cost_ledger),

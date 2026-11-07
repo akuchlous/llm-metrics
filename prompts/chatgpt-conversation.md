@@ -691,3 +691,7 @@ The user wanted to see real OpenAI measurements on the hosted question pages. Wi
 
 The user asked for a reusable local preview so the whole site can be checked on their Chromebook before any Cloudflare deploy: `./run.sh site-preview` builds the staging-equivalent site in Docker (approved content, optional locally validated real metrics with the provisional label, nothing frozen) and serves it on http://localhost:8000 with Cloudflare-like routing. The user set a standing rule: local preview and human review come before every staging deployment (D088).
 
+## Step 027c implemented: pilot charts and plan-only restart (2026-11-07)
+
+The owner wanted graphs of the real OpenAI measurements and an easy, safe way to start another 24-hour run. Per-request charts (TTFT, total response time, tokens/s, slot outcomes) were added to the metric page from a sanitized per-slot series that carries the analytics summary's record manifest hash; they are previewed locally with `./run.sh site-preview` and not deployed until the owner says "deploy staging". `./run.sh pilot-plan` prints a bounded 96-slot plan with cost and stop/audit commands and refuses unsafe windows; launching remains a separate Approval C after the original pilot is stopped and audited. No new paid calls, GCS reads or collector changes.
+

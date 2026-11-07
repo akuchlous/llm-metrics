@@ -80,3 +80,4 @@ Each file has:
 | [027](027/) | Cloudflare-ready static site: design, costs ledger, sitemap/redirects, release lanes | `prompts/027-configurable-static-publishing.md` |
 | [027a](027a/) | Question-first site: question home page with pagination, categories, metric questions, new drafts | `prompts/027a-question-first-site.md` |
 | [027b](027b/) | First real OpenAI pilot metrics on staging: provisional gates, allowlisted JSON, evidence view | `prompts/027b-real-openai-staging-metrics.md` |
+| [027c](027c/) | Per-request charts of the real pilot and a plan-only 24-hour restart command | `prompts/027c-real-metrics-charts-and-repeatable-pilot.md` |

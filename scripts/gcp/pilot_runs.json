@@ -1,0 +1,13 @@
+{
+  "schema_version": "llm-metrics.pilot-runs.v1",
+  "runs": [
+    {
+      "run_id": "openai.gpt-6-luna.v1/2026-11-06T18:00:00Z",
+      "start": "2026-11-06T18:00:00Z",
+      "expires": "2026-11-07T18:00:00Z",
+      "approval": "Step 023 Approval B (96 paid requests)",
+      "closed": false,
+      "note": "Window ends 2026-11-07T18:00:00Z. Close = run the approved `stop`, then the post-window audit; then set closed to true."
+    }
+  ]
+}

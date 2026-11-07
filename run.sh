@@ -8,6 +8,8 @@
 #   ./run.sh test      Same workflow; dashboard HTTP 200 smoke test; auto-exits
 #   ./run.sh site-preview [--help]  Build the website and serve it locally
 #                      on http://localhost:8000 (no deploy, no cloud calls)
+#   ./run.sh pilot-plan --start YYYY-MM-DDTHH:MM:SSZ [--analytics FILE]
+#                      Plan-only: window, slots, cost, stop/audit commands
 #   ./run.sh down      Remove project containers, network and volume after
 #                      a SIGKILL (safe, project-scoped — see cleanup below)
 #
@@ -38,6 +40,15 @@ if [ "$MODE" = "site-preview" ]; then
     shift
     exec bash scripts/site_preview.sh "$@"
 fi
+if [ "$MODE" = "pilot-plan" ]; then
+    # Plan-only preparation of a new 24-hour pilot (no cloud, no network).
+    shift
+    docker compose build app --quiet
+    tty=(); [ -t 0 ] && tty=(-t)
+    exec docker run --rm "${tty[@]}" --network none -u "$(id -u):$(id -g)" \
+        -v "$PWD:/src:ro" -w /src -e PYTHONDONTWRITEBYTECODE=1 llm_metrics-app \
+        python -m llm_metrics.pilot_plan "$@"
+fi
 case "$MODE" in
     serve|test|down) ;;
     *)
@@ -46,6 +57,7 @@ case "$MODE" in
         echo "  test   Same as serve but runs dashboard smoke test and auto-exits" >&2
         echo "  down   Remove project Compose containers, network and volume" >&2
         echo "  site-preview  Build and serve the website locally (--help)" >&2
+        echo "  pilot-plan    Plan (only) a new 24-hour pilot: --start UTC (--help)" >&2
         exit 1
         ;;
 esac

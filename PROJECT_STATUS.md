@@ -1,8 +1,13 @@
 # Project status
 
-_Last updated: Step 027b provisional real OpenAI pilot metrics on workers.dev staging; awaiting ChatGPT review; Approval B not started; Step 023 PARTIAL — 2026-11-07_
+_Last updated: Step 027c per-request pilot charts (local preview, not deployed) and plan-only pilot restart; awaiting review; Approval B not started; Step 023 PARTIAL — 2026-11-07_
 
 ## Current state
+
+**Step 027c complete locally, not deployed; awaiting local visual review and ChatGPT review.**
+- Metric page charts of every real pilot request over time (TTFT, total response time, tokens/s) and every slot's outcome, from a sanitized per-slot series (D089). Preview with `./run.sh site-preview`; deploy to staging only after you say "deploy staging".
+- `./run.sh pilot-plan --start <UTC>` plans (only) a new 24-hour run; launching needs Approval C after the original pilot is stopped and audited.
+- 689 tests OK (7 skipped).
 
 **Local website preview added (D088), awaiting ChatGPT review.** `./run.sh site-preview` builds the staging-equivalent site locally and serves it on http://localhost:8000 (Ctrl+C to stop; `--help`, `--drafts`, `--analytics`, `--port`). No deploy, no cloud calls. Local preview and human review now come before every Cloudflare staging deploy. 670 tests OK (7 skipped).
 
@@ -315,6 +320,9 @@ A unique index on observations (`recorded_at`, `environment`, `provider`, `model
 
 ## Next step
 
+**Recommended (Step 027c):** review the charts locally with `./run.sh site-preview`; then decide on `deploy staging`. Tomorrow: approve `stop` and the audit for the original pilot before any Approval C.
+
+_Previous:_
 **Recommended (after ChatGPT review of Step 027b):** after 18:00Z approve the documented `stop`, run the full-window audit and rebuild staging from the complete 96-slot dataset.
 
 _Previous:_

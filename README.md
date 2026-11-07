@@ -574,6 +574,14 @@ Try it on the committed synthetic fixture (not real measurements):
 - **Fail-closed:** malformed, non-canonical, misplaced, oversized or symlinked files, unexpected entries, duplicate provider request ids, mixed populations, inconsistent slot evidence or zero matching records all exit 1 with nothing written. Bad arguments exit 2.
 - **Output:** canonical JSON with no wall-clock fields, so identical inputs give byte-identical files. It is written atomically and create-only: an existing file with different content is never replaced, and an identical one is left as is.
 
+## Planning a new 24-hour pilot (plan only)
+
+```bash
+./run.sh pilot-plan --start YYYY-MM-DDTHH:MM:SSZ [--analytics SUMMARY.json] [--json]
+```
+
+`llm_metrics.pilot_plan` prints the proposed window and its 96 slot times, the existing Step 023 resources it reuses, the exact changes a launch would make, prerequisites, a model-API cost estimate from a reviewed pilot summary, and the `activate`, `audit` and `stop` commands. It reads local files only, runs no gcloud command and makes no provider call; there is no execute mode. It refuses a start that is not a UTC quarter hour, is less than 30 minutes or more than 14 days ahead, overlaps or repeats a run in `scripts/gcp/pilot_runs.json`, or follows a run that is not yet closed (stopped and audited). Launching stays the Step 023 `activate` stage under a separate, explicit approval.
+
 ## Static question and metric pages (local only)
 
 `python -m llm_metrics.static_site` builds the public website's pages as
@@ -611,6 +619,19 @@ deployed by this command.
 - **Real metrics:** pass a locally validated `llm-metrics.analytics.v1` summary of real data with `--analytics`, or put it at `.site-preview/analytics.json` (gitignored and excluded from Docker builds), and it is used automatically. It goes through the provisional gates and label (`--provisional-metrics`, D087). Without one, metric pages show the honest no-data state. `--drafts` cannot be combined with `--analytics`.
 - **Local only:** the build container has no network. The server (`llm_metrics.site_preview`) binds to `127.0.0.1` only, and nothing contacts OpenAI, Cloudflare or GCP. On a Chromebook, open `http://localhost:8000` in Chrome; Linux (Crostini) forwards the port.
 - **Routing:** each request goes through `static_site.resolve`, the same Cloudflare emulation the build's link checks use: `/slug` gives 200; `/slug/` and `/slug/index.html` give a 307 to `/slug`; `_redirects` gives 301; unknown paths and `_headers`/`_redirects` give the 404 page. Every response carries the `_headers` rules.
+- **Per-request charts:** pass `--series FILE` (or put it at `.site-preview/series.json`) next to the analytics summary. The metric page then shows TTFT, total response time and output tokens/s per request over UTC time, plus every slot's outcome. Make both files from the same private mirror and window:
+
+  ```bash
+  python -m llm_metrics.record_analytics --input MIRROR --output .site-preview/analytics.json \
+    --provider openai --model gpt-6-luna --profile openai.gpt-6-luna.v1 \
+    --workload interactive-chat-v1 --origin gcp/us-central1 \
+    --start POLICY_START --end CUTOFF --collector-policy-start POLICY_START
+  python -m llm_metrics.pilot_series --input MIRROR --output .site-preview/series.json \
+    --start POLICY_START --end CUTOFF
+  ```
+
+  The series keeps slot times, outcomes and rounded values only (no ids or object names). The build refuses it unless its record manifest hash, population and counts match the summary.
+- **Port:** the preview and `./run.sh` (dashboard and tests) both use port 8000; stop one before starting the other, or use `--port`.
 - **Differences from Cloudflare:**
   - plain HTTP on localhost, with no TLS, edge caching or compression;
   - `Cache-Control: no-store` instead of Cloudflare's `public, max-age=0, must-revalidate`;

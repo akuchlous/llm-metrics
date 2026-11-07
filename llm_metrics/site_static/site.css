@@ -10,6 +10,7 @@
   --warn: #fff7e0;
   --warn-line: #e8d08a;
   --bar: #2c8a6e;
+  --bad: #c2410c;
   --radius: 8px;
   --measure: 42rem;
   --serif: ui-serif, "Iowan Old Style", "Charter", "Georgia", serif;
@@ -28,6 +29,7 @@
     --warn: #2a2414;
     --warn-line: #66572b;
     --bar: #4cb895;
+    --bad: #fb923c;
   }
 }
 * { box-sizing: border-box; }
@@ -130,3 +132,25 @@ figcaption { font-size: 0.88rem; color: var(--ink-soft); }
   body { font-size: 1rem; }
   .main-nav ul { gap: 1rem; }
 }
+
+/* Per-request charts (static SVG; colours follow the theme). */
+.chart-figure { margin: 1.5rem 0 2rem; }
+.chart-grid { stroke: var(--line); stroke-width: 1; }
+.chart-axis { fill: var(--ink-soft); font-size: 11px; font-family: var(--sans); }
+.chart-line { fill: none; stroke: var(--bar); stroke-width: 1.4; stroke-opacity: 0.55; }
+.chart-point { fill: var(--bar); }
+.chart-median { stroke: var(--ink-soft); stroke-width: 1; stroke-dasharray: 4 3; }
+.chart-median-label { fill: var(--ink-soft); font-size: 11px; font-family: var(--sans); }
+.chart-future { fill: var(--surface); }
+.chart-clipped { fill: var(--bar); }
+.chart-clipped-label { fill: var(--ink); font-size: 11px; font-family: var(--sans); }
+.chart-mark-failure, .chart-mark-claim_without_record { stroke: var(--bad); stroke-width: 2; }
+.chart-mark-missing { stroke: var(--ink-soft); stroke-width: 2; }
+.slot-success { fill: var(--bar); background: var(--bar); }
+.slot-failure, .slot-claim_without_record { fill: var(--bad); background: var(--bad); }
+.slot-missing { fill: var(--ink-soft); background: var(--ink-soft); }
+.slot-not_due { fill: var(--surface); background: var(--surface); stroke: var(--line); }
+.legend { list-style: none; padding: 0; display: flex; flex-wrap: wrap; gap: 0.35rem 1.25rem; font-size: 0.88rem; color: var(--ink-soft); }
+.swatch { display: inline-block; width: 0.8rem; height: 0.8rem; border-radius: 2px; margin-right: 0.4rem; vertical-align: -0.05rem; border: 1px solid var(--line); }
+details { margin: 1rem 0; }
+summary { cursor: pointer; color: var(--link); }

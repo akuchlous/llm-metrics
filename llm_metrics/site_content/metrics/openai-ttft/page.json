@@ -27,6 +27,11 @@
       "generated": "measurements"
     },
     {
+      "id": "charts",
+      "heading": "Every request over time",
+      "generated": "charts"
+    },
+    {
       "id": "setup",
       "heading": "Measurement setup",
       "generated": "setup"
