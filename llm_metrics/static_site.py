@@ -1643,6 +1643,7 @@ def plan_site(
                 csp=CSP,
                 stylesheet=STYLESHEET_PATH,
             ),
+            staging=preview_at is not None,
         )
     )
     check_site(files, config, pages, frozen_paths)
@@ -1680,6 +1681,8 @@ def hosting_files(
     redirects: list[dict],
     published: list[Published],
     not_found_html: str,
+    *,
+    staging: bool = False,
 ) -> dict[str, bytes]:
     """`sitemap.xml`, `robots.txt`, `_redirects`, `_headers`, `404.html`.
 
@@ -1722,14 +1725,21 @@ def hosting_files(
             "  X-Content-Type-Options: nosniff",
             "  Referrer-Policy: strict-origin-when-cross-origin",
             "  Permissions-Policy: camera=(), microphone=(), geolocation=()",
+            # A preview/staging deployment (e.g. on *.workers.dev) must
+            # never be indexed, whatever hostname serves it.
+            *(["  X-Robots-Tag: noindex, nofollow"] if staging else []),
             "",
         ]
     )
     return {
         "sitemap.xml": ("\n".join(lines) + "\n").encode("utf-8"),
         "robots.txt": (
-            "User-agent: *\nAllow: /\n\n"
-            f"Sitemap: {config.absolute('/sitemap.xml')}\n"
+            "User-agent: *\nAllow: /\n"
+            + (
+                ""
+                if staging
+                else f"\nSitemap: {config.absolute('/sitemap.xml')}\n"
+            )
         ).encode("utf-8"),
         "_redirects": "".join(
             f"{rule['from']} {rule['to']} {rule['status']}\n"

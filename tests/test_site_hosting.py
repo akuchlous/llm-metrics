@@ -395,6 +395,27 @@ class HostingFilesTest(unittest.TestCase):
         )
 
 
+class StagingTest(unittest.TestCase):
+
+    def test_preview_build_is_not_indexable_on_any_hostname(self):
+        host = "https://llmxchange.example.workers.dev"
+        content = t26.Content(self)
+        files = ss.render_site(
+            ss.SiteConfig(host), None, content.root, preview_at=t26.D1
+        )
+        headers = files["_headers"].decode()
+        self.assertIn("X-Robots-Tag: noindex, nofollow", headers)
+        self.assertNotIn("Sitemap:", files["robots.txt"].decode())
+        self.assertNotIn("<loc>", files["sitemap.xml"].decode())
+        home = ss.parse_page(files["index.html"])
+        self.assertEqual(home.meta["robots"], ["noindex"])
+        self.assertEqual(home.links_rel["canonical"], [host + "/"])
+        self.assertNotIn(b"https://llmxchange.com", files["index.html"])
+        self.assertFalse(content.archive.exists())
+        production = ss.render_site(CONFIG)["_headers"].decode()
+        self.assertNotIn("X-Robots-Tag", production)
+
+
 class ScheduleTest(unittest.TestCase):
 
     def config(self, frequency):

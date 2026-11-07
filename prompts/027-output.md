@@ -78,7 +78,7 @@
 
 ## Tests
 
-**`tests/test_site_hosting.py`, 24 new tests:**
+**`tests/test_site_hosting.py`, 25 new tests:**
 - **Ledger:**
   - a partial ledger gives per-currency subtotals with refunds deducted, the estimate excluded, "not yet verified" and the unverified list;
   - a lifetime total appears only when everything is reconciled, and an unpaid invoice blocks it;
@@ -88,6 +88,7 @@
   - no ledger: honest notice, `noindex`, not in the sitemap;
   - a partial ledger renders "Full lifetime total not yet verified." with USD and EUR kept separate, is indexable and appears in the sitemap;
   - a private reference never appears in any public file, and content that contains one is refused.
+- **Staging:** a preview for a `workers.dev` hostname is `noindex` everywhere, sends `X-Robots-Tag: noindex, nofollow`, has an empty sitemap and no sitemap line in `robots.txt`, uses canonicals on the preview host only, and archives nothing. Production builds have no `X-Robots-Tag`.
 - **Hosting:**
   - the sitemap lists exactly the indexable canonical pages, with truthful `lastmod`, no editions, aliases or `noindex` metric page, and is stable across rebuilds;
   - `robots.txt`, `_headers` (CSP + `frame-ancestors`), `_redirects`, and a `404.html` that is noindex without a canonical;
@@ -107,8 +108,8 @@
 **Existing Step 025/026 tests** were updated for the new files (costs, sitemap, 404, headers, redirects) and for `#content` anchors.
 
 **Validation:**
-- **Docker `./run.sh test`: `Ran 646 tests`, `OK (skipped=6)`, 0 failures.**
-  - That is 622 + 24.
+- **Docker `./run.sh test`: `Ran 647 tests`, `OK (skipped=6)`, 0 failures.**
+  - That is 622 + 25.
   - 6 skips: the 5 pre-existing container-config skips, plus the `wrangler.jsonc` check, which runs and passes outside the image.
   - The 24 PostgreSQL integration tests passed; the dashboard smoke test returned HTTP 200.
   - The first run had 1 error because `wrangler.jsonc` is not in the test image; that test now skips there.
@@ -138,19 +139,21 @@
 
 ## Approvals needed next (exact plan)
 
-**Approval A: staging, no domain change.** You would provide or confirm a Cloudflare account and either run the deploy yourself or approve a scoped API token. Then:
-1. Build:
+**Approval A: staging on a free Cloudflare hostname.** `llmxchange.com` has **not** been purchased, and none is needed for staging. You would provide or confirm a Cloudflare account and either run the deploy yourself or approve a scoped API token. Then:
+1. Build a preview for the generated hostname. It is `noindex` on every page, adds an `X-Robots-Tag: noindex, nofollow` header, has an empty sitemap and no sitemap line in `robots.txt`, and freezes nothing into the archive:
    ```bash
-   python -m llm_metrics.publish_runner editorial --output site_build --site-url https://llmxchange.com --state-dir publish_state --publish-at <UTC now> --dry-run
+   python -m llm_metrics.static_site --output site_build --site-url https://<worker>.<account>.workers.dev --preview-at <UTC now>
    ```
-   Then `static_site --preview-at …` for a `noindex` staging build. Don't freeze real editions for staging.
-2. Deploy with `npx wrangler deploy` to `llmxchange.<account>.workers.dev`.
+   Real editions are not frozen with a throwaway or unowned URL.
+2. Deploy with `npx wrangler deploy` (assets only).
 3. Curl each route class against the `resolve()` table: slashless, slash, `index.html`, a dated edition, the `-latest` 301, the 404, headers and `sitemap.xml`. Run the forbidden-content scan on the deployed files.
 4. Take desktop and mobile screenshots and run Lighthouse.
-5. Rollback is `wrangler delete` or a redeploy of the previous build.
+5. Teardown is `npx wrangler delete`; rollback is a redeploy of the previous build.
+
+Expected cost: $0 for asset-only Workers on the Free plan, per the docs. Re-verify at execution time.
 
 **Approval B: production.**
-1. Confirm `llmxchange.com` DNS on Cloudflare.
+1. You buy `llmxchange.com` (or confirm you control it) and put its DNS on Cloudflare; this is a separate decision and purchase.
 2. Approve the draft duplicate-calls article.
 3. Run `publish_runner editorial --publish-at <UTC now>`, then commit and push `site_content/archive/`.
 4. Deploy and attach the custom domain.

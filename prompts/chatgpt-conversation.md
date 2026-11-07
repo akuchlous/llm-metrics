@@ -669,7 +669,7 @@ ChatGPT accepted Step 026 for the educational Q&A scope. Remaining items were mo
 - **Checks:** a host-routing emulator and a forbidden-content scan.
 - **Release lanes:** `publish_runner` with separate editorial and metrics lanes, a cadence config and an emergency switch.
 
-**Testing.** Docker: 646 tests, 6 skipped, 0 failures.
+**Testing.** Docker: 647 tests, 6 skipped, 0 failures. Staging builds on a free Cloudflare hostname are protected with noindex, X-Robots-Tag and no sitemap, matching the amended 027 prompt; llmxchange.com is not yet purchased.
 
 **Screenshots.** Not taken: running a third-party headless-browser image was not permitted.
 
