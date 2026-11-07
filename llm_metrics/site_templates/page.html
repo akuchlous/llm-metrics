@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m %}
+{% block main %}
+<article>
+<h1>{{ page.h1 }}</h1>
+{% if page.kind == "question" %}
+<dl class="revision">
+<div><dt>Answer revision</dt><dd>{{ answer.revision }}</dd></div>
+<div><dt>Answer based on</dt><dd>{{ answer.basis_text }}</dd></div>
+<div><dt>Published</dt><dd>{% if answer.date_published %}<time datetime="{{ answer.date_published }}">{{ answer.date_published_text }}</time>{% else %}Not yet published (draft){% endif %}</dd></div>
+{% if answer.date_modified %}<div><dt>Updated</dt><dd><time datetime="{{ answer.date_modified }}">{{ answer.date_modified_text }}</time></dd></div>{% endif %}
+</dl>
+{% endif %}
+{% for section in sections %}
+<section id="{{ section.id }}">
+{% if section.heading %}<h2>{{ section.heading }}</h2>{% endif %}
+{% if section.html is not none %}{{ section.html }}{% else %}{% include "_" ~ section.generated ~ ".html" %}{% endif %}
+</section>
+{% endfor %}
+{% if links %}
+<ul class="page-list">
+{% for link in links %}<li><a href="{{ link.path }}">{{ link.h1 }}</a><p>{{ link.description }}</p></li>
+{% endfor %}</ul>
+{% endif %}
+</article>
+{% endblock %}

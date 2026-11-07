@@ -96,6 +96,31 @@ Every step must preserve `./run.sh`, keep secrets/runtime artifacts out of Git, 
   `real_smoke` now delegates to `real_benchmark.run` (the OpenAI target with the smoke workload), so both paid commands share one refusal, announce, attempt and report path. `OpenAIProvider` lost its unused `model` override (the profile fixes the model), and `run_attempt` lost a cache-policy check that profile matching already covers. Test fakes (`sse`, `FakeResponse`, `FakeOpener`, `no_network`) live in `tests/fakes.py`.
 
   Kept separate on purpose, because each provider has its own contract: event dispatch, usage field extraction, request-id source, error-code tables, and request bodies. The OpenAI and xAI Responses parsers stay separate despite similar shapes, because their account errors, ids and documented fields differ. Wire requests, profiles, stored facts, outcomes and output are unchanged, except that the `real_smoke` pre-request announcement now uses `real_benchmark`'s multi-line format.
+- **D082 — Static question and metric pages from reviewed content plus a validated summary; answer revisions separate from data (Step 025).**
+  - **Generator:** `llm_metrics.static_site` uses Jinja2 (already pinned through Flask; autoescape, `StrictUndefined`) with its own templates in `site_templates/`. It is not coupled to Flask, SQL or GCS.
+    - Amends the D056 import guard: Flask/Werkzeug remain `web.py`-only. Jinja2/MarkupSafe are allowed only in `web.py` and `static_site.py` (the two HTML boundaries); `tests/test_web.py` enforces this. Output is deterministic files with clean URLs (`<path>/index.html`), one stylesheet, and a content-addressed copy of the dataset (`/data/analytics/<sha256>.json`).
+  - **Content model:** each page is a directory in `site_content/` (`page.json` plus static HTML fragments), listed in `site.json`. Adding an article means adding content, not HTML templates.
+    - Fragments are reviewed static HTML, never templates. They are validated against an allowlist: `p`, `ul`, `ol`, `li`, `a[href]` (internal paths or https), `code`, `strong`, `em`, `h3` and `br`; no comments.
+    - Data reaches a page only through the generated sections (`findings`, `measurements`, `setup`, `provenance`).
+  - **Answers:** `answer_revision`, `editorial_revision` and `answer_basis` (`methodology`, or `dataset` with the reviewed dataset's SHA-256) are explicit inputs. A data refresh changes only "data last refreshed" and never the answer text or its revision.
+    - `datePublished`/`dateModified`/authors appear only when set in content (ISO 8601 with offset). Nothing is generated from the build time.
+    - No publisher or image is asserted.
+  - **Datasets:** only the exact canonical bytes written by `record_analytics` are accepted (`encode_summary(parse(bytes)) == bytes`). The schema, population (exact profile, workload and origin per metric page), counts, units and null/zero consistency are validated.
+    - The caller must declare `--data-source real|synthetic`. Synthetic builds put a banner and `noindex` on every page.
+    - Without a dataset, both pages show an explicit no-data state.
+  - **SEO/structured data:**
+    - Absolute https canonical from a validated `--site-url`, with matching `og:url`/`og:title`/`og:description`. No `og:image`.
+    - Visible breadcrumbs Home › LLM Performance › page that equal the `BreadcrumbList` JSON-LD.
+    - `Article` for the question page; `WebPage`, `CollectionPage` or `WebSite` for the others.
+    - JSON-LD escapes `<`, `>`, `&`, U+2028 and U+2029.
+    - A meta CSP (`default-src 'none'; style-src 'self'; img-src 'self'; base-uri 'none'; form-action 'none'`): nothing executable, and JSON-LD is unaffected.
+    - Following Google's AI-features guidance, there is no AI-specific markup or `llms.txt`.
+  - **Methodology version** `llm-metrics.ttft-methodology.v1` pins:
+    - the timer (`time.perf_counter()` from just before the streaming request to the first `response.output_text.delta`, so first text chunk, not first byte or exact first token);
+    - success-only distributions, with failures kept in reliability;
+    - nearest-rank percentiles;
+    - schemas attempt.v1 and analytics.v1.
+  - **Known hosting constraint for Step 027:** canonicals have no trailing slash. A directory-based static server (e.g. `python -m http.server`) redirects `/slug` to `/slug/`, so the production host must serve `/slug` directly (clean URLs, trailing slash off) or the canonical policy must change.
 - **D081 — Published analytics come from an offline, read-only summary over immutable GCS records, not from the SQL dashboard (Step 024).**
   - **Command:** `llm_metrics.record_analytics` reads a local mirror of the bucket, only `<prefix>/v1/requests/prod/`. It never contacts GCP, providers or a database. The mirror is a separate, explicit operator copy.
   - **Population:** exact provider, model, profile, workload, origin cloud/region and UTC `[start, end)`.

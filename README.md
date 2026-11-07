@@ -573,3 +573,37 @@ Try it on the committed synthetic fixture (not real measurements):
 - **Evidence:** each record's object name, attempt id, outcome and SHA-256 are listed, plus the SHA-256 of a `sha256sum`-format manifest. No provider request ids, prompts or responses are written.
 - **Fail-closed:** malformed, non-canonical, misplaced, oversized or symlinked files, unexpected entries, duplicate provider request ids, mixed populations, inconsistent slot evidence or zero matching records all exit 1 with nothing written. Bad arguments exit 2.
 - **Output:** canonical JSON with no wall-clock fields, so identical inputs give byte-identical files. It is written atomically and create-only: an existing file with different content is never replaced, and an identical one is left as is.
+
+## Static question and metric pages (local only)
+
+`python -m llm_metrics.static_site` builds the public website's pages as
+plain files: the question article `/how-to-measure-openai-ttft`, the metric
+page `/metrics/openai/ttft`, the home page and the `/llm-performance` hub. It
+needs no web server, database, GCP or provider. Nothing is hosted or
+deployed by this command.
+
+```bash
+# Educational pages only: the metric page shows "no validated measurements".
+.venv/bin/python -m llm_metrics.static_site --output /tmp/site \
+  --site-url https://llmxchange.com --report /tmp/site-report.json
+
+# With a Step 024 summary. The source must be declared; synthetic data is
+# bannered and marked noindex on every page.
+.venv/bin/python -m llm_metrics.static_site --output /tmp/site \
+  --site-url https://llmxchange.com \
+  --analytics summary.json --data-source synthetic
+
+# Preview (clean URLs need a server; file:// links will not resolve).
+.venv/bin/python -m http.server 8000 --bind 127.0.0.1 -d /tmp/site
+```
+
+- **Editorial text** lives in `llm_metrics/site_content/<page>/` as `page.json` (title, description, breadcrumb name, answer revision, dates and authors only when known) plus static HTML fragments checked against a small tag allowlist. **Numbers** are rendered only from a validated `llm-metrics.analytics.v1` file, never into the reviewed answer.
+- **Adding an article:** create a new directory with `page.json` and fragments, then list it in `site_content/site.json`. The shared template, metadata, breadcrumbs, JSON-LD and checks apply automatically.
+- **Build checks (fail the build):**
+  - title, description, canonical and Open Graph tags;
+  - one H1 and no skipped heading levels;
+  - visible breadcrumbs identical to the `BreadcrumbList`;
+  - `Article` URL and headline;
+  - every internal link resolves; no executable scripts;
+  - question ↔ metric cross-links.
+- **Editorial report:** advisory pass/warn/manual findings inspired by Yoast's checks (keyphrase placement, lengths, sentence length, links). It is not a ranking score.

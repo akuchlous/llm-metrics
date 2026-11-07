@@ -439,9 +439,16 @@ class ImportAndDependencyTest(unittest.TestCase):
             self.assertFalse(db_path.exists())
 
     def test_only_the_web_module_imports_web_frameworks(self):
+        # Flask/Werkzeug belong to web.py alone. The template engine is also
+        # allowed in static_site.py, the offline HTML boundary (D082); every
+        # other module stays free of both.
+        template_packages = {"jinja2", "markupsafe"}
         for path in sorted((REPO_ROOT / "llm_metrics").glob("*.py")):
             if path.name == "web.py":
                 continue
+            forbidden = WEB_PACKAGES
+            if path.name == "static_site.py":
+                forbidden = WEB_PACKAGES - template_packages
             tree = ast.parse(path.read_text(encoding="utf-8"))
             imported = set()
             for node in ast.walk(tree):
@@ -452,7 +459,7 @@ class ImportAndDependencyTest(unittest.TestCase):
                 elif isinstance(node, ast.ImportFrom) and node.module:
                     imported.add(node.module.split(".")[0])
             with self.subTest(module=path.name):
-                self.assertFalse(imported & WEB_PACKAGES)
+                self.assertFalse(imported & forbidden)
 
     def test_layers_import_only_inward(self):
         # HTML: web -> dashboard -> analytics -> storage

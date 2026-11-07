@@ -1,0 +1,18 @@
+{% import "_macros.html" as m %}
+{% if data %}
+<p class="data-note">Data last refreshed: latest measurement <time datetime="{{ data.window.latest_iso }}">{{ data.window.latest }}</time>. These numbers are regenerated from the dataset and are separate from the reviewed answer above.</p>
+<table>
+<caption>OpenAI {{ data.population.model }} TTFT, successful requests only ({{ data.window.start }} to {{ data.window.end }})</caption>
+<thead><tr><th scope="col">Measure</th><th scope="col">Value</th></tr></thead>
+<tbody>
+<tr><th scope="row">Median TTFT (p50)</th><td>{{ m.value(data.ttft.p50) }}</td></tr>
+<tr><th scope="row">95th percentile TTFT (p95)</th><td>{{ m.value(data.ttft.p95) }}</td></tr>
+<tr><th scope="row">Successful requests measured</th><td>{{ data.ttft.count }}</td></tr>
+<tr><th scope="row">Failed requests (not in TTFT)</th><td>{{ data.reliability.failures }}</td></tr>
+</tbody>
+</table>
+{% if data.preliminary %}<p class="preliminary"><strong>Preliminary:</strong> {{ data.preliminary }}</p>{% endif %}
+{% else %}
+{{ m.unavailable(related_metric) }}
+{% endif %}
+<p><a href="{{ related_metric }}">Explore measured OpenAI TTFT</a>, with the full table, reliability, cost and data provenance.</p>

@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="{{ site.language }}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="{{ csp }}">
+{% if page.robots %}<meta name="robots" content="{{ page.robots }}">
+{% endif %}<title>{{ page.title }}</title>
+<meta name="description" content="{{ page.description }}">
+<link rel="canonical" href="{{ page.canonical }}">
+<meta property="og:type" content="{{ page.og_type }}">
+<meta property="og:title" content="{{ page.title }}">
+<meta property="og:description" content="{{ page.description }}">
+<meta property="og:url" content="{{ page.canonical }}">
+<meta property="og:site_name" content="{{ site.name }}">
+<link rel="stylesheet" href="{{ stylesheet }}">
+{% for block in page.json_ld %}<script type="application/ld+json">{{ block }}</script>
+{% endfor %}</head>
+<body>
+<header class="site-header"><a class="site-name" href="/">{{ site.name }}</a></header>
+{% if page.breadcrumbs | length > 1 %}
+<nav aria-label="Breadcrumb" class="breadcrumb">
+<ol>
+{% for crumb in page.breadcrumbs %}{% if loop.last %}<li><a href="{{ crumb.path }}" aria-current="page">{{ crumb.name }}</a></li>
+{% else %}<li><a href="{{ crumb.path }}">{{ crumb.name }}</a></li>
+{% endif %}{% endfor %}</ol>
+</nav>
+{% endif %}
+<main>
+{% if page.robots %}<p class="notice" role="note"><strong>Synthetic test data.</strong> The numbers in this build are not real measurements.</p>
+{% endif %}{% block main %}{% endblock %}
+</main>
+<footer class="site-footer">
+<p>Open-source benchmark code: <a href="https://github.com/akuchlous/llm-metrics">github.com/akuchlous/llm-metrics</a>.</p>
+</footer>
+</body>
+</html>

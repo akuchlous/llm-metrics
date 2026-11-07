@@ -1,0 +1,9 @@
+{
+  "kind": "home",
+  "path": "/",
+  "title": "llmxchange.com: Independent LLM Performance Measurement",
+  "h1": "Independent LLM performance measurement",
+  "meta_description": "Practical answers about measuring LLM API performance, with the methods and validated measurements behind them. Currently one OpenAI model.",
+  "breadcrumb_name": "Home",
+  "sections": [{"id": "intro", "file": "intro.html"}]
+}

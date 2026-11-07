@@ -1,8 +1,19 @@
 # Project status
 
-_Last updated: Step 024 complete (offline analytics; awaiting ChatGPT review) while Step 023 remains PARTIAL (pilot active) — 2026-11-07_
+_Last updated: Step 025 complete locally (static Q&A + TTFT metric pages; awaiting ChatGPT review); Step 024 awaiting review; Step 023 PARTIAL (pilot active) — 2026-11-07_
 
 ## Current state
+
+**Step 025 complete (local only), awaiting ChatGPT review: first static question and metric pages.**
+- **Command:** new `llm_metrics.static_site` (`--output DIR --site-url https://llmxchange.com [--analytics F --data-source real|synthetic] [--report R]`).
+- **Pages built:** `/`, the `/llm-performance` hub, the Q&A article `/how-to-measure-openai-ttft` and the metric page `/metrics/openai/ttft`, cross-linked. It uses Jinja2 (no Flask, SQL or GCS).
+- **Content and data:**
+  - Editorial text is in `llm_metrics/site_content/`, with an explicit `answer_revision`.
+  - Numbers come only from a validated canonical `llm-metrics.analytics.v1` summary.
+  - Without a dataset, the pages show an explicit no-data state. Synthetic data is bannered and `noindex`.
+- **SEO and checks:** canonical, OG, breadcrumbs equal to `BreadcrumbList`, `Article` JSON-LD with no invented dates/authors/image, a meta CSP, and build-time checks. There is also an advisory Yoast-inspired editorial report.
+- **Tests:** 31 new tests; the D056 import guard was narrowed (D082). Docker `./run.sh test`: 595 tests, 5 skipped, 0 failures.
+- **Not done:** nothing hosted, no DNS or cloud changes, no real dataset rendered.
 
 **Step 024 complete (offline only), awaiting ChatGPT review: read-only analytics from immutable GCS records.**
 - **Command:** new `llm_metrics.record_analytics` (`python -m llm_metrics.record_analytics --input MIRROR --output FILE ...`). It reads a local mirror's `<prefix>/v1/requests/prod/` only.
@@ -183,6 +194,7 @@ llm_metrics/
   object_results.py  immutable llm-metrics.attempt.v1 records: schema, canonical encoding, create-only GCS writes, read/validate
   scheduled_collector.py / collector_audit.py  bounded 15-minute collector with slot claims; read-only claims-vs-records audit
   record_analytics.py  offline read-only analytics over a local mirror of prod records -> canonical llm-metrics.analytics.v1 summary
+  static_site.py   offline static site generator: reviewed site_content/ + validated analytics summary -> HTML pages (site_templates/, site_static/)
   config.py        environment, DB path, dashboard port
   __main__.py      CLI
 tests/             automated tests
@@ -244,10 +256,19 @@ A unique index on observations (`recorded_at`, `environment`, `provider`, `model
   - There are no confidence intervals: with fewer than 20 successes, p95 equals the maximum.
   - Only day directories that overlap the window are validated.
   - The SQL dashboard and the summary are not reconciled.
+- `static_site` (Step 025):
+  - Built and previewed locally only. No real dataset has been rendered.
+  - Canonical URLs have no trailing slash, but directory-based servers redirect `/slug` to `/slug/`, so the host must support clean URLs.
+  - There is no `robots.txt`, sitemap, HTTP security headers, dated versions or redirects yet (Steps 026/027).
+  - No author or publisher is asserted, and `date_published` is unset until real publication.
+  - The metric page is indexable even in its no-data state.
+  - The editorial report is advisory; one sentence-length warning is open.
 
 ## Next step
 
-**Recommended (after ChatGPT review of Step 024):**
+**Recommended (after ChatGPT review of Step 025):** decide the publication order under the new "publish educational content early" priority. The shortest safe path is in `prompts/025-output.md`: review the article, then an approved, minimal hosting step that serves the no-data build, before or alongside Step 026.
+
+_Previous recommendation:_ **Recommended (after ChatGPT review of Step 024):**
 1. Close Step 023 once the window ends at 2026-11-07T18:00Z: run the post-window audit and the stop.
 2. Then, with explicit approval, make a read-only local mirror of `attempts/v1` and run `record_analytics` over the full 96-slot window with `--collector-policy-start 2026-11-06T18:00:00Z`. This produces the first real `llm-metrics.analytics.v1` summary.
 

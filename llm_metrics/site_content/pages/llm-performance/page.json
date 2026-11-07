@@ -1,0 +1,9 @@
+{
+  "kind": "hub",
+  "path": "/llm-performance",
+  "title": "LLM Performance: Questions and Measured Metrics",
+  "h1": "LLM performance",
+  "meta_description": "Questions about LLM API latency and reliability, answered with a documented method, and the metric pages that hold our validated measurements.",
+  "breadcrumb_name": "LLM Performance",
+  "sections": [{"id": "intro", "file": "intro.html"}]
+}

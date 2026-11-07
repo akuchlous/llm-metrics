@@ -1,0 +1,10 @@
+{
+  "site_name": "llmxchange.com",
+  "language": "en",
+  "pages": [
+    "pages/home",
+    "pages/llm-performance",
+    "questions/how-to-measure-openai-ttft",
+    "metrics/openai-ttft"
+  ]
+}

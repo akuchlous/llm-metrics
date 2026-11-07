@@ -1,0 +1,68 @@
+{% import "_macros.html" as m %}
+{% if data %}
+<p class="data-note">Data window: <time datetime="{{ data.window.start_iso }}">{{ data.window.start }}</time> to <time datetime="{{ data.window.end_iso }}">{{ data.window.end }}</time> (end exclusive). Latest measurement: <time datetime="{{ data.window.latest_iso }}">{{ data.window.latest }}</time>. Origin: {{ data.population.origin }}. Workload: <code>{{ data.population.workload_id }}</code>.</p>
+{% if data.preliminary %}<p class="preliminary"><strong>Preliminary:</strong> {{ data.preliminary }}</p>{% endif %}
+<ul class="cards">
+<li><span class="card-label">TTFT p50</span> <span class="card-value">{{ m.value(data.ttft.p50) }}</span></li>
+<li><span class="card-label">TTFT p95</span> <span class="card-value">{{ m.value(data.ttft.p95) }}</span></li>
+<li><span class="card-label">Successful requests</span> <span class="card-value">{{ data.ttft.count }}</span></li>
+<li><span class="card-label">Observed success rate</span> <span class="card-value">{{ data.reliability.success_rate }}</span></li>
+</ul>
+{% if data.chart %}
+<figure>
+<svg class="chart" role="img" aria-labelledby="ttft-chart-title" viewBox="0 0 {{ data.chart.width }} {{ data.chart.height }}" width="100%">
+<title id="ttft-chart-title">{{ data.chart.title }}</title>
+{% for bar in data.chart.bars %}<text x="0" y="{{ bar.y + 14 }}" class="chart-label">{{ bar.label }}</text>
+<rect x="{{ data.chart.label_width }}" y="{{ bar.y }}" width="{{ bar.width }}" height="20" class="chart-bar"></rect>
+<text x="{{ data.chart.label_width + bar.width + 6 }}" y="{{ bar.y + 14 }}" class="chart-value">{{ bar.text }}</text>
+{% endfor %}</svg>
+<figcaption>{{ data.chart.title }}. Bar lengths are proportional to the values in the table below.</figcaption>
+</figure>
+{% endif %}
+<table>
+<caption>Latency and throughput, successful requests only</caption>
+<thead><tr><th scope="col">Metric</th><th scope="col">Samples</th><th scope="col">p50</th><th scope="col">p95</th><th scope="col">Min</th><th scope="col">Max</th></tr></thead>
+<tbody>
+{% for row in data.metric_rows %}<tr><th scope="row">{{ row.label }}</th><td>{{ row.count }}</td><td>{{ m.value(row.p50) }}</td><td>{{ m.value(row.p95) }}</td><td>{{ m.value(row.min) }}</td><td>{{ m.value(row.max) }}</td></tr>
+{% endfor %}</tbody>
+</table>
+<table>
+<caption>Reliability: every recorded attempt in the window</caption>
+<tbody>
+<tr><th scope="row">Attempts recorded</th><td>{{ data.reliability.attempts }}</td></tr>
+<tr><th scope="row">Successful</th><td>{{ data.reliability.successes }}</td></tr>
+<tr><th scope="row">Failed</th><td>{{ data.reliability.failures }}</td></tr>
+{% for failure in data.reliability.by_category %}<tr><th scope="row">Failed: {{ failure.label }}</th><td>{{ failure.count }}</td></tr>
+{% endfor %}<tr><th scope="row">Observed success rate</th><td>{{ data.reliability.success_rate }}</td></tr>
+</tbody>
+</table>
+{% if data.slots %}
+<table>
+<caption>Scheduled slots in the window (from collector claims)</caption>
+<tbody>
+<tr><th scope="row">Slots begun</th><td>{{ data.slots.expected }}</td></tr>
+<tr><th scope="row">Recorded success</th><td>{{ data.slots.recorded_success }}</td></tr>
+<tr><th scope="row">Recorded failure</th><td>{{ data.slots.recorded_failure }}</td></tr>
+<tr><th scope="row">Claimed but no record</th><td>{{ data.slots.claim_without_record }}</td></tr>
+<tr><th scope="row">Missing (never ran)</th><td>{{ data.slots.missing }}</td></tr>
+</tbody>
+</table>
+{% else %}
+<p>Slot completeness was not supplied with this dataset, so scheduled slots that produced no record are not shown.</p>
+{% endif %}
+<table>
+<caption>Tokens and estimated API cost (USD, from reported tokens and list prices)</caption>
+<tbody>
+<tr><th scope="row">Estimated cost of successful requests</th><td>{{ m.value(data.cost.known_total_cost) }}</td></tr>
+<tr><th scope="row">Requests with unknown cost (failed)</th><td>{{ data.cost.unknown_count }}</td></tr>
+<tr><th scope="row">Input tokens (successful requests)</th><td>{{ m.value(data.tokens.input_tokens) }}</td></tr>
+<tr><th scope="row">Cached input tokens reported</th><td>{{ m.value(data.tokens.cached_known) }}{% if data.tokens.cached_unknown %} ({{ data.tokens.cached_unknown }} requests did not report it){% endif %}</td></tr>
+<tr><th scope="row">Output tokens (successful requests)</th><td>{{ m.value(data.tokens.output_tokens) }}</td></tr>
+</tbody>
+</table>
+<h3>Caveats from the dataset</h3>
+{{ m.caveat_list(data.caveats) }}
+{% else %}
+{{ m.unavailable(page.path) }}
+<p>Until a validated dataset is supplied, this page describes the measurement only. Simulated or test data is never shown here.</p>
+{% endif %}

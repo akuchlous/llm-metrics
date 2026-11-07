@@ -1,0 +1,18 @@
+<h3>Where the timer starts and stops</h3>
+<p>Our code reads the timer with Python's <code>time.perf_counter()</code>, which cannot jump when the system clock is adjusted. The timer starts immediately before the request is sent, so DNS lookup, TCP and TLS connection setup, request upload, server-side queueing and prompt processing are all inside the measurement.</p>
+<p>OpenAI streams its answer as server-sent events. Several events arrive before any text, such as the event announcing that the response was created. We ignore those. The timer stops at the first <code>response.output_text.delta</code> event, which carries the first chunk of answer text.</p>
+<p>So there are three different moments a benchmark could call "first":</p>
+<ul>
+<li><strong>First byte:</strong> the first bytes of the HTTP response. These usually arrive before any text, so a first-byte timer would read lower than ours. We do not measure it.</li>
+<li><strong>First content chunk:</strong> the first streamed text event. This is what we report as TTFT.</li>
+<li><strong>First token:</strong> a chunk may hold one or several tokens, and the stream does not tell us how many. We do not claim token-level precision for this moment.</li>
+</ul>
+<h3>The same request every time</h3>
+<p>Each measurement sends the same benchmark input, called <code>interactive-chat-v1</code>. It is a synthetic product-support conversation about a fictional notes app, Lumen Notes, and a question about how its offline sync handles conflicting edits. The answer needs a moderate, step-by-step explanation. The prompt text is built deterministically in our open-source code, and a test pins its SHA-256 hash, so it cannot change silently. Any change would get a new workload version.</p>
+<p>The request asks for at most 300 output tokens, turns reasoning off (<code>reasoning.effort</code> set to <code>none</code>), asks OpenAI not to store the response, and uses OpenAI's explicit prompt-cache mode with no cache breakpoints, so no prompt caching is requested. These settings are stored together under one versioned request profile, <code>openai.gpt-6-luna.v1</code>.</p>
+<h3>Schedule, failures and storage</h3>
+<p>A scheduled job on Google Cloud Run in the <code>us-central1</code> region makes at most one request per 15-minute slot. A slot is never retried: if a request fails, the failure is recorded with its category, such as provider error or timeout, and the next measurement waits for the next slot.</p>
+<p>Each attempt is saved as one immutable JSON record that cannot be overwritten. It holds the timings, the token counts OpenAI reported, the prices used and the outcome. We do not store the prompt, the generated answer or raw error messages.</p>
+<h3>From records to published numbers</h3>
+<p>A separate offline step reads those records, checks every one against the record schema, and computes a summary for one exact population: one model, request profile, workload and region over a stated time window. It also lists a SHA-256 hash for every record used, so the summary can be reproduced and checked.</p>
+<p>Percentiles use the nearest-rank method. Each reported value is one that was actually observed, and with fewer than 20 successful requests the 95th percentile is simply the largest value.</p>

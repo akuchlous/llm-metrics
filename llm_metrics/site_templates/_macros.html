@@ -1,0 +1,23 @@
+{% macro value(v) %}{% if v is none %}<span class="unknown">unknown</span>{% else %}{{ v }}{% endif %}{% endmacro %}
+
+{% macro unavailable(metric_path) %}
+<div class="notice" role="status">
+<p><strong>No validated measurements have been published yet.</strong></p>
+<p>This section shows numbers only from a validated analytics dataset. None has been supplied for this build, so no values are shown here.</p>
+</div>
+{% endmacro %}
+
+{% macro caveat_list(caveats) %}
+<ul class="caveats">
+{% for caveat in caveats %}<li>{{ caveat.detail }}</li>
+{% endfor %}</ul>
+{% endmacro %}
+
+{% macro setup_table(setup) %}
+<table>
+<caption>Measurement setup, read from the benchmark's source code</caption>
+<tbody>
+{% for row in setup %}<tr><th scope="row">{{ row.label }}</th><td>{{ row.value }}</td></tr>
+{% endfor %}</tbody>
+</table>
+{% endmacro %}

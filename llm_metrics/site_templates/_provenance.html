@@ -1,0 +1,16 @@
+{% import "_macros.html" as m %}
+<table>
+<caption>Versions and fingerprints</caption>
+<tbody>
+<tr><th scope="row">Methodology version</th><td><code>{{ methodology_version }}</code></td></tr>
+{% if data %}<tr><th scope="row">Analytics schema</th><td><code>{{ data.schema_version }}</code> (records: <code>{{ data.record_schema_version }}</code>)</td></tr>
+<tr><th scope="row">Dataset SHA-256</th><td><code class="hash">{{ data.dataset_sha256 }}</code></td></tr>
+<tr><th scope="row">Record manifest SHA-256</th><td><code class="hash">{{ data.manifest_sha256 }}</code></td></tr>
+<tr><th scope="row">Records in dataset</th><td>{{ data.record_count }}</td></tr>
+<tr><th scope="row">Request profile</th><td><code>{{ data.population.request_profile_id }}</code></td></tr>
+<tr><th scope="row">Workload</th><td><code>{{ data.population.workload_id }}</code></td></tr>
+<tr><th scope="row">Data window (UTC)</th><td>{{ data.window.start }} to {{ data.window.end }}</td></tr>
+{% else %}<tr><th scope="row">Dataset</th><td>None supplied</td></tr>
+{% endif %}</tbody>
+</table>
+{% if data %}<p><a href="{{ data.json_path }}">Download the validated dataset (JSON)</a>. Its SHA-256 matches the fingerprint above.</p>{% endif %}

@@ -1,0 +1,26 @@
+{
+  "kind": "question",
+  "path": "/how-to-measure-openai-ttft",
+  "title": "How Do You Measure OpenAI API Time to First Token?",
+  "h1": "How do you measure OpenAI API time to first token (TTFT)?",
+  "meta_description": "How we measure OpenAI API time to first token: where the timer starts and stops, the fixed prompt and settings, and how failures and small samples are handled.",
+  "breadcrumb_name": "How to measure OpenAI TTFT",
+  "focus_keyphrase": "time to first token",
+  "slug_terms": ["measure", "openai", "ttft"],
+  "editorial_revision": "r1",
+  "answer_revision": "how-to-measure-openai-ttft/answer-r1",
+  "answer_basis": "methodology",
+  "answer_reviewed_dataset_sha256": null,
+  "date_published": null,
+  "date_modified": null,
+  "authors": [],
+  "related_metric": "/metrics/openai/ttft",
+  "sections": [
+    {"id": "answer", "heading": "Short answer", "file": "answer.html"},
+    {"id": "findings", "heading": "What our measurements show", "generated": "findings"},
+    {"id": "method", "heading": "How the measurement works", "file": "method.html"},
+    {"id": "setup", "heading": "Exact measurement setup", "generated": "setup"},
+    {"id": "limitations", "heading": "Limitations", "file": "limitations.html"},
+    {"id": "related", "heading": "Related pages", "file": "related.html"}
+  ]
+}

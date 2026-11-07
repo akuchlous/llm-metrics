@@ -613,3 +613,27 @@ The user asked Claude to implement Step 024 only, offline, without touching the 
 **Decision.** D081 records that published numbers will come from this summary, not from the SQL dashboard.
 
 **Not done.** The real pilot mirror was not downloaded or analysed, and no cloud actions were taken. Stopped for ChatGPT review; Step 025 not started.
+
+
+## Step 025 implemented locally: TTFT Q&A article and metric page (2026-11-07)
+
+The user changed priority slightly: publish useful educational content on llmxchange.com as soon as possible, without waiting for the full OpenAI pilot, but without bypassing review. The site has two purposes: Q&A articles (practical questions, methodology, how the benchmark was built) and metric pages (validated measurements).
+
+**What was built.** Claude implemented Step 025 locally. The new `llm_metrics.static_site` (Jinja2, no Flask, SQL or GCS) builds a home page, the `/llm-performance` hub, the article "How do you measure OpenAI API time to first token (TTFT)?" at `/how-to-measure-openai-ttft`, and `/metrics/openai/ttft`, with the article and metric page linking to each other.
+- **Content model:** reviewed editorial text lives in `site_content/` with an explicit `answer_revision`, so new articles need no new templates.
+- **Data:** numbers come only from a validated canonical Step 024 summary declared `real` or `synthetic`. Without one, the pages show an explicit no-data state, so the article can be published without any dataset.
+- **SEO:** canonical, OG, breadcrumbs matching `BreadcrumbList`, and `Article` JSON-LD without invented dates, authors or images. There is also a meta CSP, build-time checks and an advisory Yoast-inspired report.
+
+**Testing.** All numbers seen were synthetic. Docker `./run.sh test`: 595 tests, 5 skipped, 0 failures.
+
+**Guard change.** One existing guard was narrowed (D082): Jinja2/MarkupSafe are now also allowed in `static_site.py`; Flask remains `web.py`-only.
+
+**Publication path.** The report gives the shortest safe path to publication:
+1. review the article and the Step 025 output;
+2. decide the publication order;
+3. confirm DNS control of llmxchange.com;
+4. run one approved, bounded hosting step (Firebase Hosting with clean URLs and no trailing slash is suggested, pricing to be rechecked);
+5. set `date_published`;
+6. deploy the no-data build and verify it in Search Console.
+
+**Not done.** No hosting, DNS or cloud changes were made. Stopped for ChatGPT review; Steps 026 and 027 not started; Step 023 untouched.

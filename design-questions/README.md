@@ -75,3 +75,4 @@ Each file has:
 | [022](022/) | First live GCS-backed OpenAI pilot: GCS mode, storage preflight, no-key smoke, one paid run | `prompts/022-first-live-gcs-backed-openai-pilot.md` |
 | [023](023/) | Bounded 15-minute OpenAI collector: atomic slot claims, 96-slot policy, alerts, audit | `prompts/023-15-minute-openai-collector.md` |
 | [024](024/) | Offline read-only analytics from immutable GCS records | `prompts/024-gcs-readonly-analytics.md` |
+| [025](025/) | First question-driven static pages: TTFT Q&A article and metric page | `prompts/025-first-question-static-html.md` |
