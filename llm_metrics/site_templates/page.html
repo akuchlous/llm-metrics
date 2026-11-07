@@ -11,6 +11,12 @@
 {% endif %}
 </header>
 {% if page.kind == "edition" and extra.edition.what_changed %}<section id="what-changed"><h2>What changed?</h2><p>{{ extra.edition.what_changed }}</p></section>{% endif %}
+{% elif page.kind == "evidence" %}
+<header class="q-header">
+<p class="eyebrow">Question</p>
+<h1>{{ page.h1 }}</h1>
+{% if extra.category %}<p class="q-meta"><span class="tag">{{ extra.category }}</span></p>{% endif %}
+</header>
 {% else %}
 <h1>{{ page.h1 }}</h1>
 {% endif %}

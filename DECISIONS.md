@@ -96,6 +96,12 @@ Every step must preserve `./run.sh`, keep secrets/runtime artifacts out of Git, 
   `real_smoke` now delegates to `real_benchmark.run` (the OpenAI target with the smoke workload), so both paid commands share one refusal, announce, attempt and report path. `OpenAIProvider` lost its unused `model` override (the profile fixes the model), and `run_attempt` lost a cache-policy check that profile matching already covers. Test fakes (`sse`, `FakeResponse`, `FakeOpener`, `no_network`) live in `tests/fakes.py`.
 
   Kept separate on purpose, because each provider has its own contract: event dispatch, usage field extraction, request-id source, error-code tables, and request bodies. The OpenAI and xAI Responses parsers stay separate despite similar shapes, because their account errors, ids and documented fields differ. Wire requests, profiles, stored facts, outcomes and output are unchanged, except that the `real_smoke` pre-request announcement now uses `real_benchmark`'s multi-line format.
+- **D087 — Provisional real-pilot metrics on staging only (Step 027b).**
+  - `static_site --provisional-metrics` requires `--staging` and a real dataset, slot evidence, at least 30 successes and at most 5% of due slots unrecorded. It labels the data "Partial pilot, as of <UTC cutoff>; not a 24-hour result or provider-wide benchmark" (or "Verified complete pilot" only when all policy slots are due and recorded).
+  - In this mode the public dataset JSON is an allowlisted projection (no object names or attempt ids) that records the private summary's SHA-256.
+  - A draft metric question gets a generated measured-evidence view; its draft prose is never published and it is not approved because data exists.
+  - Production is unchanged: `publish_runner` never uses this path and keeps its complete-day and `--allow-preliminary` gates; production data still needs Step 028 snapshots and Approval B.
+
 - **D086 — Question-first discovery (Step 027a).**
   - The home page lists questions (stable pages), newest first by latest edition, 50 per page; `/page/N` only when needed, self-canonical, prev/next links. This supersedes the Step 027 "chronological edition feed" home page at the user's request.
   - Optional `category` (Performance, Cost, Reliability, Engineering); `/questions` groups by category.

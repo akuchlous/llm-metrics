@@ -1,0 +1,2 @@
+<p class="notice" role="note"><strong>Measured values only.</strong> The written answer to this question has not been editorially approved yet, so this page shows the validated measurements and nothing else.</p>
+{% if data and data.provisional %}<p>Median time to first token so far: <strong>{{ data.ttft.p50 }}</strong> (p95 {{ data.ttft.p95 }}) over {{ data.ttft.count }} successful requests, from {{ data.window.start }} to {{ data.window.end }}. See the <a href="{{ related_metric }}">full metric page</a> for every table and its provenance.</p>{% endif %}

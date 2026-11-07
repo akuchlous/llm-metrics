@@ -110,6 +110,9 @@ CSP = (
 DATA_SOURCES = ("real", "synthetic")
 MAX_SUMMARY_BYTES = 4 * 1024 * 1024
 PAGE_KINDS = ("home", "hub", "directory", "question", "metric", "costs")
+# Generated (never authored) measured-evidence view of a draft metric
+# question, only in a provisional staging preview (Step 027b).
+EVIDENCE_KIND = "evidence"
 # Optional topic of a question (`question.json` "category").
 CATEGORIES = ("Performance", "Cost", "Reliability", "Engineering")
 # Questions listed per home page; later pages live at /page/N (N >= 2).
@@ -250,10 +253,20 @@ class Dataset:
     sha256: str
     data: bytes
     source: str  # "real" or "synthetic"
+    # Allowlisted public projection (provisional staging previews only);
+    # None publishes `data` itself, as before.
+    public: bytes | None = None
+
+    @property
+    def public_bytes(self) -> bytes:
+        return self.data if self.public is None else self.public
 
     @property
     def json_path(self) -> str:
-        return f"/data/analytics/{self.sha256}.json"
+        if self.public is None:
+            return f"/data/analytics/{self.sha256}.json"
+        digest = hashlib.sha256(self.public).hexdigest()
+        return f"/data/analytics/{digest}.json"
 
 
 # ---------------------------------------------------------------------------
@@ -1043,6 +1056,99 @@ def _format_count(value) -> str | None:
     return None if value is None else f"{value:,}"
 
 
+# Step 027b pilot gates for a provisional (partial-window) staging preview.
+# They are deliberately separate from the production path (publish_runner's
+# metrics lane, which never passes `provisional`).
+PROVISIONAL_MIN_SUCCESSES = 30
+PROVISIONAL_MAX_UNRECORDED_SHARE = 0.05
+# Fields of the private summary that may be published (allowlist).
+_PUBLIC_DROP = ("evidence.records", "slot_completeness.problems")
+
+
+def _public_projection(summary: dict) -> dict:
+    """The summary without per-record ids or object names (canonical)."""
+    public = json.loads(json.dumps(summary))
+    public["evidence"].pop("records", None)
+    if public.get("slot_completeness"):
+        public["slot_completeness"].pop("problems", None)
+    for metric in public["metrics"].values():
+        metric.pop("latest", None)
+    public["public_projection"] = {
+        "of_dataset_sha256": None,  # filled by the caller
+        "removed": list(_PUBLIC_DROP) + ["metrics.*.latest"],
+    }
+    return public
+
+
+def _provisional_gate(
+    dataset: Dataset, provisional: bool, staging: bool
+) -> Dataset:
+    """Applies the provisional staging-preview gates, when requested.
+
+    Returns the dataset unchanged without `provisional`; otherwise with an
+    allowlisted public projection and a provisional label.
+
+    Raises:
+        SiteError: A provisional preview outside staging, without real data,
+            or failing the pilot gates.
+    """
+    summary = dataset.summary
+    codes = {c["code"] for c in summary["caveats"]}
+    if not provisional:
+        # Production partial-day data stays governed by publish_runner's
+        # metrics lane (refused unless --allow-preliminary); this preview
+        # path is never used there.
+        return dataset
+    if not staging or dataset.source != "real":
+        raise SiteError(
+            "--provisional-metrics needs --staging and a real dataset."
+        )
+    slots = summary.get("slot_completeness")
+    if not slots or not slots.get("expected_slots"):
+        raise SiteError("A provisional preview needs collector slot evidence.")
+    states = slots["states"]
+    unrecorded = states.get("missing", 0) + states.get(
+        "claim_without_record", 0
+    )
+    successes = summary["reliability"]["successes"]
+    if successes < PROVISIONAL_MIN_SUCCESSES:
+        raise SiteError(
+            f"Only {successes} successes; a provisional preview needs"
+            f" {PROVISIONAL_MIN_SUCCESSES}."
+        )
+    if unrecorded > PROVISIONAL_MAX_UNRECORDED_SHARE * slots["expected_slots"]:
+        raise SiteError("Too many due slots have no record for a preview.")
+    cutoff = _utc_text(summary["population"]["end_exclusive"])
+    complete = (
+        "partial_day" not in codes
+        and slots["expected_slots"] == slots["policy"]["max_slots"]
+        and unrecorded == 0
+    )
+    label = (
+        f"Verified complete pilot, through {cutoff}; staging preview, not a"
+        " provider-wide benchmark."
+        if complete
+        else f"Partial pilot, as of {cutoff}; not a 24-hour result or"
+        " provider-wide benchmark."
+    )
+    public = _public_projection(summary)
+    public["public_projection"]["of_dataset_sha256"] = dataset.sha256
+    public_bytes = record_analytics.encode_summary(public)
+    return dataclasses.replace(
+        dataset,
+        summary={
+            **summary,
+            "_provisional": {
+                "label": label,
+                "due_slots": slots["expected_slots"],
+                "policy_slots": slots["policy"]["max_slots"],
+                "complete": complete,
+            },
+        },
+        public=public_bytes,
+    )
+
+
 def data_view(dataset: Dataset) -> dict:
     """Template values from a validated summary. Display rounding only."""
     summary = dataset.summary
@@ -1113,6 +1219,9 @@ def data_view(dataset: Dataset) -> dict:
         "manifest_sha256": summary["evidence"]["manifest_sha256"],
         "record_count": f"{summary['evidence']['record_count']:,}",
         "json_path": dataset.json_path,
+        "public_sha256": None
+        if dataset.public is None
+        else hashlib.sha256(dataset.public).hexdigest(),
         "population": {
             **population,
             "origin": (
@@ -1133,6 +1242,7 @@ def data_view(dataset: Dataset) -> dict:
             "p95": _format_metric("ttft", ttft["p95"]),
         },
         "metric_rows": rows,
+        "provisional": summary.get("_provisional"),
         "chart": chart,
         "preliminary": " ".join(p[0].upper() + p[1:] for p in preliminary),
         "reliability": {
@@ -1482,6 +1592,7 @@ def plan_site(
     freeze_at: str | None = None,
     preview_at: str | None = None,
     staging: bool = False,
+    provisional: bool = False,
     costs: dict | None = None,
     forbidden: tuple[str, ...] = (),
 ) -> tuple[dict[str, bytes], dict[str, bytes], dict | None, list[Page]]:
@@ -1518,6 +1629,8 @@ def plan_site(
                 validate_summary(
                     dataset.summary, page.meta.get("expected_population")
                 )
+    if dataset is not None:
+        dataset = _provisional_gate(dataset, provisional, staging)
     data = data_view(dataset) if dataset is not None else None
     real_data = dataset is not None and dataset.source == "real"
     banner = None
@@ -1546,9 +1659,30 @@ def plan_site(
             )
             hubs[question.question_id] = question_pages[0]
             pages.extend(question_pages)
+    evidence = []
+    if data is not None and data.get("provisional"):
+        for question in questions:
+            if question.question_id in hubs or not question.related_metrics:
+                continue
+            page = _evidence_page(question)
+            evidence.append(page)
+            pages.append(page)
     listing = _question_listing(
         questions, published, hubs, preview=preview_at is not None
-    )
+    ) + [
+        {
+            "question_id": None,
+            "path": page.path,
+            "h1": page.h1,
+            "summary": page.extra["summary"],
+            "category": page.extra["category"],
+            "date": None,
+            "date_text": None,
+            "updated": False,
+            "sort": "",
+        }
+        for page in evidence
+    ]
     home = next(p for p in pages if p.kind == "home")
     pages[pages.index(home)] = home = dataclasses.replace(
         home, extra={**home.extra, "pager": _pager(1, len(listing))}
@@ -1669,7 +1803,7 @@ def plan_site(
         files[page.output_file] = html_text.encode("utf-8")
     files[STYLESHEET_PATH[1:]] = STYLESHEET_SOURCE.read_bytes()
     if dataset is not None:
-        files[dataset.json_path[1:]] = dataset.data
+        files[dataset.json_path[1:]] = dataset.public_bytes
     redirects = [
         {"from": source, "to": q.path, "status": 301}
         for q in questions
@@ -1724,6 +1858,37 @@ def plan_site(
             name = f"{entry['route'][1:]}/index.html"
             archive_files[name] = files[name]
     return dict(sorted(files.items())), archive_files, manifest, pages
+
+
+def _evidence_page(question: Question) -> Page:
+    """Measured values for a question whose written answer is a draft.
+
+    Only the question itself and generated data are shown; the draft's
+    answer prose is never published.
+    """
+    draft = question.editions[-1].page
+    return Page(
+        kind=EVIDENCE_KIND,
+        path=question.path,
+        title=f"{draft.h1} Measured values"[:120],
+        h1=draft.h1,
+        description=(
+            "Measured values only, from our provisional OpenAI pilot data;"
+            " the written answer to this question is not yet approved."
+        ),
+        breadcrumb_name=question.breadcrumb_name,
+        sections=(
+            Section("evidence", None, None, "evidence"),
+            Section("measured", "Measured values", None, "measurements"),
+        ),
+        meta={"related_metric": question.related_metrics[0]},
+        parent="/questions",
+        extra={
+            "category": question.category,
+            "summary": "Measured values from our OpenAI pilot (provisional);"
+            " the written answer is not yet approved.",
+        },
+    )
 
 
 def _page_count(total: int) -> int:
@@ -2397,6 +2562,7 @@ def build(
     freeze_at: str | None = None,
     preview_at: str | None = None,
     staging: bool = False,
+    provisional: bool = False,
     cost_ledger_path: pathlib.Path | None = None,
 ) -> tuple[dict, list[dict], list[str]]:
     """Validates, renders and checks everything, then writes.
@@ -2440,6 +2606,7 @@ def build(
         freeze_at=freeze_at,
         preview_at=preview_at,
         staging=staging,
+        provisional=provisional,
         costs=costs,
         forbidden=forbidden,
     )
@@ -2493,6 +2660,12 @@ def main(argv: list[str] | None = None) -> int:
         " time for review; noindex and never archived",
     )
     parser.add_argument(
+        "--provisional-metrics",
+        action="store_true",
+        help="with --staging and a real dataset: allow a partial pilot"
+        " window, clearly labelled provisional (never for production)",
+    )
+    parser.add_argument(
         "--staging",
         action="store_true",
         help="with --preview-at: approved editions only, on stable pages,"
@@ -2514,6 +2687,7 @@ def main(argv: list[str] | None = None) -> int:
             freeze_at=options.publish_at,
             preview_at=options.preview_at,
             staging=options.staging,
+            provisional=options.provisional_metrics,
             cost_ledger_path=None
             if options.cost_ledger is None
             else pathlib.Path(options.cost_ledger),

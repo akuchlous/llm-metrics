@@ -1,8 +1,13 @@
 # Project status
 
-_Last updated: Step 027a question-first site on workers.dev staging; awaiting ChatGPT review; Approval B not started; Step 023 PARTIAL — 2026-11-07_
+_Last updated: Step 027b provisional real OpenAI pilot metrics on workers.dev staging; awaiting ChatGPT review; Approval B not started; Step 023 PARTIAL — 2026-11-07_
 
 ## Current state
+
+**Step 027b complete (provisional), staging updated, awaiting ChatGPT review.**
+- `/openai-ttft` and `/metrics/openai/ttft` on staging show real pilot data: "Partial pilot, as of 2026-11-07 15:30:00 UTC". 86 due slots: 85 successes, 1 provider error, 0 missing. TTFT p50 1,637 ms, p95 2,551 ms; total p50 4,279 ms; 116.7 tokens/s; success 98.8%. See `prompts/027b-output.md`, D087.
+- Staging Worker version 4843a1e5. 664 tests OK (6 skipped).
+- After 18:00Z the scheduler and key stay attached until the documented `stop`, which needs separate approval.
 
 **Step 027a complete, staging updated, awaiting ChatGPT review.**
 - Question-first home page (newest first, 50 per page, `/page/N` only when needed), categories, answer-first question pages, related questions, metric question `/openai-ttft` with no numbers, simpler stylesheet. See `prompts/027a-output.md`, D086.
@@ -24,7 +29,7 @@ _Last updated: Step 027a question-first site on workers.dev staging; awaiting Ch
 - **Tests:** Docker `./run.sh test` (see 027 output).
 - **Not done:** no screenshots (the headless browser image was not permitted).
 - **Cloudflare status (2026-11-07): staging deployed (Approval A).**
-  - https://llmxchange.akuchlous.workers.dev: one assets-only Worker `llmxchange` (version 7e8681e8, after a46f81ef and the first deploy 34fc2545), workers.dev only, preview URLs off, no custom domain, routes or DNS. Built with `--staging`: approved answers only, no dated editions, nothing archived, `noindex, nofollow` everywhere.
+  - https://llmxchange.akuchlous.workers.dev: one assets-only Worker `llmxchange` (version 4843a1e5, after 7e8681e8, a46f81ef and the first deploy 34fc2545), workers.dev only, preview URLs off, no custom domain, routes or DNS. Built with `--staging`: approved answers only, no dated editions, nothing archived, `noindex, nofollow` everywhere.
   - Live routing, redirects, 404s, security headers, robots and content checks passed; see `prompts/027-output.md`. Screenshots/Lighthouse not run (headless browser not permitted).
   - Wrangler 4.152.0 via OAuth login; Cloudflare agent plugin installed. `llmxchange.com` not purchased; production (Approval B) not started.
 - **No GCP, DNS or paid Cloudflare actions.**
@@ -308,6 +313,9 @@ A unique index on observations (`recorded_at`, `environment`, `provider`, `model
 
 ## Next step
 
+**Recommended (after ChatGPT review of Step 027b):** after 18:00Z approve the documented `stop`, run the full-window audit and rebuild staging from the complete 96-slot dataset.
+
+_Previous:_
 **Recommended (after ChatGPT review of Step 027a):** review and approve the ready drafts in a local preview, then rebuild staging.
 
 _Previous:_

@@ -683,3 +683,7 @@ The user asked to simplify LLM Xchange: the home page becomes a chronological li
 
 The user asked for one more question built from existing work, "Which LLM API metrics are useful, and why?", and for it to be on the static pages. It was added as q0007 `/useful-llm-api-metrics`, approved at the user's request, without numbers or a dated edition, and staging was updated.
 
+## Step 027b implemented: real OpenAI pilot metrics on staging (2026-11-07)
+
+The user wanted to see real OpenAI measurements on the hosted question pages. With the pilot still running (86 of 96 slots due at 15:26Z), a read-only mirror was audited (0 missing) and summarized by the unchanged Step 024 analytics, then published to the existing workers.dev staging Worker through a new staging-only provisional path: "Partial pilot, as of 2026-11-07 15:30:00 UTC", allowlisted public JSON, and a generated evidence view for the still-draft `/openai-ttft` answer. Production gates were not changed; no OpenAI calls or Step 023 changes.
+

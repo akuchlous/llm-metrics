@@ -1,5 +1,6 @@
 {% import "_macros.html" as m %}
 {% if data %}
+{% if data.provisional %}<p class="notice provisional" role="status"><strong>{{ data.provisional.label }}</strong> Based on {{ data.provisional.due_slots }} scheduled slots due by the cutoff, of {{ data.provisional.policy_slots }} in the pilot.</p>{% endif %}
 <p class="data-note">Data last refreshed: latest measurement <time datetime="{{ data.window.latest_iso }}">{{ data.window.latest }}</time>. These numbers are regenerated from the dataset and are separate from the reviewed answer above.</p>
 <table>
 <caption>OpenAI {{ data.population.model }} TTFT, successful requests only ({{ data.window.start }} to {{ data.window.end }})</caption>
