@@ -569,3 +569,16 @@ The Cloud Console's "3 objects" storage figure was the daily-sampled metric refl
 The user started to ask for the schedule to be made indefinite, then interrupted that request and asked only for a status update and commit. Nothing was changed: the policy still expires 2026-11-07T18:00Z. An indefinite schedule would need a new reviewed step, because the collector deliberately accepts only exactly 24-hour policies.
 
 Status remains PARTIAL until the window closes and is audited.
+
+
+## gcloud.md project guide added (2026-11-07)
+
+The user asked for a separate, maintained Markdown guide to the project's Google Cloud structure, readable by humans and AI agents. Claude added `gcloud.md` at the repository root, verified against the live project at 2026-11-07T05:14Z, and linked it from `README.md`. It covers:
+- the architecture and the order of one scheduled run
+- a full inventory: jobs, scheduler, buckets and their layout, secrets, images, monitoring
+- identities and least-privilege IAM, including the honest bypass surface
+- the data model, the current pilot state, operations commands, the emergency stop
+- costs, the change history by step, known gaps, verification commands, a glossary
+- an update protocol and safety rules
+
+No cloud changes were made.

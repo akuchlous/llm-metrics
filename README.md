@@ -15,6 +15,9 @@ It is being built in small, tested steps. **Current step: 016.**
 > [Real provider (one paid request)](#real-provider-one-paid-request) and
 > [Four-provider benchmark targets](#four-provider-benchmark-targets).
 
+> **Google Cloud:** the deployed setup (jobs, scheduler, buckets, IAM, costs,
+> operations, emergency stop) is documented in [gcloud.md](gcloud.md).
+
 ## What it measures (so far)
 
 Each benchmark run makes one **attempt**: one streamed request (one provider
