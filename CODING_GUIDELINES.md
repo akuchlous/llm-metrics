@@ -137,6 +137,20 @@ Benchmark collection, providers, pricing, measurement, percentile logic, and sto
 
 HTML belongs in templates once Step 014b performs that extraction. Python should prepare data and behavior rather than grow large embedded HTML documents.
 
+## Public website: question-first frontend contract (D086, D090)
+
+**Every public content page answers a specific visitor question.** This applies equally to educational articles, metric detail pages, visual dashboards, comparisons, reliability, methodology, project costs, and overview/index pages. A dashboard is a question answered with charts or other evidence, **not a second presentation paradigm**. Treat the question as the primary unit of public content.
+
+- Use an explicit, useful **question as the single H1**; retain the existing question-H1 validation. The global brand may appear in the header, but is not a substitute for a page's question. Utilities such as 404/legal notices may follow the existing dedicated page contract; do not force nonsensical factual answers.
+- Put a **short, direct answer immediately below the question**. Then provide details, graphs, tables, methodology, limitations, source/measurement window, and related questions as appropriate. Avoid an empty dashboard-first layout or burying the answer below decoration.
+- On metric questions, state the exact measured population/model/workload/region, units, sample size, success/failure/missing distinctions, UTC data interval, data status (provisional vs verified), provenance, and limitations. Missing/unverified evidence means **an honest no-data answer**, never a fabricated number, ranking, uptime claim, or billed cost. Keep human-approved explanation separate from machine-generated numerical evidence.
+- **Homepage is a reverse-chronological question list, 50 per page**, with static `/page/N` pagination, no empty pages, and no dashboard hero. The `/questions` directory, stable question URLs, related-question links, canonical/SEO metadata, and immutable dated editions must remain consistent with the registry.
+- Prefer one shared Q&A page design/template and consistent responsive, accessible typography for prose and rich evidence. A chart is supporting evidence with labels, context and accessible text/table fallback; it does not replace the answer. Keep static Cloudflare delivery lightweight, safe, and crawlable.
+- Preserve existing published URLs, redirects, editorial approval, archival immutability, staging `noindex`, and production metrics gates. Do not add a standalone dashboard page for new data when an existing or new question page answers it.
+- Before a staging deploy: build with `./run.sh site-preview`, review the local page visually, run tests and content/provenance/safety checks, and obtain the operator's explicit staging approval. Cloudflare publication and GCP operations require their own approvals.
+
+This is a durable **frontend architecture rule**, not a requirement to refactor unrelated Flask endpoints or existing historic prompts.
+
 ## Review checklist
 
 For every numbered implementation step, the implementer should review changed code for:
