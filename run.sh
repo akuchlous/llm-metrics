@@ -6,6 +6,8 @@
 #   ./run.sh           Full workflow: offline+integration tests, seed, measure,
 #                      dashboard on http://127.0.0.1:8000  (Ctrl+C to stop)
 #   ./run.sh test      Same workflow; dashboard HTTP 200 smoke test; auto-exits
+#   ./run.sh site-preview [--help]  Build the website and serve it locally
+#                      on http://localhost:8000 (no deploy, no cloud calls)
 #   ./run.sh down      Remove project containers, network and volume after
 #                      a SIGKILL (safe, project-scoped — see cleanup below)
 #
@@ -31,13 +33,19 @@ if ! docker compose version &>/dev/null 2>&1; then
 fi
 
 MODE="${1:-serve}"
+if [ "$MODE" = "site-preview" ]; then
+    # Local-only website preview; see scripts/site_preview.sh.
+    shift
+    exec bash scripts/site_preview.sh "$@"
+fi
 case "$MODE" in
     serve|test|down) ;;
     *)
-        echo "Usage: ./run.sh [serve|test|down]" >&2
+        echo "Usage: ./run.sh [serve|test|down|site-preview]" >&2
         echo "  serve  Offline+integration tests, seed, measure, dashboard (default)" >&2
         echo "  test   Same as serve but runs dashboard smoke test and auto-exits" >&2
         echo "  down   Remove project Compose containers, network and volume" >&2
+        echo "  site-preview  Build and serve the website locally (--help)" >&2
         exit 1
         ;;
 esac

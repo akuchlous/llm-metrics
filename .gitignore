@@ -22,4 +22,5 @@ data/
 # Docker build context (secrets must never land in a layer)
 .dockerignore.local
 site_build/
+.site-preview/
 publish_state/

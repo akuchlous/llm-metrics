@@ -21,3 +21,6 @@ service-account*.json
 __pycache__/
 *.pyc
 *.pyo
+
+# Local website preview output and private analytics input
+.site-preview/

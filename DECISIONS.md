@@ -96,6 +96,11 @@ Every step must preserve `./run.sh`, keep secrets/runtime artifacts out of Git, 
   `real_smoke` now delegates to `real_benchmark.run` (the OpenAI target with the smoke workload), so both paid commands share one refusal, announce, attempt and report path. `OpenAIProvider` lost its unused `model` override (the profile fixes the model), and `run_attempt` lost a cache-policy check that profile matching already covers. Test fakes (`sse`, `FakeResponse`, `FakeOpener`, `no_network`) live in `tests/fakes.py`.
 
   Kept separate on purpose, because each provider has its own contract: event dispatch, usage field extraction, request-id source, error-code tables, and request bodies. The OpenAI and xAI Responses parsers stay separate despite similar shapes, because their account errors, ids and documented fields differ. Wire requests, profiles, stored facts, outcomes and output are unchanged, except that the `real_smoke` pre-request announcement now uses `real_benchmark`'s multi-line format.
+- **D088 — Local preview and human review before every Cloudflare staging deploy.**
+  - `./run.sh site-preview` builds the exact staging build (`--staging`; approved only, no dated editions, nothing archived, `noindex, nofollow`) in the project Docker image with no network, into gitignored `.site-preview/site`, and serves it on `127.0.0.1:8000` through `llm_metrics.site_preview`, which routes with the same `static_site.resolve` Cloudflare emulation and applies `_headers`.
+  - Real metrics come only from a locally validated summary (`--analytics` or `.site-preview/analytics.json`), through the provisional gates (D087). `--drafts` shows drafts for review only.
+  - From now on the order is: local preview, human review, then a separately approved staging deploy.
+
 - **D087 — Provisional real-pilot metrics on staging only (Step 027b).**
   - `static_site --provisional-metrics` requires `--staging` and a real dataset, slot evidence, at least 30 successes and at most 5% of due slots unrecorded. It labels the data "Partial pilot, as of <UTC cutoff>; not a 24-hour result or provider-wide benchmark" (or "Verified complete pilot" only when all policy slots are due and recorded).
   - In this mode the public dataset JSON is an allowlisted projection (no object names or attempt ids) that records the private summary's SHA-256.

@@ -687,3 +687,7 @@ The user asked for one more question built from existing work, "Which LLM API me
 
 The user wanted to see real OpenAI measurements on the hosted question pages. With the pilot still running (86 of 96 slots due at 15:26Z), a read-only mirror was audited (0 missing) and summarized by the unchanged Step 024 analytics, then published to the existing workers.dev staging Worker through a new staging-only provisional path: "Partial pilot, as of 2026-11-07 15:30:00 UTC", allowlisted public JSON, and a generated evidence view for the still-draft `/openai-ttft` answer. Production gates were not changed; no OpenAI calls or Step 023 changes.
 
+## Local website preview command (2026-11-07)
+
+The user asked for a reusable local preview so the whole site can be checked on their Chromebook before any Cloudflare deploy: `./run.sh site-preview` builds the staging-equivalent site in Docker (approved content, optional locally validated real metrics with the provisional label, nothing frozen) and serves it on http://localhost:8000 with Cloudflare-like routing. The user set a standing rule: local preview and human review come before every staging deployment (D088).
+

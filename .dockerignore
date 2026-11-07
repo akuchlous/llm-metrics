@@ -40,3 +40,6 @@ PROJECT_STATUS.md
 __pycache__/
 *.pyc
 *.pyo
+
+# Local website preview output and private analytics input
+.site-preview/

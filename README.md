@@ -593,9 +593,31 @@ deployed by this command.
   --site-url https://llmxchange.com \
   --analytics summary.json --data-source synthetic
 
-# Preview (clean URLs need a server; file:// links will not resolve).
-.venv/bin/python -m http.server 8000 --bind 127.0.0.1 -d /tmp/site
+# Preview: use ./run.sh site-preview (below); plain http.server does not
+# serve the slashless clean URLs the way Cloudflare does.
 ```
+
+### Local website preview (do this before every staging deploy)
+
+```bash
+./run.sh site-preview            # build and serve on http://localhost:8000
+./run.sh site-preview --help     # options
+./run.sh site-preview --drafts   # also show draft questions (review only)
+./run.sh site-preview --analytics path/to/summary.json   # real metrics
+./run.sh site-preview --port 8080
+```
+
+- **What it builds:** exactly what a Cloudflare staging deploy gets. It uses the existing generator in the project Docker image (`--staging`): approved questions only, no dated editions, nothing frozen or archived, every page `noindex, nofollow`. Output goes to the gitignored `.site-preview/site`. Press Ctrl+C to stop; run it again to rebuild after changes.
+- **Real metrics:** pass a locally validated `llm-metrics.analytics.v1` summary of real data with `--analytics`, or put it at `.site-preview/analytics.json` (gitignored and excluded from Docker builds), and it is used automatically. It goes through the provisional gates and label (`--provisional-metrics`, D087). Without one, metric pages show the honest no-data state. `--drafts` cannot be combined with `--analytics`.
+- **Local only:** the build container has no network. The server (`llm_metrics.site_preview`) binds to `127.0.0.1` only, and nothing contacts OpenAI, Cloudflare or GCP. On a Chromebook, open `http://localhost:8000` in Chrome; Linux (Crostini) forwards the port.
+- **Routing:** each request goes through `static_site.resolve`, the same Cloudflare emulation the build's link checks use: `/slug` gives 200; `/slug/` and `/slug/index.html` give a 307 to `/slug`; `_redirects` gives 301; unknown paths and `_headers`/`_redirects` give the 404 page. Every response carries the `_headers` rules.
+- **Differences from Cloudflare:**
+  - plain HTTP on localhost, with no TLS, edge caching or compression;
+  - `Cache-Control: no-store` instead of Cloudflare's `public, max-age=0, must-revalidate`;
+  - redirect `Location` headers are relative, so clients resolve them against localhost;
+  - `_headers` is applied as the single `/*` rule the generator writes;
+  - canonical and Open Graph URLs name the staging hostname (`https://llmxchange.akuchlous.workers.dev`), but internal links are relative, so navigation stays local;
+  - Cloudflare's own routing remains the reference; the staging checks are still required after a deploy.
 
 - **Editorial text** lives in `llm_metrics/site_content/<page>/` as `page.json` (title, description, breadcrumb name, answer revision, dates and authors only when known) plus static HTML fragments checked against a small tag allowlist. **Numbers** are rendered only from a validated `llm-metrics.analytics.v1` file, never into the reviewed answer.
 - **Adding an article:** create a new directory with `page.json` and fragments, then list it in `site_content/site.json`. The shared template, metadata, breadcrumbs, JSON-LD and checks apply automatically.

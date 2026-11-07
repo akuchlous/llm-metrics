@@ -4,6 +4,8 @@ _Last updated: Step 027b provisional real OpenAI pilot metrics on workers.dev st
 
 ## Current state
 
+**Local website preview added (D088), awaiting ChatGPT review.** `./run.sh site-preview` builds the staging-equivalent site locally and serves it on http://localhost:8000 (Ctrl+C to stop; `--help`, `--drafts`, `--analytics`, `--port`). No deploy, no cloud calls. Local preview and human review now come before every Cloudflare staging deploy. 670 tests OK (7 skipped).
+
 **Step 027b complete (provisional), staging updated, awaiting ChatGPT review.**
 - `/openai-ttft` and `/metrics/openai/ttft` on staging show real pilot data: "Partial pilot, as of 2026-11-07 15:30:00 UTC". 86 due slots: 85 successes, 1 provider error, 0 missing. TTFT p50 1,637 ms, p95 2,551 ms; total p50 4,279 ms; 116.7 tokens/s; success 98.8%. See `prompts/027b-output.md`, D087.
 - Staging Worker version 4843a1e5. 664 tests OK (6 skipped).
