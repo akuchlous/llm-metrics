@@ -17,7 +17,12 @@ _Last updated: Step 027 complete offline (Cloudflare-ready site, costs ledger, r
   - **Step 028** must deliver immutable dated metric snapshots, sample-size thresholds and the weekly metrics Q&A workflow **before any real benchmark result is published**.
 - **Tests:** Docker `./run.sh test` (see 027 output).
 - **Not done:** no screenshots (the headless browser image was not permitted).
-- **No cloud, DNS or Cloudflare actions.**
+- **Cloudflare status (2026-11-07):**
+  - Cloudflare's agent plugin (`cloudflare@cloudflare` from the `cloudflare/skills` marketplace) is installed in Claude Code at user scope, following https://developers.cloudflare.com/agent-setup/prompt.md. OAuth to the Cloudflare account has not been done yet; it happens on first Cloudflare tool use.
+  - Not installed: Node.js, Wrangler and the optional `cf` CLI. No API token has been created.
+  - Nothing deployed: no Worker, no workers.dev staging, no DNS or account changes. `llmxchange.com` is not purchased.
+  - A deploy still requires explicit Approval A (staging) or B (domain).
+- **No cloud, DNS or Cloudflare account actions.**
 
 **Step 026 complete (local only), awaiting ChatGPT review: question registry and immutable dated Q&A editions.**
 - **Registry:** each question directory has a `question.json` (opaque `question_id`, stable path, editions). Editions reuse the Step 025 `page.json` and fragments, with `status` draft/approved.
