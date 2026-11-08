@@ -134,11 +134,18 @@ class GateTest(unittest.TestCase):
 
 class EvidencePageTest(unittest.TestCase):
 
+    def draft_copy(self):
+        # The metric question was approved on 2026-11-08; these tests need
+        # it as a draft, so they use a content copy with it unapproved.
+        content = t25.ContentCopy(self)
+        content.edit_json("questions/openai-ttft/editions/e1", status="draft")
+        return content.root
+
     def gated_files(self):
         dataset_ = clean(real())
         # Satisfy the gate with the small fixture.
         with mock.patch.object(ss, "PROVISIONAL_MIN_SUCCESSES", 1):
-            return staging(dataset_)
+            return staging(dataset_, content_dir=self.draft_copy())
 
     def test_draft_metric_question_shows_measured_values_only(self):
         files = self.gated_files()
@@ -158,7 +165,12 @@ class EvidencePageTest(unittest.TestCase):
         self.assertFalse(any(n.startswith("data/") for n in files))
 
     def test_no_evidence_page_without_provisional_data(self):
-        files = ss.render_site(STAGING, preview_at=AT, staging=True)
+        files = ss.render_site(
+            STAGING,
+            content_dir=self.draft_copy(),
+            preview_at=AT,
+            staging=True,
+        )
         self.assertNotIn("openai-ttft/index.html", files)
 
 

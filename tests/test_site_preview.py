@@ -60,8 +60,8 @@ class RespondTest(unittest.TestCase):
             dict(headers)["Content-Type"], "text/css; charset=utf-8"
         )
 
-    def test_drafts_absent_by_default(self):
-        status, _, _ = sp.respond(self.files, "/openai-ttft")
+    def test_unknown_question_is_404(self):
+        status, _, _ = sp.respond(self.files, "/no-such-question")
         self.assertEqual(status, 404)
 
 

@@ -454,11 +454,7 @@ class StagingTest(unittest.TestCase):
         )
         self.assertFalse(any(n.startswith("reports/") for n in files))
         self.assertIn("how-to-measure-openai-ttft/index.html", files)
-        # The remaining draft (unapproved) question is absent everywhere.
-        self.assertNotIn("openai-ttft/index.html", files)
-        self.assertFalse(
-            any(b'href="/openai-ttft"' in data for data in files.values())
-        )
+        self.assertIn("openai-ttft/index.html", files)  # approved 2026-11-08
         for name, data in files.items():
             if name.endswith(".html"):
                 self.assertEqual(

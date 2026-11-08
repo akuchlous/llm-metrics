@@ -118,10 +118,11 @@ class DefaultContentTest(unittest.TestCase):
                 "output-tokens-and-llm-response-time",
                 "why-llm-latency-varies",
                 "useful-llm-api-metrics",
+                "openai-ttft",
             )
         )
         self.assertEqual(sorted(archived), approved)
-        self.assertNotIn("openai-ttft/index.html", files)  # still a draft
+        self.assertIn("openai-ttft/index.html", files)  # approved 2026-11-08
         self.assertIn(t25.QUESTION, files)
         metric = files[t25.METRIC].decode()
         self.assertIn('href="/how-to-measure-openai-ttft"', metric)
@@ -157,6 +158,7 @@ class EditionLifecycleTest(unittest.TestCase):
                     "output-tokens-and-llm-response-time",
                     "why-llm-latency-varies",
                     "useful-llm-api-metrics",
+                    "openai-ttft",
                 )
             ),
         )
@@ -365,7 +367,8 @@ class RefusalTest(unittest.TestCase):
         self.assert_refused("states a measured value")
 
     def test_similar_questions_need_explicit_review(self):
-        # Uses the still-draft metric question (published ones are frozen).
+        # Unpublished copy: published editions are frozen.
+        self.content = Content(self)
         draft = "questions/openai-ttft"
         registry_path = self.content.root / draft / "question.json"
         registry = json.loads(registry_path.read_text())

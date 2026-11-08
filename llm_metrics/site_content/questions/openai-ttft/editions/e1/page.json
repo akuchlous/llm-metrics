@@ -8,18 +8,18 @@
   "answer_reviewed_dataset_sha256": null,
   "authors": [],
   "related_metric": "/metrics/openai/ttft",
-  "status": "draft",
+  "status": "approved",
   "what_changed": null,
   "source_commit": "c65b619",
   "title": "What Is OpenAI's Time to First Token (TTFT)?",
   "h1": "What is OpenAI's time to first token (TTFT)?",
-  "meta_description": "OpenAI time to first token from our open benchmark: what we measure, and where validated TTFT results will appear. No validated measurements are published yet.",
+  "meta_description": "OpenAI time to first token from our open benchmark: the measured median and 95th percentile TTFT, with sample size, time window and limitations.",
   "focus_keyphrase": "time to first token",
   "slug_terms": [
     "openai",
     "ttft"
   ],
-  "summary": "Our measured OpenAI TTFT, from one fixed workload. No validated measurements have been published yet.",
+  "summary": "Our measured OpenAI TTFT, from one fixed workload, with sample size and limitations.",
   "sections": [
     {
       "id": "answer",

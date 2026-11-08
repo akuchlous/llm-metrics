@@ -89,6 +89,21 @@
       "route": "/reports/2026-11-07/useful-llm-api-metrics",
       "site_url": "https://llmxchange.com",
       "source_commit": "4241ec7"
+    },
+    {
+      "answer_basis": "methodology",
+      "answer_revision": "openai-ttft/answer-r1",
+      "content_sha256": "448c17e032c6cc126a9ff9e0f18bc11f0aa397ff2a2ff3bc756b55e2f6bd64c2",
+      "dataset_sha256": null,
+      "edition_id": "e1",
+      "editorial_revision": "r1",
+      "html_sha256": "d3826f3b8f62a7e0395ba375025c9609d80e7c20f6d860e671d5fd04536bd797",
+      "methodology_version": "llm-metrics.ttft-methodology.v1",
+      "published_at": "2026-11-08T09:56:48Z",
+      "question_id": "q0006",
+      "route": "/reports/2026-11-08/openai-ttft",
+      "site_url": "https://llmxchange.com",
+      "source_commit": "c65b619"
     }
   ],
   "metric_snapshots": [
