@@ -16,3 +16,18 @@ Is one complete 24-hour pilot enough to publish numbers publicly?
 ## Critique
 
 The thresholds (50 successes, 5% unrecorded) are judgment calls set for this pilot; they should be revisited before multi-provider publication.
+
+---
+
+## Question (part 2: weekly publisher)
+
+What is still needed before the site updates itself every week in production?
+
+## Answer
+
+- Phase 0 is done offline and tested. Approval A: create the least-privilege publisher SA, a scoped Cloudflare token and a paused job, and prove it on staging. Approval B: point it at production and resume the schedule.
+- Until then, publishing stays a manual, owner-requested action.
+
+## Critique
+
+New metrics still require someone to run analytics and upload reviewed inputs; the weekly job automates publication, not measurement.

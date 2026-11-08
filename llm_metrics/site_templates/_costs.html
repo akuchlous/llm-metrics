@@ -7,6 +7,8 @@
 {% endif %}
 <p class="card-meta">Project start {{ costs.project_start }} · reporting cut-off <time datetime="{{ costs.reporting_cutoff }}">{{ costs.reporting_cutoff[:10] }}</time> (UTC). Amounts are per currency, with no conversion.</p>
 </div>
+{% if costs.get("stale") %}<p class="notice cost-unverified" role="status"><strong>Billing evidence is out of date.</strong> The latest verified cut-off is <time datetime="{{ costs.reporting_cutoff }}">{{ costs.reporting_cutoff[:10] }}</time>; charges after it are unknown, so no new cost update is published.</p>{% endif %}
+{% if costs.get("weekly_publishing") %}<p><strong>Weekly publishing operations</strong> ({{ costs.weekly_publishing.services | join(", ") }}): {% for currency, amount in costs.weekly_publishing.charged.items() %}{{ currency }} {{ amount }} charged{% if not loop.last %}; {% endif %}{% else %}no charge verified yet{% endfor %} ({{ costs.weekly_publishing.status }}). Shown separately from model API charges.</p>{% endif %}
 {% if costs.invoiced_unpaid %}<p>Invoiced but not yet paid: {% for currency, amount in costs.invoiced_unpaid.items() %}{{ currency }} {{ amount }}{% if not loop.last %}; {% endif %}{% endfor %}.</p>{% endif %}
 {% if costs.line_items %}<table class="cost-table">
 <caption>Every charge so far</caption>

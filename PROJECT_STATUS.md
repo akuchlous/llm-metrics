@@ -1,10 +1,10 @@
 # Project status
 
-_Last updated: Step 028 part 1 — complete OpenAI pilot charts published on llmxchange.com (D093); awaiting review; Approval B not started; Step 023 PARTIAL — 2026-11-07_
+_Last updated: Step 028 Phase 0 complete — weekly publisher, cost editions, answer review (D094); Approvals A/B not started — 2026-11-08_
 
 ## Current state
 
-**Step 028 (first part) done; complete pilot charts live on https://llmxchange.com/metrics/openai/ttft (D093).** Production thresholds and dated immutable metric snapshots (`/reports/2026-11-08/openai-ttft-measurements`); Worker version d6f9c6e1; 698 tests OK. Remaining Step 028: weekly cloud publisher (Approvals A/B), weekly cost editions, answer-review report. `/openai-ttft` approved and published 2026-11-08T09:56:48Z (Worker 530c17b2; edition `/reports/2026-11-08/openai-ttft`). See `prompts/028-output.md`.
+**Step 028 Phase 0 done (D093, D094).** Production thresholds, dated metric snapshots, complete pilot charts live on https://llmxchange.com/metrics/openai/ttft; `/openai-ttft` approved and published (Worker 530c17b2). Weekly publisher `python -m llm_metrics.weekly_publisher` (Sunday 02:00 UTC, idempotent, metrics publish/hold/no-change, dated `/reports/<date>/project-costs` editions, private answer-review report); 720 tests OK. Next: owner decision on Approval A (staging cloud job, paused scheduler, least-privilege SA, scoped Cloudflare token). See `prompts/028-output.md`.
 
 **OpenAI 24-hour pilot complete and audited (2026-11-08T06:28Z, read-only).** 96/96 slots claimed and recorded: 95 successes, 1 `provider_error` (2026-11-06T21:30Z), 0 missing, 0 claims without record, no records outside the window. Full-window `record_analytics` (sha256 a01202f7…) and `pilot_series` (bbcdfaf7…) built from a private mirror: TTFT p50 1,631 ms / p95 2,594 ms; total p50 4,241 ms / p95 5,917 ms; 117.8 tokens/s; success 98.96%; estimated model cost $0.03119 (95 priced; 1 unknown). Local preview labels it "Verified complete pilot". Collector stopped 2026-11-08 (scheduler paused, key detached, alert disabled); run closed. Production metrics published in Step 028 part 1 (D093).
 

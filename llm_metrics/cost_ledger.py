@@ -25,6 +25,17 @@ tools). It is not the benchmark's token-price estimate. Rules:
 - `private_reference` (invoice, account or payment ids) is validated but
   never copied to the summary.
 
+Sources may declare a `category` (one of `CATEGORIES`, default "other").
+Sources in the `weekly_publishing` category (the Step 028 weekly job's own
+cloud resources) are also summarized separately, so the cost of publishing
+is never mixed into model-call charges; with no entries they read "pending
+reconciliation", never a modeled dollar figure.
+
+`content_sha256` hashes the public summary without its timestamps, so a
+re-verified ledger with the same charges is "unchanged" (no new dated cost
+edition). `stale()` is true when the reporting cut-off is more than
+`STALE_AFTER` before a publication time.
+
 Overlapping charged periods for the same source, duplicate entry ids and
 reused evidence hashes are refused as likely double counting.
 """
@@ -40,6 +51,17 @@ import re
 SCHEMA_VERSION = "llm-metrics.cost-ledger.v1"
 SUMMARY_SCHEMA = "llm-metrics.cost-summary.v1"
 STATUSES = ("charged", "invoiced_unpaid", "estimate")
+CATEGORIES = (
+    "llm_api",
+    "subscription",
+    "cloud",
+    "hosting",
+    "domain",
+    "weekly_publishing",
+    "other",
+)
+WEEKLY_PUBLISHING = "weekly_publishing"
+STALE_AFTER = datetime.timedelta(days=8)
 LIFETIME_UNVERIFIED = "Full lifetime total not yet verified."
 MAX_LEDGER_BYTES = 1024 * 1024
 
@@ -116,6 +138,8 @@ def validate(ledger: dict) -> None:
         ids.add(source["source_id"])
         _text(source, "vendor", where)
         _text(source, "service", where)
+        if source.get("category", "other") not in CATEGORIES:
+            raise LedgerError(f"{where}: category must be one of {CATEGORIES}.")
         if not isinstance(source.get("fully_reconciled"), bool):
             raise LedgerError(f"{where}: fully_reconciled must be true/false.")
         if source["fully_reconciled"]:
@@ -230,6 +254,7 @@ def summarize(ledger: dict) -> dict:
         )
         rows.append(
             {
+                "category": source.get("category", "other"),
                 "vendor": source["vendor"],
                 "service": source["service"],
                 "charged": {
@@ -278,7 +303,14 @@ def summarize(ledger: dict) -> dict:
             "description": entry["evidence_description"],
         }
         (planned if entry["status"] == "estimate" else line_items).append(item)
-    return {
+    weekly = [r for r in rows if r["category"] == WEEKLY_PUBLISHING]
+    weekly_charged = {}
+    for row in weekly:
+        for currency, amount in row["charged"].items():
+            weekly_charged[currency] = weekly_charged.get(
+                currency, decimal.Decimal(0)
+            ) + decimal.Decimal(amount.replace(",", ""))
+    summary = {
         "schema_version": SUMMARY_SCHEMA,
         "project_start": ledger["project_start"],
         "reporting_cutoff": ledger["reporting_cutoff"],
@@ -300,4 +332,41 @@ def summarize(ledger: dict) -> dict:
         "sources": rows,
         "line_items": line_items,
         "planned": planned,
+        "weekly_publishing": None
+        if not weekly
+        else {
+            "services": [f"{r['vendor']} {r['service']}" for r in weekly],
+            "charged": {
+                c: _money(v) for c, v in sorted(weekly_charged.items())
+            },
+            "status": "reconciled"
+            if all(r["status"] == "reconciled" for r in weekly)
+            else "pending reconciliation",
+        },
     }
+    summary["content_sha256"] = content_hash(summary)
+    return summary
+
+
+def content_hash(summary: dict) -> str:
+    """SHA-256 of the public summary without its timestamps."""
+    stable = {
+        k: v
+        for k, v in summary.items()
+        if k not in ("reporting_cutoff", "content_sha256")
+    }
+    stable["sources"] = [
+        {k: v for k, v in row.items() if k != "last_verified_at"}
+        for row in summary["sources"]
+    ]
+    data = json.dumps(stable, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(data.encode("utf-8")).hexdigest()
+
+
+def stale(summary: dict, at: str) -> bool:
+    """True when the ledger cut-off is older than STALE_AFTER before `at`."""
+    cutoff = datetime.datetime.strptime(
+        summary["reporting_cutoff"], "%Y-%m-%dT%H:%M:%SZ"
+    )
+    moment = datetime.datetime.strptime(at, "%Y-%m-%dT%H:%M:%SZ")
+    return moment - cutoff > STALE_AFTER

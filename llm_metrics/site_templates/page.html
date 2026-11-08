@@ -19,7 +19,7 @@
 </header>
 {% else %}
 <h1>{{ page.h1 }}</h1>
-{% if page.kind == "snapshot" %}<p class="notice" role="note">Archived measurement snapshot, published <time datetime="{{ extra.snapshot.date }}">{{ extra.snapshot.label }}</time>. It is never changed after publication. <a href="{{ extra.snapshot.current_path }}">See the current measurements</a>.</p>{% endif %}
+{% if page.kind == "snapshot" %}<p class="notice" role="note">Archived {{ extra.snapshot.get("noun") or "measurement snapshot" }}, published <time datetime="{{ extra.snapshot.date }}">{{ extra.snapshot.label }}</time>. It is never changed after publication. <a href="{{ extra.snapshot.current_path }}">{{ extra.snapshot.get("current_label") or "See the current measurements" }}</a>.</p>{% endif %}
 {% endif %}
 {% for section in sections %}
 <section id="{{ section.id }}">
@@ -61,6 +61,15 @@
 {% for item in extra.snapshots %}<li><a href="{{ item.path }}">{{ item.label }}</a>: data window {{ item.window }}</li>
 {% endfor %}</ul>
 <p>Each snapshot is frozen when published, so earlier numbers stay available exactly as they were shown.</p>
+</section>
+{% endif %}
+{% if page.kind == "costs" and extra.get("cost_editions") %}
+<section id="cost-editions">
+<h2>Which cost updates have been published?</h2>
+<ul class="plain-list">
+{% for item in extra.cost_editions %}<li><a href="{{ item.path }}">{{ item.label }}</a>: billing evidence through {{ item.cutoff }}</li>
+{% endfor %}</ul>
+<p>Each update is frozen when published. A week with no new billing evidence adds no update.</p>
 </section>
 {% endif %}
 {% if page.kind == "home" %}

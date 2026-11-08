@@ -1,5 +1,7 @@
 {
   "publishing_enabled": true,
   "metrics_frequency": "daily",
-  "metrics_run_at_utc": "02:00"
+  "metrics_run_at_utc": "02:00",
+  "weekly_day": "sunday",
+  "weekly_run_at_utc": "02:00"
 }

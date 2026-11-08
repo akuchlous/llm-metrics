@@ -16,3 +16,18 @@ What is public now, and what remains of Step 028?
 ## Critique
 
 Publishing before the weekly workflow exists means updates are manual for now. The p95 comes from 95 successes and is labelled a small sample.
+
+---
+
+## Question (part 2: weekly publisher)
+
+What does the weekly job cost, and how is that shown without inventing a figure?
+
+## Answer
+
+- Expected USD 0 (free tiers: one scheduler job, a few minutes of Cloud Run per month, KB of storage); under USD 0.10/month even without free tiers.
+- /costs lists it under "Weekly publishing operations" as "pending reconciliation" until a billing statement shows the real charge; estimates are never added to totals.
+
+## Critique
+
+Free-tier assumptions are per billing account and can change; the first monthly statement after Approval A must be checked.

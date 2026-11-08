@@ -17,3 +17,19 @@ How is a metric snapshot made immutable and idempotent, and how does it coexist 
 ## Critique
 
 Snapshots key on the dataset hash, so a recomputed summary with identical numbers but a different window would create a new snapshot; that is intended but should be documented for weekly runs.
+
+---
+
+## Question (part 2: weekly publisher)
+
+How does the weekly run stay idempotent when Cloud Scheduler retries or the job crashes mid-run?
+
+## Answer
+
+- Each scheduled week (latest Sunday 02:00 UTC at or before `--now`) is recorded in `state.json`; a retry returns `already_done` without building.
+- Archive writes are keyed by content, not time: a dataset already in `metric_snapshots`, a cost `content_sha256` already in `cost_editions`, or an already archived edition creates nothing. A crash after freezing but before recording therefore re-runs harmlessly.
+- `build` now checks the output path before freezing, so a refused output can no longer leave new archive entries behind.
+
+## Critique
+
+The state file is a single JSON file; in the cloud it must be uploaded with a generation precondition, or two overlapping executions could both run. Cloud Run Job parallelism 1 and scheduler retries 0 make that unlikely, not impossible.

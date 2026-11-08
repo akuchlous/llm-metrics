@@ -801,7 +801,9 @@ def plan_editions(
     )
     expected_files = {MANIFEST_NAME} | {
         f"{e['route'][1:]}/index.html"
-        for e in entries + manifest.get("metric_snapshots", [])
+        for e in entries
+        + manifest.get("metric_snapshots", [])
+        + manifest.get("cost_editions", [])
     }
     stray = archived_files - expected_files
     moment = freeze_at or preview_at
@@ -2038,6 +2040,13 @@ def plan_site(
         pages, config, archive_dir, dataset, real_data, freeze_at, staging
     )
     pages.extend(snapshots)
+    moment = freeze_at or preview_at
+    if costs is not None and moment and cost_ledger.stale(costs, moment):
+        costs = {**costs, "stale": True}
+    cost_pages, new_cost_edition = _plan_cost_editions(
+        pages, config, archive_dir, costs, freeze_at, staging
+    )
+    pages.extend(cost_pages)
     by_path = {page.path: page for page in pages}
     directory = [
         {
@@ -2196,6 +2205,20 @@ def plan_site(
             ],
         }
         archive_files[name] = files[name]
+    if new_cost_edition is not None:
+        manifest = manifest or load_manifest(archive_dir)
+        name = f"{new_cost_edition['route'][1:]}/index.html"
+        manifest = {
+            **manifest,
+            "cost_editions": manifest.get("cost_editions", [])
+            + [
+                {
+                    **new_cost_edition,
+                    "html_sha256": hashlib.sha256(files[name]).hexdigest(),
+                }
+            ],
+        }
+        archive_files[name] = files[name]
     if new_entries:
         manifest = manifest or load_manifest(archive_dir)
         manifest = {
@@ -2295,6 +2318,97 @@ def _plan_snapshots(
         metric, extra={**metric.extra, "snapshots": history}
     )
     return result, new
+
+
+COST_EDITION_SLUG = "project-costs"
+
+
+def _plan_cost_editions(pages, config, archive_dir, costs, freeze_at, staging):
+    """Dated immutable cost editions, `/reports/<date>/project-costs`.
+
+    Like metric snapshots: archived editions are served verbatim and
+    checked by hash. With `freeze_at` and a cost summary that is not stale
+    and whose `content_sha256` differs from every earlier edition, one new
+    edition of /costs is planned. An unchanged or stale week creates none.
+
+    Returns:
+        (edition pages, new manifest entry or None)
+    """
+    page = next((p for p in pages if p.kind == "costs"), None)
+    if staging or page is None:
+        return [], None
+    entries = load_manifest(archive_dir).get("cost_editions", [])
+    result, links = [], []
+    for entry in entries:
+        if entry.get("site_url") != config.origin:
+            raise SiteError("Cost editions were published for another URL.")
+        path = archive_dir / entry["route"][1:] / "index.html"
+        if path.is_symlink() or not path.is_file():
+            raise SiteError(f"Archived cost edition missing: {entry['route']}")
+        data = path.read_bytes()
+        if hashlib.sha256(data).hexdigest() != entry["html_sha256"]:
+            raise SiteError(
+                f"Archived cost edition was modified: {entry['route']}"
+            )
+        result.append(_cost_edition_page(page, entry, data))
+        links.append(entry)
+    new = None
+    if (
+        freeze_at
+        and costs is not None
+        and not costs.get("stale")
+        and costs["content_sha256"]
+        not in {e["content_sha256"] for e in entries}
+    ):
+        day = freeze_at[:10]
+        same_day = sum(e["route"].split("/")[2] == day for e in entries)
+        new = {
+            "route": f"/reports/{day}/{COST_EDITION_SLUG}"
+            + (f"/r{same_day + 1}" if same_day else ""),
+            "published_at": freeze_at,
+            "content_sha256": costs["content_sha256"],
+            "reporting_cutoff": costs["reporting_cutoff"],
+            "calculation": cost_ledger.SUMMARY_SCHEMA,
+            "site_url": config.origin,
+        }
+        result.append(_cost_edition_page(page, new, None))
+        links.append(new)
+    history = [
+        {
+            "path": e["route"],
+            "label": f"{_date_text(e['published_at'])} cost update",
+            "cutoff": _utc_text(e["reporting_cutoff"]),
+        }
+        for e in sorted(links, key=lambda e: e["published_at"], reverse=True)
+    ]
+    pages[pages.index(page)] = dataclasses.replace(
+        page, extra={**page.extra, "cost_editions": history}
+    )
+    return result, new
+
+
+def _cost_edition_page(costs_page: Page, entry: dict, frozen) -> Page:
+    label = f"{_date_text(entry['published_at'])} cost update"
+    return dataclasses.replace(
+        costs_page,
+        kind=SNAPSHOT_KIND,
+        path=entry["route"],
+        title=f"{costs_page.title} ({label})",
+        description=f"{label}: {costs_page.description}"[:300],
+        breadcrumb_name=label,
+        parent=costs_page.path,
+        canonical_path=costs_page.path,
+        extra={
+            "frozen": frozen,
+            "snapshot": {
+                "label": label,
+                "date": entry["published_at"],
+                "noun": "cost update",
+                "current_path": costs_page.path,
+                "current_label": "See the current costs",
+            },
+        },
+    )
 
 
 def _snapshot_page(metric: Page, entry: dict, frozen) -> Page:
@@ -2971,12 +3085,8 @@ def editorial_report(files: dict, pages: list[Page]) -> list[dict]:
 # Output
 
 
-def write_site(output: pathlib.Path, files: dict) -> None:
-    """Writes the site to `output`, replacing only a previous site build.
-
-    The new tree is built in a sibling temporary directory and moved into
-    place, so `output` holds either the old or the new complete build.
-    """
+def check_output(output: pathlib.Path) -> None:
+    """Refuses an output path that `write_site` must not replace."""
     output = pathlib.Path(output)
     if output.is_symlink():
         raise SiteError("Output must not be a symlink.")
@@ -2988,9 +3098,22 @@ def write_site(output: pathlib.Path, files: dict) -> None:
             "Output exists and is not a previous site build; choose an empty"
             " path."
         )
+    if not resolved.parent.is_dir():
+        raise SiteError(
+            f"Output parent directory does not exist: {resolved.parent}"
+        )
+
+
+def write_site(output: pathlib.Path, files: dict) -> None:
+    """Writes the site to `output`, replacing only a previous site build.
+
+    The new tree is built in a sibling temporary directory and moved into
+    place, so `output` holds either the old or the new complete build.
+    """
+    output = pathlib.Path(output)
+    check_output(output)
+    resolved = output.resolve()
     parent = resolved.parent
-    if not parent.is_dir():
-        raise SiteError(f"Output parent directory does not exist: {parent}")
     staging = pathlib.Path(
         tempfile.mkdtemp(dir=parent, prefix=f".{output.name}.")
     )
@@ -3081,6 +3204,9 @@ def build(
         costs=costs,
         forbidden=forbidden,
     )
+    # Check the output before freezing, so a refused output never leaves
+    # new archive entries behind (seen on 2026-11-08).
+    check_output(output)
     if manifest is not None:
         freeze(archive_dir, archive_files, manifest)
     write_site(output, files)

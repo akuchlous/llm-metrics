@@ -703,3 +703,6 @@ The owner approved four educational drafts, asked for subscription costs (ChatGP
 
 The 24-hour pilot ended; a read-only audit found 96/96 slots recorded (95 successes, 1 provider error, 0 missing). The owner asked to deploy all charts, do Step 028 and update GitHub. Implemented the Step 028 prerequisites for public numbers: production thresholds in `build` and dated immutable metric snapshots. The complete pilot and its charts were published on llmxchange.com with a scope label and a frozen 2026-11-08 snapshot. The weekly cloud publisher, weekly cost editions and the answer-review report remain, pending Approvals A/B.
 
+## Step 028 (Phase 0 complete): weekly publisher (2026-11-08)
+
+The owner asked to stop the collector (done; pilot run closed), publish `/openai-ttft` (approved, published) and finish Step 028. Built the weekly publisher (dry-run capable, idempotent, metric/cost/review decisions), dated cost editions, the private answer-review report and the cloud plan with cost estimate and permissions. 720 tests OK. Cloud creation and the production schedule wait for Approvals A and B.
