@@ -4,6 +4,8 @@ _Last updated: production live on llmxchange.com (D092); Step 027c charts on sta
 
 ## Current state
 
+**OpenAI 24-hour pilot complete and audited (2026-11-08T06:28Z, read-only).** 96/96 slots claimed and recorded: 95 successes, 1 `provider_error` (2026-11-06T21:30Z), 0 missing, 0 claims without record, no records outside the window. Full-window `record_analytics` (sha256 a01202f7…) and `pilot_series` (bbcdfaf7…) built from a private mirror: TTFT p50 1,631 ms / p95 2,594 ms; total p50 4,241 ms / p95 5,917 ms; 117.8 tokens/s; success 98.96%; estimated model cost $0.03119 (95 priced; 1 unknown). Local preview labels it "Verified complete pilot". Still to do: the approved `stop` (scheduler and key remain attached); production metrics wait for Step 028.
+
 **Production live on https://llmxchange.com (D092).** Worker `llmxchange` version 9eab2723 on the custom domain; six approved answers published and frozen at 2026-11-07T16:41:02Z; indexable with sitemap; no benchmark numbers until Step 028; `/costs` shows USD 52.00 charged (owner-reported). The workers.dev staging URL is retired; staging is now `wrangler deploy --env staging`. HTTPS: `www` and plain `http` redirect (301) to `https://llmxchange.com` (owner-configured zone rules: proxied `www` AAAA `100::`, dynamic redirect rule, Always Use HTTPS; verified 2026-11-07). Next: Search Console, confirm the domain receipt, close the pilot (`stop` + audit).
 
 **Step 027c deployed to staging at the owner's request** (Worker version ff23ce00): per-request charts, question headings on every page (D090), no data downloads (D091). Awaiting ChatGPT review.

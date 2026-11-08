@@ -7,7 +7,7 @@
       "expires": "2026-11-07T18:00:00Z",
       "approval": "Step 023 Approval B (96 paid requests)",
       "closed": false,
-      "note": "Window ends 2026-11-07T18:00:00Z. Close = run the approved `stop`, then the post-window audit; then set closed to true."
+      "note": "Window ended 2026-11-07T18:00:00Z. Final audit 2026-11-08T06:28Z: 96/96 claimed, 95 success, 1 provider_error, 0 missing, 0 claim without record, 0 records without claim. Still to do before closed=true: the approved `stop` (scheduler pause, key detach)."
     }
   ]
 }
