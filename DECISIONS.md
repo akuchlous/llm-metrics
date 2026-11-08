@@ -96,6 +96,11 @@ Every step must preserve `./run.sh`, keep secrets/runtime artifacts out of Git, 
   `real_smoke` now delegates to `real_benchmark.run` (the OpenAI target with the smoke workload), so both paid commands share one refusal, announce, attempt and report path. `OpenAIProvider` lost its unused `model` override (the profile fixes the model), and `run_attempt` lost a cache-policy check that profile matching already covers. Test fakes (`sse`, `FakeResponse`, `FakeOpener`, `no_network`) live in `tests/fakes.py`.
 
   Kept separate on purpose, because each provider has its own contract: event dispatch, usage field extraction, request-id source, error-code tables, and request bodies. The OpenAI and xAI Responses parsers stay separate despite similar shapes, because their account errors, ids and documented fields differ. Wire requests, profiles, stored facts, outcomes and output are unchanged, except that the `real_smoke` pre-request announcement now uses `real_benchmark`'s multi-line format.
+- **D093 — Production metric thresholds and dated metric snapshots (Step 028, first part).**
+  - `static_site.build` applies `production_gate` to every real dataset outside staging: complete 24-hour window, evidence for every slot, at most 5% unrecorded, at least 50 successes. `--allow-preliminary` can no longer publish partial data.
+  - `--publish-at` with a gated dataset freezes `/reports/<date>/openai-ttft-measurements` once per dataset hash (`metric_snapshots` in the publication manifest), canonical to the metric page, served verbatim.
+  - The complete OpenAI pilot (96/96 slots, 95 successes) was published 2026-11-08 with its charts. The weekly cloud publisher and cost editions remain.
+
 - **D092 — Production on llmxchange.com (Approval B, 2026-11-07).**
   - The owner bought `llmxchange.com` through Cloudflare Registrar and asked to host the site. Worker `llmxchange` now serves only the custom domain `llmxchange.com` (`workers_dev: false`, so no duplicate host); staging moves to `npx wrangler deploy --env staging` (Worker `llmxchange-staging` on workers.dev), not yet deployed.
   - Built with `--site-url https://llmxchange.com --publish-at 2026-11-07T16:41:02Z`: six approved answers frozen as `/reports/2026-11-07/<slug>` editions in the committed archive. Indexable, with a 10-URL sitemap.

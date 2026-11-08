@@ -699,3 +699,7 @@ The owner wanted graphs of the real OpenAI measurements and an easy, safe way to
 
 The owner approved four educational drafts, asked for subscription costs (ChatGPT and Claude, USD 20/month each from 2026-10-20) and the domain on `/costs`, bought `llmxchange.com` through Cloudflare and asked to host the site. Production was built with `--publish-at`, freezing six approved answers as dated editions, and deployed to the custom domain on the existing Worker; workers.dev was turned off to avoid a duplicate host. No benchmark numbers are in production until Step 028. The owner also set two standing rules: every page is a question (D090) and no data downloads (D091).
 
+## Step 028 (first part): complete pilot published (2026-11-08)
+
+The 24-hour pilot ended; a read-only audit found 96/96 slots recorded (95 successes, 1 provider error, 0 missing). The owner asked to deploy all charts, do Step 028 and update GitHub. Implemented the Step 028 prerequisites for public numbers: production thresholds in `build` and dated immutable metric snapshots. The complete pilot and its charts were published on llmxchange.com with a scope label and a frozen 2026-11-08 snapshot. The weekly cloud publisher, weekly cost editions and the answer-review report remain, pending Approvals A/B.
+

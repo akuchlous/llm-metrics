@@ -91,5 +91,20 @@
       "source_commit": "4241ec7"
     }
   ],
+  "metric_snapshots": [
+    {
+      "dataset_sha256": "a01202f715bf8b97d853813476724002fa77248a8101bc50bf1901b3e7a3ae23",
+      "html_sha256": "dbbecf9119b4f0cf3469c8d459196861d6f584ead19c4ec52b686a6cae83958e",
+      "methodology_version": "llm-metrics.ttft-methodology.v1",
+      "published_at": "2026-11-08T06:38:19Z",
+      "record_manifest_sha256": "6cd0c8fec98686d74c03a70dc8407528098d47ebde1ce788a529d3366225bf9b",
+      "route": "/reports/2026-11-08/openai-ttft-measurements",
+      "site_url": "https://llmxchange.com",
+      "window": [
+        "2026-11-06T18:00:00Z",
+        "2026-11-07T18:00:00Z"
+      ]
+    }
+  ],
   "schema_version": "llm-metrics.publication.v1"
 }

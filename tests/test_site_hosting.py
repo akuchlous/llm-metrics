@@ -13,6 +13,7 @@ import re
 import shutil
 import tempfile
 import unittest
+from unittest import mock
 
 from llm_metrics import cost_ledger
 from llm_metrics import publish_runner as pr
@@ -556,6 +557,11 @@ class RunnerTest(unittest.TestCase):
         self.set_config()
         self.summary = self.tmp / "summary.json"
         self.summary.write_bytes(t25.summary_bytes())
+        # These tests cover the lane logic with the 2-hour fixture; the
+        # Step 028 production thresholds are tested in ProductionGateTest.
+        patcher = mock.patch.object(ss, "production_gate", lambda d: d)
+        patcher.start()
+        self.addCleanup(patcher.stop)
 
     def set_config(self, **changes):
         config = {
@@ -681,6 +687,126 @@ class RunnerTest(unittest.TestCase):
         code, result = self.run_lane("editorial", "--publish-at", t26.D1)
         self.assertEqual(code, 1)
         self.assertIn("missing or changed", result["reason"])
+
+
+class ProductionGateTest(unittest.TestCase):
+    """Step 028: real numbers reach production only past the thresholds."""
+
+    def gated(self, **summary_changes):
+        dataset = t25.dataset(t25.summary_bytes(), source="real")
+        summary = {**dataset.summary, **summary_changes}
+        return ss.Dataset(summary, dataset.sha256, dataset.data, "real")
+
+    def complete(self, successes=60, missing=0):
+        dataset = self.gated()
+        slots = dataset.summary["slot_completeness"]
+        if successes is None:
+            successes = dataset.summary["reliability"]["successes"]
+        return self.gated(
+            caveats=[
+                c for c in dataset.summary["caveats"]
+                if c["code"] != "partial_day"
+            ],
+            reliability={
+                **dataset.summary["reliability"], "successes": successes,
+            },
+            slot_completeness={
+                **slots,
+                "expected_slots": slots["policy"]["max_slots"],
+                "states": {**slots["states"], "missing": missing,
+                           "claim_without_record": 0},
+            },
+        )  # fmt: skip
+
+    def test_partial_window_is_refused_even_with_allow_preliminary(self):
+        with self.assertRaisesRegex(ss.SiteError, "complete 24-hour"):
+            ss.production_gate(self.gated())
+
+    def test_thresholds(self):
+        gated = ss.production_gate(self.complete())
+        self.assertIn(
+            "Complete 24-hour pilot", gated.summary["_published"]["label"]
+        )
+        with self.assertRaisesRegex(ss.SiteError, "successes"):
+            ss.production_gate(self.complete(successes=49))
+        with self.assertRaisesRegex(ss.SiteError, "no record"):
+            ss.production_gate(self.complete(missing=5))
+
+    def test_build_applies_the_gate_to_real_production_data(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = pathlib.Path(tmp) / "summary.json"
+            path.write_bytes(t25.summary_bytes())
+            with self.assertRaisesRegex(ss.SiteError, "complete 24-hour"):
+                ss.build(pathlib.Path(tmp) / "site", t25.SITE, path, "real")
+
+
+class MetricSnapshotTest(unittest.TestCase):
+    """Step 028: dated immutable metric snapshots."""
+
+    def setUp(self):
+        self.content = t26.Content(self)
+        # The fixture's real counts (plan_site re-validates them), with the
+        # success threshold lowered for this test only.
+        patcher = mock.patch.object(ss, "PRODUCTION_MIN_SUCCESSES", 1)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        dataset = ProductionGateTest().complete(successes=None)
+        self.dataset = ss.production_gate(dataset)
+
+    def plan(self, at=None, dataset=None):
+        return ss.plan_site(
+            CONFIG, dataset or self.dataset, self.content.root, freeze_at=at
+        )
+
+    def freeze(self, at):
+        files, archive_files, manifest, _ = self.plan(at)
+        if manifest is not None:  # as build() does
+            ss.freeze(self.content.archive, archive_files, manifest)
+        return files, archive_files
+
+    def test_snapshot_is_created_once_and_served_verbatim(self):
+        files, archived = self.freeze("2026-11-08T07:00:00Z")
+        route = "reports/2026-11-08/openai-ttft-measurements/index.html"
+        self.assertIn(route, archived)
+        page = ss.parse_page(files[route])
+        self.assertEqual(
+            page.links_rel["canonical"], [t25.SITE + "/metrics/openai/ttft"]
+        )
+        self.assertNotIn(
+            route.split("/index", maxsplit=1)[0], files["sitemap.xml"].decode()
+        )
+        metric = files[t25.METRIC].decode()
+        self.assertIn(f'href="/{route[:-11]}"', metric)
+        self.assertIn("Complete 24-hour pilot", metric)
+        # Same dataset again: no new snapshot; archived bytes reused.
+        files2, archived2 = self.freeze("2026-11-08T08:00:00Z")
+        self.assertEqual([n for n in archived2 if "measurements" in n], [])
+        self.assertEqual(files2[route], files[route])
+        manifest = json.loads(
+            (self.content.archive / ss.MANIFEST_NAME).read_text()
+        )
+        self.assertEqual(len(manifest["metric_snapshots"]), 1)
+
+    def test_modified_snapshot_is_refused(self):
+        self.freeze("2026-11-08T07:00:00Z")
+        path = (
+            self.content.archive
+            / "reports/2026-11-08/openai-ttft-measurements/index.html"
+        )
+        path.write_bytes(path.read_bytes() + b" ")
+        with self.assertRaisesRegex(ss.SiteError, "snapshot was modified"):
+            self.plan()
+
+    def test_staging_never_creates_snapshots(self):
+        _, archived, manifest, _ = ss.plan_site(
+            ss.SiteConfig("https://llmxchange.example.workers.dev"),
+            self.dataset,
+            self.content.root,
+            preview_at="2026-11-08T07:00:00Z",
+            staging=True,
+        )
+        self.assertEqual(archived, {})
+        self.assertIsNone(manifest)
 
 
 if __name__ == "__main__":

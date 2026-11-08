@@ -1,4 +1,5 @@
 {% if charts %}
+{% if data and data.published %}<p class="notice published-scope" role="note"><strong>{{ data.published.label }}</strong></p>{% endif %}
 {% if data and data.provisional %}<p class="notice provisional" role="status"><strong>{{ data.provisional.label }}</strong></p>{% endif %}
 <p class="data-note">Pilot window {{ charts.start }} to {{ charts.expires }}, one scheduled request every 15 minutes ({{ charts.total }} slots). Data cutoff: <strong>{{ charts.cutoff }}</strong>; {{ charts.due }} slots were due, {{ charts.counts.not_due }} were not yet due. Each dot is <strong>one request</strong>, not an average. Lines join only consecutive successful requests, so a failed, missing or future slot leaves a visible gap.</p>
 {% for chart in charts.charts %}

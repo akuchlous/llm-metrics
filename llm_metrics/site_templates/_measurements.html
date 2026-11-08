@@ -1,5 +1,6 @@
 {% import "_macros.html" as m %}
 {% if data %}
+{% if data.published %}<p class="notice published-scope" role="note"><strong>{{ data.published.label }}</strong></p>{% endif %}
 {% if data.provisional %}<p class="notice provisional" role="status"><strong>{{ data.provisional.label }}</strong> Based on {{ data.provisional.due_slots }} scheduled slots due by the cutoff, of {{ data.provisional.policy_slots }} in the pilot.</p>{% endif %}
 <p class="data-note">Data window: <time datetime="{{ data.window.start_iso }}">{{ data.window.start }}</time> to <time datetime="{{ data.window.end_iso }}">{{ data.window.end }}</time> (end exclusive). Latest measurement: <time datetime="{{ data.window.latest_iso }}">{{ data.window.latest }}</time>. Origin: {{ data.population.origin }}. Workload: <code>{{ data.population.workload_id }}</code>.</p>
 {% if data.preliminary %}<p class="preliminary"><strong>Preliminary:</strong> {{ data.preliminary }}</p>{% endif %}

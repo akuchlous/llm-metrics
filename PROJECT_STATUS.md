@@ -1,8 +1,10 @@
 # Project status
 
-_Last updated: production live on llmxchange.com (D092); Step 027c charts on staging history; Approval B not started; Step 023 PARTIAL — 2026-11-07_
+_Last updated: Step 028 part 1 — complete OpenAI pilot charts published on llmxchange.com (D093); awaiting review; Approval B not started; Step 023 PARTIAL — 2026-11-07_
 
 ## Current state
+
+**Step 028 (first part) done; complete pilot charts live on https://llmxchange.com/metrics/openai/ttft (D093).** Production thresholds and dated immutable metric snapshots (`/reports/2026-11-08/openai-ttft-measurements`); Worker version d6f9c6e1; 698 tests OK. Remaining Step 028: weekly cloud publisher (Approvals A/B), weekly cost editions, answer-review report. Pending: approve the Step 023 `stop`. See `prompts/028-output.md`.
 
 **OpenAI 24-hour pilot complete and audited (2026-11-08T06:28Z, read-only).** 96/96 slots claimed and recorded: 95 successes, 1 `provider_error` (2026-11-06T21:30Z), 0 missing, 0 claims without record, no records outside the window. Full-window `record_analytics` (sha256 a01202f7…) and `pilot_series` (bbcdfaf7…) built from a private mirror: TTFT p50 1,631 ms / p95 2,594 ms; total p50 4,241 ms / p95 5,917 ms; 117.8 tokens/s; success 98.96%; estimated model cost $0.03119 (95 priced; 1 unknown). Local preview labels it "Verified complete pilot". Still to do: the approved `stop` (scheduler and key remain attached); production metrics wait for Step 028.
 

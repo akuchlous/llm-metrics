@@ -800,7 +800,8 @@ def plan_editions(
         else set()
     )
     expected_files = {MANIFEST_NAME} | {
-        f"{e['route'][1:]}/index.html" for e in entries
+        f"{e['route'][1:]}/index.html"
+        for e in entries + manifest.get("metric_snapshots", [])
     }
     stray = archived_files - expected_files
     moment = freeze_at or preview_at
@@ -1433,6 +1434,51 @@ def _provisional_gate(
     )
 
 
+# Step 028 production publication thresholds (deferred from the Step 026
+# review): real numbers reach a public, indexable page only from a complete
+# collector window with enough successes and almost no unrecorded slots.
+PRODUCTION_MIN_SUCCESSES = 50
+PRODUCTION_MAX_UNRECORDED_SHARE = 0.05
+
+
+def production_gate(dataset: Dataset) -> Dataset:
+    """Checks a real dataset for production publication; labels it.
+
+    Raises:
+        SiteError: Naming the threshold the dataset fails.
+    """
+    summary = dataset.summary
+    codes = {c["code"] for c in summary["caveats"]}
+    slots = summary.get("slot_completeness")
+    if "partial_day" in codes:
+        raise SiteError("Production needs a complete 24-hour window.")
+    if not slots or slots["expected_slots"] != slots["policy"]["max_slots"]:
+        raise SiteError(
+            "Production needs collector evidence for every policy slot."
+        )
+    states = slots["states"]
+    unrecorded = states.get("missing", 0) + states.get(
+        "claim_without_record", 0
+    )
+    if unrecorded > PRODUCTION_MAX_UNRECORDED_SHARE * slots["expected_slots"]:
+        raise SiteError("Too many scheduled slots have no record.")
+    successes = summary["reliability"]["successes"]
+    if successes < PRODUCTION_MIN_SUCCESSES:
+        raise SiteError(
+            f"Only {successes} successes; production needs"
+            f" {PRODUCTION_MIN_SUCCESSES}."
+        )
+    population = summary["population"]
+    label = (
+        f"Complete 24-hour pilot, {_utc_text(population['start_inclusive'])}"
+        f" to {_utc_text(population['end_exclusive'])}: one model, one"
+        " workload, one region. Not a provider-wide benchmark or ranking."
+    )
+    return dataclasses.replace(
+        dataset, summary={**summary, "_published": {"label": label}}
+    )
+
+
 def data_view(dataset: Dataset) -> dict:
     """Template values from a validated summary. Display rounding only."""
     summary = dataset.summary
@@ -1527,6 +1573,7 @@ def data_view(dataset: Dataset) -> dict:
         },
         "metric_rows": rows,
         "provisional": summary.get("_provisional"),
+        "published": summary.get("_published"),
         "chart": chart,
         "preliminary": " ".join(p[0].upper() + p[1:] for p in preliminary),
         "reliability": {
@@ -1987,6 +2034,10 @@ def plan_site(
                 extra={"pager": _pager(number, len(listing))},
             )
         )
+    snapshots, new_snapshot = _plan_snapshots(
+        pages, config, archive_dir, dataset, real_data, freeze_at, staging
+    )
+    pages.extend(snapshots)
     by_path = {page.path: page for page in pages}
     directory = [
         {
@@ -2019,7 +2070,10 @@ def plan_site(
     ]
     files, frozen_paths = {}, set()
     for page in pages:
-        if page.kind == "edition" and page.extra["frozen"] is not None:
+        if (
+            page.kind in ("edition", SNAPSHOT_KIND)
+            and page.extra["frozen"] is not None
+        ):
             # Published history is served byte-for-byte, never re-rendered.
             files[page.output_file] = page.extra["frozen"]
             frozen_paths.add(page.path)
@@ -2128,8 +2182,22 @@ def plan_site(
     check_site(files, config, pages, frozen_paths)
     scan_public(files, forbidden)
     archive_files, manifest = {}, None
-    if new_entries:
+    if new_snapshot is not None:
         manifest = load_manifest(archive_dir)
+        name = f"{new_snapshot['route'][1:]}/index.html"
+        manifest = {
+            **manifest,
+            "metric_snapshots": manifest.get("metric_snapshots", [])
+            + [
+                {
+                    **new_snapshot,
+                    "html_sha256": hashlib.sha256(files[name]).hexdigest(),
+                }
+            ],
+        }
+        archive_files[name] = files[name]
+    if new_entries:
+        manifest = manifest or load_manifest(archive_dir)
         manifest = {
             **manifest,
             "editions": manifest["editions"]
@@ -2147,6 +2215,111 @@ def plan_site(
             name = f"{entry['route'][1:]}/index.html"
             archive_files[name] = files[name]
     return dict(sorted(files.items())), archive_files, manifest, pages
+
+
+SNAPSHOT_KIND = "snapshot"
+SNAPSHOT_SLUG = "openai-ttft-measurements"
+
+
+def _plan_snapshots(
+    pages, config, archive_dir, dataset, real_data, freeze_at, staging
+):
+    """Dated immutable metric snapshots (Step 028).
+
+    Archived snapshots are served from their recorded bytes. With
+    `freeze_at` and a production-gated real dataset not yet snapshotted, a
+    new snapshot of the metric page is planned at
+    `/reports/<date>/openai-ttft-measurements` (canonical to the metric
+    page). Staging builds ignore the archive.
+
+    Returns:
+        (snapshot pages, new manifest entry or None)
+    """
+    metric = next((p for p in pages if p.kind == "metric"), None)
+    if staging or metric is None:
+        return [], None
+    manifest = load_manifest(archive_dir)
+    entries = manifest.get("metric_snapshots", [])
+    result, links = [], []
+    for entry in entries:
+        if entry.get("site_url") != config.origin:
+            raise SiteError("Metric snapshots were published for another URL.")
+        path = archive_dir / entry["route"][1:] / "index.html"
+        if path.is_symlink() or not path.is_file():
+            raise SiteError(f"Archived snapshot missing: {entry['route']}")
+        data = path.read_bytes()
+        if hashlib.sha256(data).hexdigest() != entry["html_sha256"]:
+            raise SiteError(f"Archived snapshot was modified: {entry['route']}")
+        result.append(_snapshot_page(metric, entry, data))
+        links.append(entry)
+    new = None
+    if (
+        freeze_at
+        and real_data
+        and dataset.summary.get("_published")
+        and dataset.sha256 not in {e["dataset_sha256"] for e in entries}
+    ):
+        day = freeze_at[:10]
+        same_day = sum(e["route"].split("/")[2] == day for e in entries)
+        route = f"/reports/{day}/{SNAPSHOT_SLUG}" + (
+            f"/r{same_day + 1}" if same_day else ""
+        )
+        population = dataset.summary["population"]
+        new = {
+            "route": route,
+            "published_at": freeze_at,
+            "dataset_sha256": dataset.sha256,
+            "record_manifest_sha256": dataset.summary["evidence"][
+                "manifest_sha256"
+            ],
+            "window": [
+                population["start_inclusive"],
+                population["end_exclusive"],
+            ],
+            "methodology_version": METHODOLOGY_VERSION,
+            "site_url": config.origin,
+        }
+        result.append(_snapshot_page(metric, new, None))
+        links.append(new)
+    history = [
+        {
+            "path": e["route"],
+            "label": f"{_date_text(e['published_at'])} snapshot",
+            "window": (
+                f"{_utc_text(e['window'][0])} to {_utc_text(e['window'][1])}"
+            ),
+        }
+        for e in sorted(links, key=lambda e: e["published_at"], reverse=True)
+    ]
+    pages[pages.index(metric)] = dataclasses.replace(
+        metric, extra={**metric.extra, "snapshots": history}
+    )
+    return result, new
+
+
+def _snapshot_page(metric: Page, entry: dict, frozen) -> Page:
+    label = f"{_date_text(entry['published_at'])} snapshot"
+    return dataclasses.replace(
+        metric,
+        kind=SNAPSHOT_KIND,
+        path=entry["route"],
+        title=f"{metric.title} ({label})",
+        description=f"{label} of the measured values: {metric.description}"[
+            :300
+        ],
+        breadcrumb_name=label,
+        parent=metric.path,
+        canonical_path=metric.path,
+        extra={
+            "frozen": frozen,
+            "snapshot": {
+                "label": label,
+                "date": entry["published_at"],
+                "window": entry["window"],
+                "current_path": metric.path,
+            },
+        },
+    )
 
 
 def _evidence_page(question: Question) -> Page:
@@ -2294,7 +2467,7 @@ def hosting_files(
     newest = max(latest.values(), default=None)
     entries = []
     for page in pages:
-        if page.kind == "edition" or page.robots:
+        if page.kind in ("edition", SNAPSHOT_KIND) or page.robots:
             continue
         lastmod = latest.get(page.path)
         if page.path in ("/", "/questions"):
@@ -2876,6 +3049,8 @@ def build(
             "expected_population"
         ]
         dataset = load_dataset(analytics, data_source, expected)
+        if dataset.source == "real" and not staging:
+            dataset = production_gate(dataset)
     series = None
     if series_path is not None:
         if dataset is None:

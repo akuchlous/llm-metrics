@@ -1,0 +1,798 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src &#39;none&#39;; style-src &#39;self&#39;; img-src &#39;self&#39;; base-uri &#39;none&#39;; form-action &#39;none&#39;">
+<title>What Are OpenAI&#39;s Measured TTFT Results? (gpt-6-luna) (8 November 2026 snapshot)</title>
+<meta name="description" content="8 November 2026 snapshot of the measured values: Validated time-to-first-token measurements for OpenAI gpt-6-luna: p50 and p95, sample size, failures, cost and the exact data window and source fingerprint.">
+<link rel="canonical" href="https://llmxchange.com/metrics/openai/ttft">
+<meta property="og:type" content="website">
+<meta property="og:title" content="What Are OpenAI&#39;s Measured TTFT Results? (gpt-6-luna) (8 November 2026 snapshot)">
+<meta property="og:description" content="8 November 2026 snapshot of the measured values: Validated time-to-first-token measurements for OpenAI gpt-6-luna: p50 and p95, sample size, failures, cost and the exact data window and source fingerprint.">
+<meta property="og:url" content="https://llmxchange.com/metrics/openai/ttft">
+<meta property="og:site_name" content="LLM Xchange">
+<link rel="stylesheet" href="/assets/site.css">
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"WebPage","description":"8 November 2026 snapshot of the measured values: Validated time-to-first-token measurements for OpenAI gpt-6-luna: p50 and p95, sample size, failures, cost and the exact data window and source fingerprint.","name":"What Are OpenAI's Measured TTFT Results? (gpt-6-luna) (8 November 2026 snapshot)","url":"https://llmxchange.com/reports/2026-11-08/openai-ttft-measurements"}</script>
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","item":"https://llmxchange.com/","name":"Home","position":1},{"@type":"ListItem","item":"https://llmxchange.com/llm-performance","name":"LLM Performance","position":2},{"@type":"ListItem","item":"https://llmxchange.com/metrics/openai/ttft","name":"Measured OpenAI TTFT","position":3},{"@type":"ListItem","item":"https://llmxchange.com/reports/2026-11-08/openai-ttft-measurements","name":"8 November 2026 snapshot","position":4}]}</script>
+</head>
+<body>
+<a class="skip-link" href="#content">Skip to content</a>
+<header class="site-header">
+<div class="header-inner">
+<a class="brand" href="/"><span class="brand-mark" aria-hidden="true">◆</span><span class="brand-name">LLM Xchange</span></a>
+<nav aria-label="Main" class="main-nav">
+<ul>
+<li><a href="/questions">Questions</a></li>
+<li><a href="/llm-performance">Metrics</a></li>
+<li><a href="/costs">Costs</a></li>
+</ul>
+</nav>
+</div>
+</header>
+
+<nav aria-label="Breadcrumb" class="breadcrumb">
+<ol>
+<li><a href="/">Home</a></li>
+<li><a href="/llm-performance">LLM Performance</a></li>
+<li><a href="/metrics/openai/ttft">Measured OpenAI TTFT</a></li>
+<li><a href="/reports/2026-11-08/openai-ttft-measurements" aria-current="page">8 November 2026 snapshot</a></li>
+</ol>
+</nav>
+
+<main id="content">
+
+<article class="page page-snapshot">
+
+<h1>What are the measured OpenAI time to first token (TTFT) results?</h1>
+<p class="notice" role="note">Archived measurement snapshot, published <time datetime="2026-11-08T06:38:19Z">8 November 2026 snapshot</time>. It is never changed after publication. <a href="/metrics/openai/ttft">See the current measurements</a>.</p>
+
+
+<section id="about">
+<h2>What this page measures</h2>
+<p>This page shows client-observed time to first token for OpenAI <code>gpt-6-luna</code>: the time from just before a streaming request is made until the first chunk of answer text arrives. Every value comes from a validated, published dataset, and the sample size and data window are shown with it.</p>
+<p>The numbers come from one fixed workload sent from one Google Cloud region. They are not a ranking and do not describe other prompts, models or locations.</p>
+
+</section>
+
+<section id="measurements">
+<h2>Latest validated measurements</h2>
+
+
+<p class="notice published-scope" role="note"><strong>Complete 24-hour pilot, 2026-11-06 18:00:00 UTC to 2026-11-07 18:00:00 UTC: one model, one workload, one region. Not a provider-wide benchmark or ranking.</strong></p>
+
+<p class="data-note">Data window: <time datetime="2026-11-06T18:00:00Z">2026-11-06 18:00:00 UTC</time> to <time datetime="2026-11-07T18:00:00Z">2026-11-07 18:00:00 UTC</time> (end exclusive). Latest measurement: <time datetime="2026-11-07T17:46:06.250832Z">2026-11-07 17:46:06 UTC</time>. Origin: gcp us-central1. Workload: <code>interactive-chat-v1</code>.</p>
+<p class="preliminary"><strong>Preliminary:</strong> Based on 95 successful requests; percentiles from small samples are unstable.</p>
+<ul class="cards">
+<li><span class="card-label">TTFT p50</span> <span class="card-value">1,631 ms</span></li>
+<li><span class="card-label">TTFT p95</span> <span class="card-value">2,594 ms</span></li>
+<li><span class="card-label">Successful requests</span> <span class="card-value">95</span></li>
+<li><span class="card-label">Observed success rate</span> <span class="card-value">99.0% (95 of 96)</span></li>
+</ul>
+
+<figure>
+<svg class="chart" role="img" aria-labelledby="ttft-chart-title" viewBox="0 0 520 138" width="100%">
+<title id="ttft-chart-title">TTFT of 95 successful requests</title>
+<text x="0" y="24" class="chart-label">Min</text>
+<rect x="130" y="10" width="22.6" height="20" class="chart-bar"></rect>
+<text x="158.6" y="24" class="chart-value">929 ms</text>
+<text x="0" y="56" class="chart-label">Median (p50)</text>
+<rect x="130" y="42" width="39.6" height="20" class="chart-bar"></rect>
+<text x="175.6" y="56" class="chart-value">1,631 ms</text>
+<text x="0" y="88" class="chart-label">p95</text>
+<rect x="130" y="74" width="63.0" height="20" class="chart-bar"></rect>
+<text x="199.0" y="88" class="chart-value">2,594 ms</text>
+<text x="0" y="120" class="chart-label">Max</text>
+<rect x="130" y="106" width="300.0" height="20" class="chart-bar"></rect>
+<text x="436.0" y="120" class="chart-value">12,343 ms</text>
+</svg>
+<figcaption>TTFT of 95 successful requests. Bar lengths are proportional to the values in the table below.</figcaption>
+</figure>
+
+<table>
+<caption>Latency and throughput, successful requests only</caption>
+<thead><tr><th scope="col">Metric</th><th scope="col">Samples</th><th scope="col">p50</th><th scope="col">p95</th><th scope="col">Min</th><th scope="col">Max</th></tr></thead>
+<tbody>
+<tr><th scope="row">TTFT (ms)</th><td>95</td><td>1,631 ms</td><td>2,594 ms</td><td>929 ms</td><td>12,343 ms</td></tr>
+<tr><th scope="row">Total latency (ms)</th><td>95</td><td>4,241 ms</td><td>5,917 ms</td><td>3,391 ms</td><td>15,236 ms</td></tr>
+<tr><th scope="row">Output token throughput (tokens/s)</th><td>95</td><td>117.8 tokens/s</td><td>133.9 tokens/s</td><td>77.0 tokens/s</td><td>136.2 tokens/s</td></tr>
+<tr><th scope="row">Output chunk throughput (chunks/s)</th><td>95</td><td>116.2 chunks/s</td><td>132.1 chunks/s</td><td>75.9 chunks/s</td><td>134.4 chunks/s</td></tr>
+</tbody>
+</table>
+<table>
+<caption>Reliability: every recorded attempt in the window</caption>
+<tbody>
+<tr><th scope="row">Attempts recorded</th><td>96</td></tr>
+<tr><th scope="row">Successful</th><td>95</td></tr>
+<tr><th scope="row">Failed</th><td>1</td></tr>
+<tr><th scope="row">Failed: Provider/server error</th><td>1</td></tr>
+<tr><th scope="row">Observed success rate</th><td>99.0% (95 of 96)</td></tr>
+</tbody>
+</table>
+
+<table>
+<caption>Scheduled slots in the window (from collector claims)</caption>
+<tbody>
+<tr><th scope="row">Slots begun</th><td>96</td></tr>
+<tr><th scope="row">Recorded success</th><td>95</td></tr>
+<tr><th scope="row">Recorded failure</th><td>1</td></tr>
+<tr><th scope="row">Claimed but no record</th><td>0</td></tr>
+<tr><th scope="row">Missing (never ran)</th><td>0</td></tr>
+</tbody>
+</table>
+
+<table>
+<caption>Tokens and estimated API cost (USD, from reported tokens and list prices)</caption>
+<tbody>
+<tr><th scope="row">Estimated cost of successful requests</th><td>$0.031190</td></tr>
+<tr><th scope="row">Requests with unknown cost (failed)</th><td>1</td></tr>
+<tr><th scope="row">Input tokens (successful requests)</th><td>170,525</td></tr>
+<tr><th scope="row">Cached input tokens reported</th><td>0</td></tr>
+<tr><th scope="row">Output tokens (successful requests)</th><td>28,275</td></tr>
+</tbody>
+</table>
+<h3>Caveats from the dataset</h3>
+
+<ul class="caveats">
+<li>Success rate is what this runner observed from one origin and workload, not provider uptime.</li>
+<li>Fewer than 100 successful attempts; percentiles are unstable estimates.</li>
+<li>Failed attempts have unknown cost and tokens; they are counted, not added as zero.</li>
+</ul>
+
+
+
+</section>
+
+<section id="charts">
+<h2>Every request over time</h2>
+
+<p class="notice published-scope" role="note"><strong>Complete 24-hour pilot, 2026-11-06 18:00:00 UTC to 2026-11-07 18:00:00 UTC: one model, one workload, one region. Not a provider-wide benchmark or ranking.</strong></p>
+
+<p class="data-note">Pilot window 2026-11-06 18:00:00 UTC to 2026-11-07 18:00:00 UTC, one scheduled request every 15 minutes (96 slots). Data cutoff: <strong>2026-11-07 18:00:00 UTC</strong>; 96 slots were due, 0 were not yet due. Each dot is <strong>one request</strong>, not an average. Lines join only consecutive successful requests, so a failed, missing or future slot leaves a visible gap.</p>
+
+<figure class="chart-figure">
+<svg class="chart timeseries" role="img" aria-labelledby="c1-t c1-d" viewBox="0 0 640 230" width="100%">
+<title id="c1-t">Time to first token per request, UTC</title>
+<desc id="c1-d">95 successful requests between 2026-11-06 18:00:00 UTC and 2026-11-07 18:00:00 UTC; values from 928 ms to 12,343 ms; median 1,631 ms (nearest rank). Failed or missing slots are marked on the time axis.</desc>
+<line class="chart-grid" x1="56" x2="626" y1="190.0" y2="190.0"></line><text class="chart-axis" x="50" y="194.0" text-anchor="end">0 ms</text>
+<line class="chart-grid" x1="56" x2="626" y1="146.0" y2="146.0"></line><text class="chart-axis" x="50" y="150.0" text-anchor="end">1,500 ms</text>
+<line class="chart-grid" x1="56" x2="626" y1="102.0" y2="102.0"></line><text class="chart-axis" x="50" y="106.0" text-anchor="end">3,000 ms</text>
+<line class="chart-grid" x1="56" x2="626" y1="58.0" y2="58.0"></line><text class="chart-axis" x="50" y="62.0" text-anchor="end">4,500 ms</text>
+<line class="chart-grid" x1="56" x2="626" y1="14.0" y2="14.0"></line><text class="chart-axis" x="50" y="18.0" text-anchor="end">6,000 ms</text>
+<line class="chart-grid" x1="56.0" x2="56.0" y1="14" y2="190"></line><text class="chart-axis" x="56.0" y="206" text-anchor="middle">18:00</text>
+<line class="chart-grid" x1="200.0" x2="200.0" y1="14" y2="190"></line><text class="chart-axis" x="200.0" y="206" text-anchor="middle">00:00 7 Nov</text>
+<line class="chart-grid" x1="344.0" x2="344.0" y1="14" y2="190"></line><text class="chart-axis" x="344.0" y="206" text-anchor="middle">06:00</text>
+<line class="chart-grid" x1="488.0" x2="488.0" y1="14" y2="190"></line><text class="chart-axis" x="488.0" y="206" text-anchor="middle">12:00</text>
+<line class="chart-median" x1="56" x2="626" y1="142.2" y2="142.2"></line><text class="chart-median-label" x="622" y="137.2" text-anchor="end">median 1,631 ms</text>
+<polyline class="chart-line" points="56.0,128.8 62.0,153.5 68.0,148.6 74.0,45.4 80.0,129.9 86.0,135.8 92.0,119.2 98.0,140.8 104.0,150.8 110.0,139.6 116.0,123.7 122.0,137.6 128.0,135.9 134.0,134.8"></polyline>
+<polyline class="chart-line" points="146.0,135.4 152.0,14.0 158.0,135.9 164.0,142.0 170.0,139.5 176.0,142.2 182.0,140.5 188.0,142.3 194.0,145.9 200.0,123.6 206.0,143.4 212.0,142.7 218.0,120.8 224.0,129.8 230.0,145.3 236.0,155.7 242.0,140.6 248.0,145.1 254.0,160.0 260.0,140.2 266.0,144.2 272.0,115.2 278.0,143.2 284.0,153.3 290.0,74.1 296.0,143.1 302.0,162.8 308.0,142.3 314.0,142.7 320.0,136.5 326.0,145.8 332.0,141.1 338.0,162.6 344.0,133.0 350.0,133.5 356.0,144.4 362.0,158.6 368.0,139.9 374.0,135.5 380.0,142.2 386.0,141.6 392.0,145.5 398.0,157.6 404.0,144.0 410.0,144.7 416.0,134.0 422.0,155.7 428.0,143.7 434.0,154.7 440.0,140.4 446.0,156.9 452.0,145.9 458.0,139.0 464.0,140.3 470.0,144.7 476.0,155.6 482.0,141.9 488.0,144.7 494.0,149.8 500.0,132.3 506.0,131.3 512.0,131.9 518.0,129.8 524.0,142.2 530.0,139.1 536.0,143.7 542.0,145.3 548.0,142.2 554.0,147.0 560.0,140.5 566.0,75.6 572.0,156.8 578.0,154.3 584.0,139.6 590.0,142.2 596.0,133.7 602.0,142.1 608.0,113.9 614.0,153.8 620.0,151.3 626.0,144.7"></polyline>
+<circle class="chart-point" cx="56.0" cy="128.8" r="2.6"></circle>
+<circle class="chart-point" cx="62.0" cy="153.5" r="2.6"></circle>
+<circle class="chart-point" cx="68.0" cy="148.6" r="2.6"></circle>
+<circle class="chart-point" cx="74.0" cy="45.4" r="2.6"></circle>
+<circle class="chart-point" cx="80.0" cy="129.9" r="2.6"></circle>
+<circle class="chart-point" cx="86.0" cy="135.8" r="2.6"></circle>
+<circle class="chart-point" cx="92.0" cy="119.2" r="2.6"></circle>
+<circle class="chart-point" cx="98.0" cy="140.8" r="2.6"></circle>
+<circle class="chart-point" cx="104.0" cy="150.8" r="2.6"></circle>
+<circle class="chart-point" cx="110.0" cy="139.6" r="2.6"></circle>
+<circle class="chart-point" cx="116.0" cy="123.7" r="2.6"></circle>
+<circle class="chart-point" cx="122.0" cy="137.6" r="2.6"></circle>
+<circle class="chart-point" cx="128.0" cy="135.9" r="2.6"></circle>
+<circle class="chart-point" cx="134.0" cy="134.8" r="2.6"></circle>
+<circle class="chart-point" cx="146.0" cy="135.4" r="2.6"></circle>
+<circle class="chart-point" cx="158.0" cy="135.9" r="2.6"></circle>
+<circle class="chart-point" cx="164.0" cy="142.0" r="2.6"></circle>
+<circle class="chart-point" cx="170.0" cy="139.5" r="2.6"></circle>
+<circle class="chart-point" cx="176.0" cy="142.2" r="2.6"></circle>
+<circle class="chart-point" cx="182.0" cy="140.5" r="2.6"></circle>
+<circle class="chart-point" cx="188.0" cy="142.3" r="2.6"></circle>
+<circle class="chart-point" cx="194.0" cy="145.9" r="2.6"></circle>
+<circle class="chart-point" cx="200.0" cy="123.6" r="2.6"></circle>
+<circle class="chart-point" cx="206.0" cy="143.4" r="2.6"></circle>
+<circle class="chart-point" cx="212.0" cy="142.7" r="2.6"></circle>
+<circle class="chart-point" cx="218.0" cy="120.8" r="2.6"></circle>
+<circle class="chart-point" cx="224.0" cy="129.8" r="2.6"></circle>
+<circle class="chart-point" cx="230.0" cy="145.3" r="2.6"></circle>
+<circle class="chart-point" cx="236.0" cy="155.7" r="2.6"></circle>
+<circle class="chart-point" cx="242.0" cy="140.6" r="2.6"></circle>
+<circle class="chart-point" cx="248.0" cy="145.1" r="2.6"></circle>
+<circle class="chart-point" cx="254.0" cy="160.0" r="2.6"></circle>
+<circle class="chart-point" cx="260.0" cy="140.2" r="2.6"></circle>
+<circle class="chart-point" cx="266.0" cy="144.2" r="2.6"></circle>
+<circle class="chart-point" cx="272.0" cy="115.2" r="2.6"></circle>
+<circle class="chart-point" cx="278.0" cy="143.2" r="2.6"></circle>
+<circle class="chart-point" cx="284.0" cy="153.3" r="2.6"></circle>
+<circle class="chart-point" cx="290.0" cy="74.1" r="2.6"></circle>
+<circle class="chart-point" cx="296.0" cy="143.1" r="2.6"></circle>
+<circle class="chart-point" cx="302.0" cy="162.8" r="2.6"></circle>
+<circle class="chart-point" cx="308.0" cy="142.3" r="2.6"></circle>
+<circle class="chart-point" cx="314.0" cy="142.7" r="2.6"></circle>
+<circle class="chart-point" cx="320.0" cy="136.5" r="2.6"></circle>
+<circle class="chart-point" cx="326.0" cy="145.8" r="2.6"></circle>
+<circle class="chart-point" cx="332.0" cy="141.1" r="2.6"></circle>
+<circle class="chart-point" cx="338.0" cy="162.6" r="2.6"></circle>
+<circle class="chart-point" cx="344.0" cy="133.0" r="2.6"></circle>
+<circle class="chart-point" cx="350.0" cy="133.5" r="2.6"></circle>
+<circle class="chart-point" cx="356.0" cy="144.4" r="2.6"></circle>
+<circle class="chart-point" cx="362.0" cy="158.6" r="2.6"></circle>
+<circle class="chart-point" cx="368.0" cy="139.9" r="2.6"></circle>
+<circle class="chart-point" cx="374.0" cy="135.5" r="2.6"></circle>
+<circle class="chart-point" cx="380.0" cy="142.2" r="2.6"></circle>
+<circle class="chart-point" cx="386.0" cy="141.6" r="2.6"></circle>
+<circle class="chart-point" cx="392.0" cy="145.5" r="2.6"></circle>
+<circle class="chart-point" cx="398.0" cy="157.6" r="2.6"></circle>
+<circle class="chart-point" cx="404.0" cy="144.0" r="2.6"></circle>
+<circle class="chart-point" cx="410.0" cy="144.7" r="2.6"></circle>
+<circle class="chart-point" cx="416.0" cy="134.0" r="2.6"></circle>
+<circle class="chart-point" cx="422.0" cy="155.7" r="2.6"></circle>
+<circle class="chart-point" cx="428.0" cy="143.7" r="2.6"></circle>
+<circle class="chart-point" cx="434.0" cy="154.7" r="2.6"></circle>
+<circle class="chart-point" cx="440.0" cy="140.4" r="2.6"></circle>
+<circle class="chart-point" cx="446.0" cy="156.9" r="2.6"></circle>
+<circle class="chart-point" cx="452.0" cy="145.9" r="2.6"></circle>
+<circle class="chart-point" cx="458.0" cy="139.0" r="2.6"></circle>
+<circle class="chart-point" cx="464.0" cy="140.3" r="2.6"></circle>
+<circle class="chart-point" cx="470.0" cy="144.7" r="2.6"></circle>
+<circle class="chart-point" cx="476.0" cy="155.6" r="2.6"></circle>
+<circle class="chart-point" cx="482.0" cy="141.9" r="2.6"></circle>
+<circle class="chart-point" cx="488.0" cy="144.7" r="2.6"></circle>
+<circle class="chart-point" cx="494.0" cy="149.8" r="2.6"></circle>
+<circle class="chart-point" cx="500.0" cy="132.3" r="2.6"></circle>
+<circle class="chart-point" cx="506.0" cy="131.3" r="2.6"></circle>
+<circle class="chart-point" cx="512.0" cy="131.9" r="2.6"></circle>
+<circle class="chart-point" cx="518.0" cy="129.8" r="2.6"></circle>
+<circle class="chart-point" cx="524.0" cy="142.2" r="2.6"></circle>
+<circle class="chart-point" cx="530.0" cy="139.1" r="2.6"></circle>
+<circle class="chart-point" cx="536.0" cy="143.7" r="2.6"></circle>
+<circle class="chart-point" cx="542.0" cy="145.3" r="2.6"></circle>
+<circle class="chart-point" cx="548.0" cy="142.2" r="2.6"></circle>
+<circle class="chart-point" cx="554.0" cy="147.0" r="2.6"></circle>
+<circle class="chart-point" cx="560.0" cy="140.5" r="2.6"></circle>
+<circle class="chart-point" cx="566.0" cy="75.6" r="2.6"></circle>
+<circle class="chart-point" cx="572.0" cy="156.8" r="2.6"></circle>
+<circle class="chart-point" cx="578.0" cy="154.3" r="2.6"></circle>
+<circle class="chart-point" cx="584.0" cy="139.6" r="2.6"></circle>
+<circle class="chart-point" cx="590.0" cy="142.2" r="2.6"></circle>
+<circle class="chart-point" cx="596.0" cy="133.7" r="2.6"></circle>
+<circle class="chart-point" cx="602.0" cy="142.1" r="2.6"></circle>
+<circle class="chart-point" cx="608.0" cy="113.9" r="2.6"></circle>
+<circle class="chart-point" cx="614.0" cy="153.8" r="2.6"></circle>
+<circle class="chart-point" cx="620.0" cy="151.3" r="2.6"></circle>
+<circle class="chart-point" cx="626.0" cy="144.7" r="2.6"></circle>
+<path class="chart-clipped" d="M148.0,17.0 L152.0,10.0 L156.0,17.0 Z"></path><text class="chart-clipped-label" x="158.0" y="24.0">12,343 ms</text>
+<path class="chart-mark-failure" d="M136.0,186 l8,8 m0,-8 l-8,8"></path>
+<text class="chart-axis" x="56" y="226">Time (UTC)</text>
+</svg>
+<figcaption><strong>Time to first token</strong> (ms), one dot per successful request: n = 95. Range 928 ms to 12,343 ms; dashed line: median 1,631 ms, nearest-rank over all 95. ✕ on the axis: failed or missing slot. The axis stops at 6,000 ms, a round number above twice the p95; 1 slower request is drawn as ▲ at the top edge with the actual value.</figcaption>
+</figure>
+
+<figure class="chart-figure">
+<svg class="chart timeseries" role="img" aria-labelledby="c2-t c2-d" viewBox="0 0 640 230" width="100%">
+<title id="c2-t">Total response time per request, UTC</title>
+<desc id="c2-d">95 successful requests between 2026-11-06 18:00:00 UTC and 2026-11-07 18:00:00 UTC; values from 3,391 ms to 15,236 ms; median 4,241 ms (nearest rank). Failed or missing slots are marked on the time axis.</desc>
+<line class="chart-grid" x1="56" x2="626" y1="190.0" y2="190.0"></line><text class="chart-axis" x="50" y="194.0" text-anchor="end">0 ms</text>
+<line class="chart-grid" x1="56" x2="626" y1="146.0" y2="146.0"></line><text class="chart-axis" x="50" y="150.0" text-anchor="end">3,750 ms</text>
+<line class="chart-grid" x1="56" x2="626" y1="102.0" y2="102.0"></line><text class="chart-axis" x="50" y="106.0" text-anchor="end">7,500 ms</text>
+<line class="chart-grid" x1="56" x2="626" y1="58.0" y2="58.0"></line><text class="chart-axis" x="50" y="62.0" text-anchor="end">11,250 ms</text>
+<line class="chart-grid" x1="56" x2="626" y1="14.0" y2="14.0"></line><text class="chart-axis" x="50" y="18.0" text-anchor="end">15,000 ms</text>
+<line class="chart-grid" x1="56.0" x2="56.0" y1="14" y2="190"></line><text class="chart-axis" x="56.0" y="206" text-anchor="middle">18:00</text>
+<line class="chart-grid" x1="200.0" x2="200.0" y1="14" y2="190"></line><text class="chart-axis" x="200.0" y="206" text-anchor="middle">00:00 7 Nov</text>
+<line class="chart-grid" x1="344.0" x2="344.0" y1="14" y2="190"></line><text class="chart-axis" x="344.0" y="206" text-anchor="middle">06:00</text>
+<line class="chart-grid" x1="488.0" x2="488.0" y1="14" y2="190"></line><text class="chart-axis" x="488.0" y="206" text-anchor="middle">12:00</text>
+<line class="chart-median" x1="56" x2="626" y1="140.2" y2="140.2"></line><text class="chart-median-label" x="622" y="135.2" text-anchor="end">median 4,241 ms</text>
+<polyline class="chart-line" points="56.0,132.0 62.0,139.4 68.0,139.8 74.0,101.8 80.0,133.6 86.0,135.8 92.0,131.3 98.0,140.5 104.0,142.9 110.0,138.6 116.0,131.8 122.0,140.6 128.0,136.3 134.0,140.7"></polyline>
+<polyline class="chart-line" points="146.0,140.7 152.0,14.0 158.0,139.0 164.0,143.6 170.0,142.1 176.0,143.9 182.0,141.9 188.0,139.5 194.0,143.3 200.0,130.8 206.0,141.2 212.0,141.6 218.0,135.8 224.0,125.5 230.0,141.2 236.0,147.8 242.0,137.3 248.0,141.6 254.0,144.7 260.0,140.7 266.0,144.3 272.0,131.3 278.0,141.2 284.0,143.3 290.0,111.5 296.0,128.8 302.0,139.0 308.0,143.7 314.0,145.1 320.0,133.8 326.0,137.8 332.0,140.2 338.0,149.4 344.0,120.6 350.0,128.8 356.0,140.3 362.0,137.8 368.0,139.6 374.0,128.5 380.0,138.9 386.0,144.0 392.0,129.7 398.0,145.0 404.0,143.8 410.0,138.6 416.0,134.4 422.0,143.2 428.0,146.2 434.0,148.0 440.0,138.9 446.0,150.2 452.0,144.9 458.0,143.1 464.0,139.2 470.0,139.8 476.0,146.2 482.0,141.2 488.0,136.8 494.0,145.6 500.0,138.9 506.0,136.4 512.0,134.9 518.0,137.7 524.0,143.2 530.0,133.6 536.0,142.1 542.0,140.7 548.0,142.9 554.0,143.5 560.0,137.2 566.0,113.4 572.0,144.7 578.0,148.6 584.0,139.6 590.0,137.4 596.0,138.6 602.0,140.4 608.0,125.1 614.0,145.3 620.0,143.6 626.0,141.7"></polyline>
+<circle class="chart-point" cx="56.0" cy="132.0" r="2.6"></circle>
+<circle class="chart-point" cx="62.0" cy="139.4" r="2.6"></circle>
+<circle class="chart-point" cx="68.0" cy="139.8" r="2.6"></circle>
+<circle class="chart-point" cx="74.0" cy="101.8" r="2.6"></circle>
+<circle class="chart-point" cx="80.0" cy="133.6" r="2.6"></circle>
+<circle class="chart-point" cx="86.0" cy="135.8" r="2.6"></circle>
+<circle class="chart-point" cx="92.0" cy="131.3" r="2.6"></circle>
+<circle class="chart-point" cx="98.0" cy="140.5" r="2.6"></circle>
+<circle class="chart-point" cx="104.0" cy="142.9" r="2.6"></circle>
+<circle class="chart-point" cx="110.0" cy="138.6" r="2.6"></circle>
+<circle class="chart-point" cx="116.0" cy="131.8" r="2.6"></circle>
+<circle class="chart-point" cx="122.0" cy="140.6" r="2.6"></circle>
+<circle class="chart-point" cx="128.0" cy="136.3" r="2.6"></circle>
+<circle class="chart-point" cx="134.0" cy="140.7" r="2.6"></circle>
+<circle class="chart-point" cx="146.0" cy="140.7" r="2.6"></circle>
+<circle class="chart-point" cx="158.0" cy="139.0" r="2.6"></circle>
+<circle class="chart-point" cx="164.0" cy="143.6" r="2.6"></circle>
+<circle class="chart-point" cx="170.0" cy="142.1" r="2.6"></circle>
+<circle class="chart-point" cx="176.0" cy="143.9" r="2.6"></circle>
+<circle class="chart-point" cx="182.0" cy="141.9" r="2.6"></circle>
+<circle class="chart-point" cx="188.0" cy="139.5" r="2.6"></circle>
+<circle class="chart-point" cx="194.0" cy="143.3" r="2.6"></circle>
+<circle class="chart-point" cx="200.0" cy="130.8" r="2.6"></circle>
+<circle class="chart-point" cx="206.0" cy="141.2" r="2.6"></circle>
+<circle class="chart-point" cx="212.0" cy="141.6" r="2.6"></circle>
+<circle class="chart-point" cx="218.0" cy="135.8" r="2.6"></circle>
+<circle class="chart-point" cx="224.0" cy="125.5" r="2.6"></circle>
+<circle class="chart-point" cx="230.0" cy="141.2" r="2.6"></circle>
+<circle class="chart-point" cx="236.0" cy="147.8" r="2.6"></circle>
+<circle class="chart-point" cx="242.0" cy="137.3" r="2.6"></circle>
+<circle class="chart-point" cx="248.0" cy="141.6" r="2.6"></circle>
+<circle class="chart-point" cx="254.0" cy="144.7" r="2.6"></circle>
+<circle class="chart-point" cx="260.0" cy="140.7" r="2.6"></circle>
+<circle class="chart-point" cx="266.0" cy="144.3" r="2.6"></circle>
+<circle class="chart-point" cx="272.0" cy="131.3" r="2.6"></circle>
+<circle class="chart-point" cx="278.0" cy="141.2" r="2.6"></circle>
+<circle class="chart-point" cx="284.0" cy="143.3" r="2.6"></circle>
+<circle class="chart-point" cx="290.0" cy="111.5" r="2.6"></circle>
+<circle class="chart-point" cx="296.0" cy="128.8" r="2.6"></circle>
+<circle class="chart-point" cx="302.0" cy="139.0" r="2.6"></circle>
+<circle class="chart-point" cx="308.0" cy="143.7" r="2.6"></circle>
+<circle class="chart-point" cx="314.0" cy="145.1" r="2.6"></circle>
+<circle class="chart-point" cx="320.0" cy="133.8" r="2.6"></circle>
+<circle class="chart-point" cx="326.0" cy="137.8" r="2.6"></circle>
+<circle class="chart-point" cx="332.0" cy="140.2" r="2.6"></circle>
+<circle class="chart-point" cx="338.0" cy="149.4" r="2.6"></circle>
+<circle class="chart-point" cx="344.0" cy="120.6" r="2.6"></circle>
+<circle class="chart-point" cx="350.0" cy="128.8" r="2.6"></circle>
+<circle class="chart-point" cx="356.0" cy="140.3" r="2.6"></circle>
+<circle class="chart-point" cx="362.0" cy="137.8" r="2.6"></circle>
+<circle class="chart-point" cx="368.0" cy="139.6" r="2.6"></circle>
+<circle class="chart-point" cx="374.0" cy="128.5" r="2.6"></circle>
+<circle class="chart-point" cx="380.0" cy="138.9" r="2.6"></circle>
+<circle class="chart-point" cx="386.0" cy="144.0" r="2.6"></circle>
+<circle class="chart-point" cx="392.0" cy="129.7" r="2.6"></circle>
+<circle class="chart-point" cx="398.0" cy="145.0" r="2.6"></circle>
+<circle class="chart-point" cx="404.0" cy="143.8" r="2.6"></circle>
+<circle class="chart-point" cx="410.0" cy="138.6" r="2.6"></circle>
+<circle class="chart-point" cx="416.0" cy="134.4" r="2.6"></circle>
+<circle class="chart-point" cx="422.0" cy="143.2" r="2.6"></circle>
+<circle class="chart-point" cx="428.0" cy="146.2" r="2.6"></circle>
+<circle class="chart-point" cx="434.0" cy="148.0" r="2.6"></circle>
+<circle class="chart-point" cx="440.0" cy="138.9" r="2.6"></circle>
+<circle class="chart-point" cx="446.0" cy="150.2" r="2.6"></circle>
+<circle class="chart-point" cx="452.0" cy="144.9" r="2.6"></circle>
+<circle class="chart-point" cx="458.0" cy="143.1" r="2.6"></circle>
+<circle class="chart-point" cx="464.0" cy="139.2" r="2.6"></circle>
+<circle class="chart-point" cx="470.0" cy="139.8" r="2.6"></circle>
+<circle class="chart-point" cx="476.0" cy="146.2" r="2.6"></circle>
+<circle class="chart-point" cx="482.0" cy="141.2" r="2.6"></circle>
+<circle class="chart-point" cx="488.0" cy="136.8" r="2.6"></circle>
+<circle class="chart-point" cx="494.0" cy="145.6" r="2.6"></circle>
+<circle class="chart-point" cx="500.0" cy="138.9" r="2.6"></circle>
+<circle class="chart-point" cx="506.0" cy="136.4" r="2.6"></circle>
+<circle class="chart-point" cx="512.0" cy="134.9" r="2.6"></circle>
+<circle class="chart-point" cx="518.0" cy="137.7" r="2.6"></circle>
+<circle class="chart-point" cx="524.0" cy="143.2" r="2.6"></circle>
+<circle class="chart-point" cx="530.0" cy="133.6" r="2.6"></circle>
+<circle class="chart-point" cx="536.0" cy="142.1" r="2.6"></circle>
+<circle class="chart-point" cx="542.0" cy="140.7" r="2.6"></circle>
+<circle class="chart-point" cx="548.0" cy="142.9" r="2.6"></circle>
+<circle class="chart-point" cx="554.0" cy="143.5" r="2.6"></circle>
+<circle class="chart-point" cx="560.0" cy="137.2" r="2.6"></circle>
+<circle class="chart-point" cx="566.0" cy="113.4" r="2.6"></circle>
+<circle class="chart-point" cx="572.0" cy="144.7" r="2.6"></circle>
+<circle class="chart-point" cx="578.0" cy="148.6" r="2.6"></circle>
+<circle class="chart-point" cx="584.0" cy="139.6" r="2.6"></circle>
+<circle class="chart-point" cx="590.0" cy="137.4" r="2.6"></circle>
+<circle class="chart-point" cx="596.0" cy="138.6" r="2.6"></circle>
+<circle class="chart-point" cx="602.0" cy="140.4" r="2.6"></circle>
+<circle class="chart-point" cx="608.0" cy="125.1" r="2.6"></circle>
+<circle class="chart-point" cx="614.0" cy="145.3" r="2.6"></circle>
+<circle class="chart-point" cx="620.0" cy="143.6" r="2.6"></circle>
+<circle class="chart-point" cx="626.0" cy="141.7" r="2.6"></circle>
+<path class="chart-clipped" d="M148.0,17.0 L152.0,10.0 L156.0,17.0 Z"></path><text class="chart-clipped-label" x="158.0" y="24.0">15,236 ms</text>
+<path class="chart-mark-failure" d="M136.0,186 l8,8 m0,-8 l-8,8"></path>
+<text class="chart-axis" x="56" y="226">Time (UTC)</text>
+</svg>
+<figcaption><strong>Total response time</strong> (ms), one dot per successful request: n = 95. Range 3,391 ms to 15,236 ms; dashed line: median 4,241 ms, nearest-rank over all 95. ✕ on the axis: failed or missing slot. The axis stops at 15,000 ms, a round number above twice the p95; 1 slower request is drawn as ▲ at the top edge with the actual value.</figcaption>
+</figure>
+
+<figure class="chart-figure">
+<svg class="chart timeseries" role="img" aria-labelledby="c3-t c3-d" viewBox="0 0 640 230" width="100%">
+<title id="c3-t">Output tokens per second per request, UTC</title>
+<desc id="c3-d">95 successful requests between 2026-11-06 18:00:00 UTC and 2026-11-07 18:00:00 UTC; values from 77.0 tokens/s to 136.2 tokens/s; median 117.8 tokens/s (nearest rank). Failed or missing slots are marked on the time axis.</desc>
+<line class="chart-grid" x1="56" x2="626" y1="190.0" y2="190.0"></line><text class="chart-axis" x="50" y="194.0" text-anchor="end">0.0 tokens/s</text>
+<line class="chart-grid" x1="56" x2="626" y1="146.0" y2="146.0"></line><text class="chart-axis" x="50" y="150.0" text-anchor="end">37.5 tokens/s</text>
+<line class="chart-grid" x1="56" x2="626" y1="102.0" y2="102.0"></line><text class="chart-axis" x="50" y="106.0" text-anchor="end">75.0 tokens/s</text>
+<line class="chart-grid" x1="56" x2="626" y1="58.0" y2="58.0"></line><text class="chart-axis" x="50" y="62.0" text-anchor="end">112.5 tokens/s</text>
+<line class="chart-grid" x1="56" x2="626" y1="14.0" y2="14.0"></line><text class="chart-axis" x="50" y="18.0" text-anchor="end">150.0 tokens/s</text>
+<line class="chart-grid" x1="56.0" x2="56.0" y1="14" y2="190"></line><text class="chart-axis" x="56.0" y="206" text-anchor="middle">18:00</text>
+<line class="chart-grid" x1="200.0" x2="200.0" y1="14" y2="190"></line><text class="chart-axis" x="200.0" y="206" text-anchor="middle">00:00 7 Nov</text>
+<line class="chart-grid" x1="344.0" x2="344.0" y1="14" y2="190"></line><text class="chart-axis" x="344.0" y="206" text-anchor="middle">06:00</text>
+<line class="chart-grid" x1="488.0" x2="488.0" y1="14" y2="190"></line><text class="chart-axis" x="488.0" y="206" text-anchor="middle">12:00</text>
+<line class="chart-median" x1="56" x2="626" y1="51.8" y2="51.8"></line><text class="chart-median-label" x="622" y="46.8" text-anchor="end">median 117.8 tokens/s</text>
+<polyline class="chart-line" points="56.0,63.5 62.0,72.7 68.0,64.3 74.0,58.9 80.0,59.8 86.0,61.2 92.0,50.8 98.0,47.4 104.0,54.0 110.0,55.9 116.0,54.8 122.0,41.2 128.0,57.5 134.0,35.4"></polyline>
+<polyline class="chart-line" points="146.0,34.2 152.0,65.0 158.0,46.3 164.0,33.1 170.0,35.6 176.0,31.0 182.0,39.5 188.0,55.8 194.0,43.5 200.0,61.4 206.0,50.0 212.0,46.5 218.0,30.5 224.0,85.7 230.0,53.1 236.0,48.6 242.0,61.3 248.0,53.1 254.0,63.2 260.0,45.0 266.0,47.1 272.0,44.5 278.0,49.4 284.0,58.2 290.0,58.4 296.0,91.2 302.0,85.2 308.0,50.0 314.0,37.3 320.0,68.6 326.0,68.3 332.0,50.1 338.0,47.3 344.0,99.7 350.0,81.2 356.0,55.2 362.0,85.8 368.0,47.9 374.0,84.9 380.0,56.9 386.0,32.8 392.0,91.0 398.0,56.6 404.0,46.7 410.0,64.3 416.0,62.5 422.0,61.1 428.0,33.4 434.0,35.7 440.0,56.4 446.0,30.2 452.0,36.1 458.0,32.9 464.0,53.5 470.0,61.2 476.0,47.8 482.0,47.1 488.0,72.2 494.0,43.0 500.0,39.1 506.0,48.4 512.0,58.8 518.0,40.3 524.0,36.5 530.0,85.1 536.0,45.8 542.0,54.8 548.0,41.2 554.0,45.6 560.0,62.2 566.0,51.8 572.0,58.1 578.0,43.5 584.0,50.4 590.0,63.6 596.0,38.9 602.0,50.3 608.0,67.4 614.0,51.1 620.0,52.5 626.0,49.2"></polyline>
+<circle class="chart-point" cx="56.0" cy="63.5" r="2.6"></circle>
+<circle class="chart-point" cx="62.0" cy="72.7" r="2.6"></circle>
+<circle class="chart-point" cx="68.0" cy="64.3" r="2.6"></circle>
+<circle class="chart-point" cx="74.0" cy="58.9" r="2.6"></circle>
+<circle class="chart-point" cx="80.0" cy="59.8" r="2.6"></circle>
+<circle class="chart-point" cx="86.0" cy="61.2" r="2.6"></circle>
+<circle class="chart-point" cx="92.0" cy="50.8" r="2.6"></circle>
+<circle class="chart-point" cx="98.0" cy="47.4" r="2.6"></circle>
+<circle class="chart-point" cx="104.0" cy="54.0" r="2.6"></circle>
+<circle class="chart-point" cx="110.0" cy="55.9" r="2.6"></circle>
+<circle class="chart-point" cx="116.0" cy="54.8" r="2.6"></circle>
+<circle class="chart-point" cx="122.0" cy="41.2" r="2.6"></circle>
+<circle class="chart-point" cx="128.0" cy="57.5" r="2.6"></circle>
+<circle class="chart-point" cx="134.0" cy="35.4" r="2.6"></circle>
+<circle class="chart-point" cx="146.0" cy="34.2" r="2.6"></circle>
+<circle class="chart-point" cx="152.0" cy="65.0" r="2.6"></circle>
+<circle class="chart-point" cx="158.0" cy="46.3" r="2.6"></circle>
+<circle class="chart-point" cx="164.0" cy="33.1" r="2.6"></circle>
+<circle class="chart-point" cx="170.0" cy="35.6" r="2.6"></circle>
+<circle class="chart-point" cx="176.0" cy="31.0" r="2.6"></circle>
+<circle class="chart-point" cx="182.0" cy="39.5" r="2.6"></circle>
+<circle class="chart-point" cx="188.0" cy="55.8" r="2.6"></circle>
+<circle class="chart-point" cx="194.0" cy="43.5" r="2.6"></circle>
+<circle class="chart-point" cx="200.0" cy="61.4" r="2.6"></circle>
+<circle class="chart-point" cx="206.0" cy="50.0" r="2.6"></circle>
+<circle class="chart-point" cx="212.0" cy="46.5" r="2.6"></circle>
+<circle class="chart-point" cx="218.0" cy="30.5" r="2.6"></circle>
+<circle class="chart-point" cx="224.0" cy="85.7" r="2.6"></circle>
+<circle class="chart-point" cx="230.0" cy="53.1" r="2.6"></circle>
+<circle class="chart-point" cx="236.0" cy="48.6" r="2.6"></circle>
+<circle class="chart-point" cx="242.0" cy="61.3" r="2.6"></circle>
+<circle class="chart-point" cx="248.0" cy="53.1" r="2.6"></circle>
+<circle class="chart-point" cx="254.0" cy="63.2" r="2.6"></circle>
+<circle class="chart-point" cx="260.0" cy="45.0" r="2.6"></circle>
+<circle class="chart-point" cx="266.0" cy="47.1" r="2.6"></circle>
+<circle class="chart-point" cx="272.0" cy="44.5" r="2.6"></circle>
+<circle class="chart-point" cx="278.0" cy="49.4" r="2.6"></circle>
+<circle class="chart-point" cx="284.0" cy="58.2" r="2.6"></circle>
+<circle class="chart-point" cx="290.0" cy="58.4" r="2.6"></circle>
+<circle class="chart-point" cx="296.0" cy="91.2" r="2.6"></circle>
+<circle class="chart-point" cx="302.0" cy="85.2" r="2.6"></circle>
+<circle class="chart-point" cx="308.0" cy="50.0" r="2.6"></circle>
+<circle class="chart-point" cx="314.0" cy="37.3" r="2.6"></circle>
+<circle class="chart-point" cx="320.0" cy="68.6" r="2.6"></circle>
+<circle class="chart-point" cx="326.0" cy="68.3" r="2.6"></circle>
+<circle class="chart-point" cx="332.0" cy="50.1" r="2.6"></circle>
+<circle class="chart-point" cx="338.0" cy="47.3" r="2.6"></circle>
+<circle class="chart-point" cx="344.0" cy="99.7" r="2.6"></circle>
+<circle class="chart-point" cx="350.0" cy="81.2" r="2.6"></circle>
+<circle class="chart-point" cx="356.0" cy="55.2" r="2.6"></circle>
+<circle class="chart-point" cx="362.0" cy="85.8" r="2.6"></circle>
+<circle class="chart-point" cx="368.0" cy="47.9" r="2.6"></circle>
+<circle class="chart-point" cx="374.0" cy="84.9" r="2.6"></circle>
+<circle class="chart-point" cx="380.0" cy="56.9" r="2.6"></circle>
+<circle class="chart-point" cx="386.0" cy="32.8" r="2.6"></circle>
+<circle class="chart-point" cx="392.0" cy="91.0" r="2.6"></circle>
+<circle class="chart-point" cx="398.0" cy="56.6" r="2.6"></circle>
+<circle class="chart-point" cx="404.0" cy="46.7" r="2.6"></circle>
+<circle class="chart-point" cx="410.0" cy="64.3" r="2.6"></circle>
+<circle class="chart-point" cx="416.0" cy="62.5" r="2.6"></circle>
+<circle class="chart-point" cx="422.0" cy="61.1" r="2.6"></circle>
+<circle class="chart-point" cx="428.0" cy="33.4" r="2.6"></circle>
+<circle class="chart-point" cx="434.0" cy="35.7" r="2.6"></circle>
+<circle class="chart-point" cx="440.0" cy="56.4" r="2.6"></circle>
+<circle class="chart-point" cx="446.0" cy="30.2" r="2.6"></circle>
+<circle class="chart-point" cx="452.0" cy="36.1" r="2.6"></circle>
+<circle class="chart-point" cx="458.0" cy="32.9" r="2.6"></circle>
+<circle class="chart-point" cx="464.0" cy="53.5" r="2.6"></circle>
+<circle class="chart-point" cx="470.0" cy="61.2" r="2.6"></circle>
+<circle class="chart-point" cx="476.0" cy="47.8" r="2.6"></circle>
+<circle class="chart-point" cx="482.0" cy="47.1" r="2.6"></circle>
+<circle class="chart-point" cx="488.0" cy="72.2" r="2.6"></circle>
+<circle class="chart-point" cx="494.0" cy="43.0" r="2.6"></circle>
+<circle class="chart-point" cx="500.0" cy="39.1" r="2.6"></circle>
+<circle class="chart-point" cx="506.0" cy="48.4" r="2.6"></circle>
+<circle class="chart-point" cx="512.0" cy="58.8" r="2.6"></circle>
+<circle class="chart-point" cx="518.0" cy="40.3" r="2.6"></circle>
+<circle class="chart-point" cx="524.0" cy="36.5" r="2.6"></circle>
+<circle class="chart-point" cx="530.0" cy="85.1" r="2.6"></circle>
+<circle class="chart-point" cx="536.0" cy="45.8" r="2.6"></circle>
+<circle class="chart-point" cx="542.0" cy="54.8" r="2.6"></circle>
+<circle class="chart-point" cx="548.0" cy="41.2" r="2.6"></circle>
+<circle class="chart-point" cx="554.0" cy="45.6" r="2.6"></circle>
+<circle class="chart-point" cx="560.0" cy="62.2" r="2.6"></circle>
+<circle class="chart-point" cx="566.0" cy="51.8" r="2.6"></circle>
+<circle class="chart-point" cx="572.0" cy="58.1" r="2.6"></circle>
+<circle class="chart-point" cx="578.0" cy="43.5" r="2.6"></circle>
+<circle class="chart-point" cx="584.0" cy="50.4" r="2.6"></circle>
+<circle class="chart-point" cx="590.0" cy="63.6" r="2.6"></circle>
+<circle class="chart-point" cx="596.0" cy="38.9" r="2.6"></circle>
+<circle class="chart-point" cx="602.0" cy="50.3" r="2.6"></circle>
+<circle class="chart-point" cx="608.0" cy="67.4" r="2.6"></circle>
+<circle class="chart-point" cx="614.0" cy="51.1" r="2.6"></circle>
+<circle class="chart-point" cx="620.0" cy="52.5" r="2.6"></circle>
+<circle class="chart-point" cx="626.0" cy="49.2" r="2.6"></circle>
+<path class="chart-mark-failure" d="M136.0,186 l8,8 m0,-8 l-8,8"></path>
+<text class="chart-axis" x="56" y="226">Time (UTC)</text>
+</svg>
+<figcaption><strong>Output tokens per second</strong> (tokens/s), one dot per successful request: n = 95. Range 77.0 tokens/s to 136.2 tokens/s; dashed line: median 117.8 tokens/s, nearest-rank over all 95. ✕ on the axis: failed or missing slot.</figcaption>
+</figure>
+
+<figure class="chart-figure">
+<svg class="chart outcomes" role="img" aria-labelledby="co-t co-d" viewBox="0 0 640 70" width="100%">
+<title id="co-t">Outcome of every scheduled slot</title>
+<desc id="co-d">Successful request: 95. Failed request: 1. Due, no request (missing): 0. Claimed, no record: 0. Not yet due: 0. </desc>
+<rect class="slot-success" x="56.0" y="8" width="4.9" height="28"></rect>
+<rect class="slot-success" x="61.9" y="8" width="4.9" height="28"></rect>
+<rect class="slot-success" x="67.9" y="8" width="4.9" height="28"></rect>
+<rect class="slot-success" x="73.8" y="8" width="4.9" height="28"></rect>
+<rect class="slot-success" x="79.8" y="8" width="4.9" height="28"></rect>
+<rect class="slot-success" x="85.7" y="8" width="4.9" height="28"></rect>
+<rect class="slot-success" x="91.6" y="8" width="4.9" height="28"></rect>
+<rect class="slot-success" x="97.6" y="8" width="4.9" height="28"></rect>
+<rect class="slot-success" x="103.5" y="8" width="4.9" height="28"></rect>
+<rect class="slot-success" x="109.4" y="8" width="4.9" height="28"></rect>
+<rect class="slot-success" x="115.4" y="8" width="4.9" height="28"></rect>
+<rect class="slot-success" x="121.3" y="8" width="4.9" height="28"></rect>
+<rect class="slot-success" x="127.2" y="8" width="4.9" height="28"></rect>
+<rect class="slot-success" x="133.2" y="8" width="4.9" height="28"></rect>
+<rect class="slot-failure" x="139.1" y="8" width="4.9" height="28"></rect>
+<rect class="slot-success" x="145.1" y="8" width="4.9" height="28"></rect>
+<rect class="slot-success" x="151.0" y="8" width="4.9" height="28"></rect>
+<rect class="slot-success" x="156.9" y="8" width="4.9" height="28"></rect>
+<rect class="slot-success" x="162.9" y="8" width="4.9" height="28"></rect>
+<rect class="slot-success" x="168.8" y="8" width="4.9" height="28"></rect>
+<rect class="slot-success" x="174.8" y="8" width="4.9" height="28"></rect>
+<rect class="slot-success" x="180.7" y="8" width="4.9" height="28"></rect>
+<rect class="slot-success" x="186.6" y="8" width="4.9" height="28"></rect>
+<rect class="slot-success" x="192.6" y="8" width="4.9" height="28"></rect>
+<rect class="slot-success" x="198.5" y="8" width="4.9" height="28"></rect>
+<rect class="slot-success" x="204.4" y="8" width="4.9" height="28"></rect>
+<rect class="slot-success" x="210.4" y="8" width="4.9" height="28"></rect>
+<rect class="slot-success" x="216.3" y="8" width="4.9" height="28"></rect>
+<rect class="slot-success" x="222.2" y="8" width="4.9" height="28"></rect>
+<rect class="slot-success" x="228.2" y="8" width="4.9" height="28"></rect>
+<rect class="slot-success" x="234.1" y="8" width="4.9" height="28"></rect>
+<rect class="slot-success" x="240.1" y="8" width="4.9" height="28"></rect>
+<rect class="slot-success" x="246.0" y="8" width="4.9" height="28"></rect>
+<rect class="slot-success" x="251.9" y="8" width="4.9" height="28"></rect>
+<rect class="slot-success" x="257.9" y="8" width="4.9" height="28"></rect>
+<rect class="slot-success" x="263.8" y="8" width="4.9" height="28"></rect>
+<rect class="slot-success" x="269.8" y="8" width="4.9" height="28"></rect>
+<rect class="slot-success" x="275.7" y="8" width="4.9" height="28"></rect>
+<rect class="slot-success" x="281.6" y="8" width="4.9" height="28"></rect>
+<rect class="slot-success" x="287.6" y="8" width="4.9" height="28"></rect>
+<rect class="slot-success" x="293.5" y="8" width="4.9" height="28"></rect>
+<rect class="slot-success" x="299.4" y="8" width="4.9" height="28"></rect>
+<rect class="slot-success" x="305.4" y="8" width="4.9" height="28"></rect>
+<rect class="slot-success" x="311.3" y="8" width="4.9" height="28"></rect>
+<rect class="slot-success" x="317.2" y="8" width="4.9" height="28"></rect>
+<rect class="slot-success" x="323.2" y="8" width="4.9" height="28"></rect>
+<rect class="slot-success" x="329.1" y="8" width="4.9" height="28"></rect>
+<rect class="slot-success" x="335.1" y="8" width="4.9" height="28"></rect>
+<rect class="slot-success" x="341.0" y="8" width="4.9" height="28"></rect>
+<rect class="slot-success" x="346.9" y="8" width="4.9" height="28"></rect>
+<rect class="slot-success" x="352.9" y="8" width="4.9" height="28"></rect>
+<rect class="slot-success" x="358.8" y="8" width="4.9" height="28"></rect>
+<rect class="slot-success" x="364.8" y="8" width="4.9" height="28"></rect>
+<rect class="slot-success" x="370.7" y="8" width="4.9" height="28"></rect>
+<rect class="slot-success" x="376.6" y="8" width="4.9" height="28"></rect>
+<rect class="slot-success" x="382.6" y="8" width="4.9" height="28"></rect>
+<rect class="slot-success" x="388.5" y="8" width="4.9" height="28"></rect>
+<rect class="slot-success" x="394.4" y="8" width="4.9" height="28"></rect>
+<rect class="slot-success" x="400.4" y="8" width="4.9" height="28"></rect>
+<rect class="slot-success" x="406.3" y="8" width="4.9" height="28"></rect>
+<rect class="slot-success" x="412.2" y="8" width="4.9" height="28"></rect>
+<rect class="slot-success" x="418.2" y="8" width="4.9" height="28"></rect>
+<rect class="slot-success" x="424.1" y="8" width="4.9" height="28"></rect>
+<rect class="slot-success" x="430.1" y="8" width="4.9" height="28"></rect>
+<rect class="slot-success" x="436.0" y="8" width="4.9" height="28"></rect>
+<rect class="slot-success" x="441.9" y="8" width="4.9" height="28"></rect>
+<rect class="slot-success" x="447.9" y="8" width="4.9" height="28"></rect>
+<rect class="slot-success" x="453.8" y="8" width="4.9" height="28"></rect>
+<rect class="slot-success" x="459.8" y="8" width="4.9" height="28"></rect>
+<rect class="slot-success" x="465.7" y="8" width="4.9" height="28"></rect>
+<rect class="slot-success" x="471.6" y="8" width="4.9" height="28"></rect>
+<rect class="slot-success" x="477.6" y="8" width="4.9" height="28"></rect>
+<rect class="slot-success" x="483.5" y="8" width="4.9" height="28"></rect>
+<rect class="slot-success" x="489.4" y="8" width="4.9" height="28"></rect>
+<rect class="slot-success" x="495.4" y="8" width="4.9" height="28"></rect>
+<rect class="slot-success" x="501.3" y="8" width="4.9" height="28"></rect>
+<rect class="slot-success" x="507.2" y="8" width="4.9" height="28"></rect>
+<rect class="slot-success" x="513.2" y="8" width="4.9" height="28"></rect>
+<rect class="slot-success" x="519.1" y="8" width="4.9" height="28"></rect>
+<rect class="slot-success" x="525.1" y="8" width="4.9" height="28"></rect>
+<rect class="slot-success" x="531.0" y="8" width="4.9" height="28"></rect>
+<rect class="slot-success" x="536.9" y="8" width="4.9" height="28"></rect>
+<rect class="slot-success" x="542.9" y="8" width="4.9" height="28"></rect>
+<rect class="slot-success" x="548.8" y="8" width="4.9" height="28"></rect>
+<rect class="slot-success" x="554.8" y="8" width="4.9" height="28"></rect>
+<rect class="slot-success" x="560.7" y="8" width="4.9" height="28"></rect>
+<rect class="slot-success" x="566.6" y="8" width="4.9" height="28"></rect>
+<rect class="slot-success" x="572.6" y="8" width="4.9" height="28"></rect>
+<rect class="slot-success" x="578.5" y="8" width="4.9" height="28"></rect>
+<rect class="slot-success" x="584.4" y="8" width="4.9" height="28"></rect>
+<rect class="slot-success" x="590.4" y="8" width="4.9" height="28"></rect>
+<rect class="slot-success" x="596.3" y="8" width="4.9" height="28"></rect>
+<rect class="slot-success" x="602.2" y="8" width="4.9" height="28"></rect>
+<rect class="slot-success" x="608.2" y="8" width="4.9" height="28"></rect>
+<rect class="slot-success" x="614.1" y="8" width="4.9" height="28"></rect>
+<rect class="slot-success" x="620.1" y="8" width="4.9" height="28"></rect>
+<text class="chart-axis" x="56.0" y="54" text-anchor="middle">18:00</text>
+<text class="chart-axis" x="200.0" y="54" text-anchor="middle">00:00 7 Nov</text>
+<text class="chart-axis" x="344.0" y="54" text-anchor="middle">06:00</text>
+<text class="chart-axis" x="488.0" y="54" text-anchor="middle">12:00</text>
+</svg>
+<figcaption><strong>Outcome of every 15-minute slot</strong> in the pilot window. Failures, missing slots and slots not yet due are counted separately.</figcaption>
+<ul class="legend">
+<li><span class="swatch slot-success" aria-hidden="true"></span>Successful request: <strong>95</strong></li>
+<li><span class="swatch slot-failure" aria-hidden="true"></span>Failed request: <strong>1</strong></li>
+<li><span class="swatch slot-missing" aria-hidden="true"></span>Due, no request (missing): <strong>0</strong></li>
+<li><span class="swatch slot-claim_without_record" aria-hidden="true"></span>Claimed, no record: <strong>0</strong></li>
+<li><span class="swatch slot-not_due" aria-hidden="true"></span>Not yet due: <strong>0</strong></li>
+</ul>
+</figure>
+<details>
+<summary>Every slot as a table (96 rows)</summary>
+<table>
+<caption>One row per scheduled slot; values are single-request observations</caption>
+<thead><tr><th scope="col">Slot (UTC)</th><th scope="col">Outcome</th><th scope="col">TTFT (ms)</th><th scope="col">Total (ms)</th><th scope="col">Output tokens/s</th></tr></thead>
+<tbody>
+<tr><th scope="row"><time datetime="2026-11-06T18:00:00Z">2026-11-06 18:00</time></th><td>Successful request</td><td>2,087</td><td>4,940</td><td>107.8</td></tr>
+<tr><th scope="row"><time datetime="2026-11-06T18:15:00Z">2026-11-06 18:15</time></th><td>Successful request</td><td>1,246</td><td>4,308</td><td>100.0</td></tr>
+<tr><th scope="row"><time datetime="2026-11-06T18:30:00Z">2026-11-06 18:30</time></th><td>Successful request</td><td>1,410</td><td>4,279</td><td>107.1</td></tr>
+<tr><th scope="row"><time datetime="2026-11-06T18:45:00Z">2026-11-06 18:45</time></th><td>Successful request</td><td>4,928</td><td>7,513</td><td>111.7</td></tr>
+<tr><th scope="row"><time datetime="2026-11-06T19:00:00Z">2026-11-06 19:00</time></th><td>Successful request</td><td>2,049</td><td>4,811</td><td>111.0</td></tr>
+<tr><th scope="row"><time datetime="2026-11-06T19:15:00Z">2026-11-06 19:15</time></th><td>Successful request</td><td>1,848</td><td>4,619</td><td>109.8</td></tr>
+<tr><th scope="row"><time datetime="2026-11-06T19:30:00Z">2026-11-06 19:30</time></th><td>Successful request</td><td>2,414</td><td>5,006</td><td>118.6</td></tr>
+<tr><th scope="row"><time datetime="2026-11-06T19:45:00Z">2026-11-06 19:45</time></th><td>Successful request</td><td>1,677</td><td>4,219</td><td>121.5</td></tr>
+<tr><th scope="row"><time datetime="2026-11-06T20:00:00Z">2026-11-06 20:00</time></th><td>Successful request</td><td>1,336</td><td>4,011</td><td>115.9</td></tr>
+<tr><th scope="row"><time datetime="2026-11-06T20:15:00Z">2026-11-06 20:15</time></th><td>Successful request</td><td>1,717</td><td>4,385</td><td>114.3</td></tr>
+<tr><th scope="row"><time datetime="2026-11-06T20:30:00Z">2026-11-06 20:30</time></th><td>Successful request</td><td>2,260</td><td>4,957</td><td>115.2</td></tr>
+<tr><th scope="row"><time datetime="2026-11-06T20:45:00Z">2026-11-06 20:45</time></th><td>Successful request</td><td>1,787</td><td>4,210</td><td>126.8</td></tr>
+<tr><th scope="row"><time datetime="2026-11-06T21:00:00Z">2026-11-06 21:00</time></th><td>Successful request</td><td>1,845</td><td>4,578</td><td>112.9</td></tr>
+<tr><th scope="row"><time datetime="2026-11-06T21:15:00Z">2026-11-06 21:15</time></th><td>Successful request</td><td>1,881</td><td>4,202</td><td>131.8</td></tr>
+<tr><th scope="row"><time datetime="2026-11-06T21:30:00Z">2026-11-06 21:30</time></th><td>Failed request (Provider/server error)</td><td></td><td></td><td></td></tr>
+<tr><th scope="row"><time datetime="2026-11-06T21:45:00Z">2026-11-06 21:45</time></th><td>Successful request</td><td>1,863</td><td>4,200</td><td>132.8</td></tr>
+<tr><th scope="row"><time datetime="2026-11-06T22:00:00Z">2026-11-06 22:00</time></th><td>Successful request</td><td>12,343</td><td>15,236</td><td>106.5</td></tr>
+<tr><th scope="row"><time datetime="2026-11-06T22:15:00Z">2026-11-06 22:15</time></th><td>Successful request</td><td>1,843</td><td>4,345</td><td>122.5</td></tr>
+<tr><th scope="row"><time datetime="2026-11-06T22:30:00Z">2026-11-06 22:30</time></th><td>Successful request</td><td>1,637</td><td>3,953</td><td>133.7</td></tr>
+<tr><th scope="row"><time datetime="2026-11-06T22:45:00Z">2026-11-06 22:45</time></th><td>Successful request</td><td>1,722</td><td>4,082</td><td>131.6</td></tr>
+<tr><th scope="row"><time datetime="2026-11-06T23:00:00Z">2026-11-06 23:00</time></th><td>Successful request</td><td>1,629</td><td>3,926</td><td>135.5</td></tr>
+<tr><th scope="row"><time datetime="2026-11-06T23:15:00Z">2026-11-06 23:15</time></th><td>Successful request</td><td>1,686</td><td>4,100</td><td>128.3</td></tr>
+<tr><th scope="row"><time datetime="2026-11-06T23:30:00Z">2026-11-06 23:30</time></th><td>Successful request</td><td>1,625</td><td>4,306</td><td>114.4</td></tr>
+<tr><th scope="row"><time datetime="2026-11-06T23:45:00Z">2026-11-06 23:45</time></th><td>Successful request</td><td>1,503</td><td>3,976</td><td>124.9</td></tr>
+<tr><th scope="row"><time datetime="2026-11-07T00:00:00Z">2026-11-07 00:00</time></th><td>Successful request</td><td>2,265</td><td>5,047</td><td>109.6</td></tr>
+<tr><th scope="row"><time datetime="2026-11-07T00:15:00Z">2026-11-07 00:15</time></th><td>Successful request</td><td>1,588</td><td>4,161</td><td>119.3</td></tr>
+<tr><th scope="row"><time datetime="2026-11-07T00:30:00Z">2026-11-07 00:30</time></th><td>Successful request</td><td>1,611</td><td>4,128</td><td>122.3</td></tr>
+<tr><th scope="row"><time datetime="2026-11-07T00:45:00Z">2026-11-07 00:45</time></th><td>Successful request</td><td>2,361</td><td>4,621</td><td>135.9</td></tr>
+<tr><th scope="row"><time datetime="2026-11-07T01:00:00Z">2026-11-07 01:00</time></th><td>Successful request</td><td>2,053</td><td>5,496</td><td>88.9</td></tr>
+<tr><th scope="row"><time datetime="2026-11-07T01:15:00Z">2026-11-07 01:15</time></th><td>Successful request</td><td>1,526</td><td>4,155</td><td>116.7</td></tr>
+<tr><th scope="row"><time datetime="2026-11-07T01:30:00Z">2026-11-07 01:30</time></th><td>Successful request</td><td>1,168</td><td>3,594</td><td>120.5</td></tr>
+<tr><th scope="row"><time datetime="2026-11-07T01:45:00Z">2026-11-07 01:45</time></th><td>Successful request</td><td>1,685</td><td>4,495</td><td>109.7</td></tr>
+<tr><th scope="row"><time datetime="2026-11-07T02:00:00Z">2026-11-07 02:00</time></th><td>Successful request</td><td>1,529</td><td>4,124</td><td>116.7</td></tr>
+<tr><th scope="row"><time datetime="2026-11-07T02:15:00Z">2026-11-07 02:15</time></th><td>Successful request</td><td>1,023</td><td>3,862</td><td>108.1</td></tr>
+<tr><th scope="row"><time datetime="2026-11-07T02:30:00Z">2026-11-07 02:30</time></th><td>Successful request</td><td>1,697</td><td>4,201</td><td>123.6</td></tr>
+<tr><th scope="row"><time datetime="2026-11-07T02:45:00Z">2026-11-07 02:45</time></th><td>Successful request</td><td>1,563</td><td>3,899</td><td>121.8</td></tr>
+<tr><th scope="row"><time datetime="2026-11-07T03:00:00Z">2026-11-07 03:00</time></th><td>Successful request</td><td>2,551</td><td>5,003</td><td>124.0</td></tr>
+<tr><th scope="row"><time datetime="2026-11-07T03:15:00Z">2026-11-07 03:15</time></th><td>Successful request</td><td>1,594</td><td>4,162</td><td>119.8</td></tr>
+<tr><th scope="row"><time datetime="2026-11-07T03:30:00Z">2026-11-07 03:30</time></th><td>Successful request</td><td>1,250</td><td>3,984</td><td>112.3</td></tr>
+<tr><th scope="row"><time datetime="2026-11-07T03:45:00Z">2026-11-07 03:45</time></th><td>Successful request</td><td>3,952</td><td>6,691</td><td>112.2</td></tr>
+<tr><th scope="row"><time datetime="2026-11-07T04:00:00Z">2026-11-07 04:00</time></th><td>Successful request</td><td>1,597</td><td>5,218</td><td>84.2</td></tr>
+<tr><th scope="row"><time datetime="2026-11-07T04:15:00Z">2026-11-07 04:15</time></th><td>Successful request</td><td>928</td><td>4,351</td><td>89.3</td></tr>
+<tr><th scope="row"><time datetime="2026-11-07T04:30:00Z">2026-11-07 04:30</time></th><td>Successful request</td><td>1,627</td><td>3,942</td><td>119.3</td></tr>
+<tr><th scope="row"><time datetime="2026-11-07T04:45:00Z">2026-11-07 04:45</time></th><td>Successful request</td><td>1,613</td><td>3,825</td><td>130.1</td></tr>
+<tr><th scope="row"><time datetime="2026-11-07T05:00:00Z">2026-11-07 05:00</time></th><td>Successful request</td><td>1,823</td><td>4,786</td><td>103.5</td></tr>
+<tr><th scope="row"><time datetime="2026-11-07T05:15:00Z">2026-11-07 05:15</time></th><td>Successful request</td><td>1,508</td><td>4,450</td><td>103.7</td></tr>
+<tr><th scope="row"><time datetime="2026-11-07T05:30:00Z">2026-11-07 05:30</time></th><td>Successful request</td><td>1,667</td><td>4,242</td><td>119.2</td></tr>
+<tr><th scope="row"><time datetime="2026-11-07T05:45:00Z">2026-11-07 05:45</time></th><td>Successful request</td><td>934</td><td>3,462</td><td>121.6</td></tr>
+<tr><th scope="row"><time datetime="2026-11-07T06:00:00Z">2026-11-07 06:00</time></th><td>Successful request</td><td>1,944</td><td>5,917</td><td>77.0</td></tr>
+<tr><th scope="row"><time datetime="2026-11-07T06:15:00Z">2026-11-07 06:15</time></th><td>Successful request</td><td>1,926</td><td>5,218</td><td>92.7</td></tr>
+<tr><th scope="row"><time datetime="2026-11-07T06:30:00Z">2026-11-07 06:30</time></th><td>Successful request</td><td>1,554</td><td>4,238</td><td>114.9</td></tr>
+<tr><th scope="row"><time datetime="2026-11-07T06:45:00Z">2026-11-07 06:45</time></th><td>Successful request</td><td>1,070</td><td>4,453</td><td>88.8</td></tr>
+<tr><th scope="row"><time datetime="2026-11-07T07:00:00Z">2026-11-07 07:00</time></th><td>Successful request</td><td>1,710</td><td>4,293</td><td>121.1</td></tr>
+<tr><th scope="row"><time datetime="2026-11-07T07:15:00Z">2026-11-07 07:15</time></th><td>Successful request</td><td>1,860</td><td>5,241</td><td>89.6</td></tr>
+<tr><th scope="row"><time datetime="2026-11-07T07:30:00Z">2026-11-07 07:30</time></th><td>Successful request</td><td>1,630</td><td>4,359</td><td>113.4</td></tr>
+<tr><th scope="row"><time datetime="2026-11-07T07:45:00Z">2026-11-07 07:45</time></th><td>Successful request</td><td>1,649</td><td>3,921</td><td>134.0</td></tr>
+<tr><th scope="row"><time datetime="2026-11-07T08:00:00Z">2026-11-07 08:00</time></th><td>Successful request</td><td>1,517</td><td>5,140</td><td>84.4</td></tr>
+<tr><th scope="row"><time datetime="2026-11-07T08:15:00Z">2026-11-07 08:15</time></th><td>Successful request</td><td>1,104</td><td>3,833</td><td>113.7</td></tr>
+<tr><th scope="row"><time datetime="2026-11-07T08:30:00Z">2026-11-07 08:30</time></th><td>Successful request</td><td>1,568</td><td>3,934</td><td>122.1</td></tr>
+<tr><th scope="row"><time datetime="2026-11-07T08:45:00Z">2026-11-07 08:45</time></th><td>Successful request</td><td>1,545</td><td>4,385</td><td>107.1</td></tr>
+<tr><th scope="row"><time datetime="2026-11-07T09:00:00Z">2026-11-07 09:00</time></th><td>Successful request</td><td>1,908</td><td>4,741</td><td>108.7</td></tr>
+<tr><th scope="row"><time datetime="2026-11-07T09:15:00Z">2026-11-07 09:15</time></th><td>Successful request</td><td>1,170</td><td>3,991</td><td>109.9</td></tr>
+<tr><th scope="row"><time datetime="2026-11-07T09:30:00Z">2026-11-07 09:30</time></th><td>Successful request</td><td>1,578</td><td>3,732</td><td>133.5</td></tr>
+<tr><th scope="row"><time datetime="2026-11-07T09:45:00Z">2026-11-07 09:45</time></th><td>Successful request</td><td>1,204</td><td>3,580</td><td>131.5</td></tr>
+<tr><th scope="row"><time datetime="2026-11-07T10:00:00Z">2026-11-07 10:00</time></th><td>Successful request</td><td>1,692</td><td>4,353</td><td>113.9</td></tr>
+<tr><th scope="row"><time datetime="2026-11-07T10:15:00Z">2026-11-07 10:15</time></th><td>Successful request</td><td>1,130</td><td>3,391</td><td>136.2</td></tr>
+<tr><th scope="row"><time datetime="2026-11-07T10:30:00Z">2026-11-07 10:30</time></th><td>Successful request</td><td>1,502</td><td>3,841</td><td>131.2</td></tr>
+<tr><th scope="row"><time datetime="2026-11-07T10:45:00Z">2026-11-07 10:45</time></th><td>Successful request</td><td>1,740</td><td>3,996</td><td>133.9</td></tr>
+<tr><th scope="row"><time datetime="2026-11-07T11:00:00Z">2026-11-07 11:00</time></th><td>Successful request</td><td>1,696</td><td>4,334</td><td>116.3</td></tr>
+<tr><th scope="row"><time datetime="2026-11-07T11:15:00Z">2026-11-07 11:15</time></th><td>Successful request</td><td>1,544</td><td>4,282</td><td>109.8</td></tr>
+<tr><th scope="row"><time datetime="2026-11-07T11:30:00Z">2026-11-07 11:30</time></th><td>Successful request</td><td>1,174</td><td>3,733</td><td>121.2</td></tr>
+<tr><th scope="row"><time datetime="2026-11-07T11:45:00Z">2026-11-07 11:45</time></th><td>Successful request</td><td>1,640</td><td>4,159</td><td>121.8</td></tr>
+<tr><th scope="row"><time datetime="2026-11-07T12:00:00Z">2026-11-07 12:00</time></th><td>Successful request</td><td>1,544</td><td>4,534</td><td>100.4</td></tr>
+<tr><th scope="row"><time datetime="2026-11-07T12:15:00Z">2026-11-07 12:15</time></th><td>Successful request</td><td>1,369</td><td>3,786</td><td>125.3</td></tr>
+<tr><th scope="row"><time datetime="2026-11-07T12:30:00Z">2026-11-07 12:30</time></th><td>Successful request</td><td>1,968</td><td>4,359</td><td>128.6</td></tr>
+<tr><th scope="row"><time datetime="2026-11-07T12:45:00Z">2026-11-07 12:45</time></th><td>Successful request</td><td>2,000</td><td>4,572</td><td>120.7</td></tr>
+<tr><th scope="row"><time datetime="2026-11-07T13:00:00Z">2026-11-07 13:00</time></th><td>Successful request</td><td>1,981</td><td>4,697</td><td>111.8</td></tr>
+<tr><th scope="row"><time datetime="2026-11-07T13:15:00Z">2026-11-07 13:15</time></th><td>Successful request</td><td>2,052</td><td>4,458</td><td>127.6</td></tr>
+<tr><th scope="row"><time datetime="2026-11-07T13:30:00Z">2026-11-07 13:30</time></th><td>Successful request</td><td>1,631</td><td>3,991</td><td>130.8</td></tr>
+<tr><th scope="row"><time datetime="2026-11-07T13:45:00Z">2026-11-07 13:45</time></th><td>Successful request</td><td>1,734</td><td>4,809</td><td>89.4</td></tr>
+<tr><th scope="row"><time datetime="2026-11-07T14:00:00Z">2026-11-07 14:00</time></th><td>Successful request</td><td>1,577</td><td>4,086</td><td>122.9</td></tr>
+<tr><th scope="row"><time datetime="2026-11-07T14:15:00Z">2026-11-07 14:15</time></th><td>Successful request</td><td>1,523</td><td>4,205</td><td>115.2</td></tr>
+<tr><th scope="row"><time datetime="2026-11-07T14:30:00Z">2026-11-07 14:30</time></th><td>Successful request</td><td>1,629</td><td>4,018</td><td>126.8</td></tr>
+<tr><th scope="row"><time datetime="2026-11-07T14:45:00Z">2026-11-07 14:45</time></th><td>Successful request</td><td>1,467</td><td>3,962</td><td>123.1</td></tr>
+<tr><th scope="row"><time datetime="2026-11-07T15:00:00Z">2026-11-07 15:00</time></th><td>Successful request</td><td>1,687</td><td>4,499</td><td>108.9</td></tr>
+<tr><th scope="row"><time datetime="2026-11-07T15:15:00Z">2026-11-07 15:15</time></th><td>Successful request</td><td>3,898</td><td>6,528</td><td>117.8</td></tr>
+<tr><th scope="row"><time datetime="2026-11-07T15:30:00Z">2026-11-07 15:30</time></th><td>Successful request</td><td>1,132</td><td>3,864</td><td>112.4</td></tr>
+<tr><th scope="row"><time datetime="2026-11-07T15:45:00Z">2026-11-07 15:45</time></th><td>Successful request</td><td>1,216</td><td>3,532</td><td>124.9</td></tr>
+<tr><th scope="row"><time datetime="2026-11-07T16:00:00Z">2026-11-07 16:00</time></th><td>Successful request</td><td>1,718</td><td>4,292</td><td>119.0</td></tr>
+<tr><th scope="row"><time datetime="2026-11-07T16:15:00Z">2026-11-07 16:15</time></th><td>Successful request</td><td>1,629</td><td>4,482</td><td>107.7</td></tr>
+<tr><th scope="row"><time datetime="2026-11-07T16:30:00Z">2026-11-07 16:30</time></th><td>Successful request</td><td>1,920</td><td>4,385</td><td>128.8</td></tr>
+<tr><th scope="row"><time datetime="2026-11-07T16:45:00Z">2026-11-07 16:45</time></th><td>Successful request</td><td>1,634</td><td>4,227</td><td>119.1</td></tr>
+<tr><th scope="row"><time datetime="2026-11-07T17:00:00Z">2026-11-07 17:00</time></th><td>Successful request</td><td>2,594</td><td>5,530</td><td>104.5</td></tr>
+<tr><th scope="row"><time datetime="2026-11-07T17:15:00Z">2026-11-07 17:15</time></th><td>Successful request</td><td>1,234</td><td>3,812</td><td>118.4</td></tr>
+<tr><th scope="row"><time datetime="2026-11-07T17:30:00Z">2026-11-07 17:30</time></th><td>Successful request</td><td>1,319</td><td>3,950</td><td>117.2</td></tr>
+<tr><th scope="row"><time datetime="2026-11-07T17:45:00Z">2026-11-07 17:45</time></th><td>Successful request</td><td>1,545</td><td>4,114</td><td>120.0</td></tr>
+</tbody>
+</table>
+</details>
+<p>Per-slot series SHA-256: <code class="hash">bbcdfaf7487aa72242c7f06b3eedd0b40a66e1bbcabee44feb4567b63e4decb9</code> (slot times, outcomes and rounded values; the file itself is not published).</p>
+
+
+</section>
+
+<section id="setup">
+<h2>Measurement setup</h2>
+
+<table>
+<caption>Measurement setup, read from the benchmark's source code</caption>
+<tbody>
+<tr><th scope="row">Provider and model</th><td>openai gpt-6-luna</td></tr>
+<tr><th scope="row">Request profile</th><td>openai.gpt-6-luna.v1</td></tr>
+<tr><th scope="row">Endpoint</th><td>POST https://api.openai.com/v1/responses (streaming SSE)</td></tr>
+<tr><th scope="row">Request settings</th><td>store=false, reasoning.effort=&#34;none&#34;, prompt_cache_options.mode=&#34;explicit&#34;</td></tr>
+<tr><th scope="row">Reasoning</th><td>reasoning.effort=none (reasoning off)</td></tr>
+<tr><th scope="row">Cache policy</th><td>disabled</td></tr>
+<tr><th scope="row">Workload</th><td>interactive-chat-v1 (Interactive chat)</td></tr>
+<tr><th scope="row">Requested output cap</th><td>300 tokens</td></tr>
+<tr><th scope="row">Designed input size</th><td>about 2,000 tokens (a design target, not a provider count)</td></tr>
+<tr><th scope="row">Prompt SHA-256</th><td>db88e2b5d4062156947121340cc2e6c7424af437ee11ad50b11cf04397a0b625</td></tr>
+<tr><th scope="row">Timer</th><td>time.perf_counter() from just before the streaming request to the first response.output_text.delta event</td></tr>
+<tr><th scope="row">Percentiles</th><td>nearest rank, successful requests only</td></tr>
+<tr><th scope="row">List prices used for cost (USD per 1M tokens)</th><td>input 0.1, cached input 0.01, output 0.5</td></tr>
+<tr><th scope="row">Methodology version</th><td>llm-metrics.ttft-methodology.v1</td></tr>
+</tbody>
+</table>
+
+
+</section>
+
+<section id="provenance">
+<h2>Data provenance</h2>
+
+<table>
+<caption>Versions and fingerprints</caption>
+<tbody>
+<tr><th scope="row">Methodology version</th><td><code>llm-metrics.ttft-methodology.v1</code></td></tr>
+<tr><th scope="row">Analytics schema</th><td><code>llm-metrics.analytics.v1</code> (records: <code>llm-metrics.attempt.v1</code>)</td></tr>
+<tr><th scope="row">Dataset SHA-256</th><td><code class="hash">a01202f715bf8b97d853813476724002fa77248a8101bc50bf1901b3e7a3ae23</code></td></tr>
+<tr><th scope="row">Record manifest SHA-256</th><td><code class="hash">6cd0c8fec98686d74c03a70dc8407528098d47ebde1ce788a529d3366225bf9b</code></td></tr>
+<tr><th scope="row">Records in dataset</th><td>96</td></tr>
+<tr><th scope="row">Request profile</th><td><code>openai.gpt-6-luna.v1</code></td></tr>
+<tr><th scope="row">Workload</th><td><code>interactive-chat-v1</code></td></tr>
+<tr><th scope="row">Data window (UTC)</th><td>2026-11-06 18:00:00 UTC to 2026-11-07 18:00:00 UTC</td></tr>
+</tbody>
+</table>
+<p>The dataset itself is not published; the fingerprints above identify exactly which validated summary these numbers come from.</p>
+
+</section>
+
+<section id="methodology">
+<h2>Methodology</h2>
+<p>The methodology article for this metric has not been published yet. The measurement setup above is read directly from the benchmark's source code.</p>
+
+
+</section>
+
+
+
+
+
+
+
+
+</article>
+
+</main>
+<footer class="site-footer">
+<div class="footer-inner">
+<p>LLM Xchange answers questions about LLM APIs with evidence. No rankings, no trackers, no invented numbers.</p>
+<p><a href="/">Latest questions</a> · <a href="/questions">All questions</a> · <a href="/llm-performance">Metrics</a> · <a href="/costs">Project costs</a> · <a href="https://github.com/akuchlous/llm-metrics">Source code on GitHub</a></p>
+</div>
+</footer>
+</body>
+</html>
