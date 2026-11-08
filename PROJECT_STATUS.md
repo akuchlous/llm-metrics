@@ -4,7 +4,7 @@ _Last updated: production live on llmxchange.com (D092); Step 027c charts on sta
 
 ## Current state
 
-**Production live on https://llmxchange.com (D092).** Worker `llmxchange` version 9eab2723 on the custom domain; six approved answers published and frozen at 2026-11-07T16:41:02Z; indexable with sitemap; no benchmark numbers until Step 028; `/costs` shows USD 52.00 charged (owner-reported). The workers.dev staging URL is retired; staging is now `wrangler deploy --env staging`. Next: Search Console, `www` redirect, confirm the domain receipt, close the pilot (`stop` + audit).
+**Production live on https://llmxchange.com (D092).** Worker `llmxchange` version 9eab2723 on the custom domain; six approved answers published and frozen at 2026-11-07T16:41:02Z; indexable with sitemap; no benchmark numbers until Step 028; `/costs` shows USD 52.00 charged (owner-reported). The workers.dev staging URL is retired; staging is now `wrangler deploy --env staging`. HTTPS: `www` and plain `http` redirect (301) to `https://llmxchange.com` (owner-configured zone rules: proxied `www` AAAA `100::`, dynamic redirect rule, Always Use HTTPS; verified 2026-11-07). Next: Search Console, confirm the domain receipt, close the pilot (`stop` + audit).
 
 **Step 027c deployed to staging at the owner's request** (Worker version ff23ce00): per-request charts, question headings on every page (D090), no data downloads (D091). Awaiting ChatGPT review.
 - Metric page charts of every real pilot request over time (TTFT, total response time, tokens/s) and every slot's outcome, from a sanitized per-slot series (D089). Preview with `./run.sh site-preview`; deploy to staging only after you say "deploy staging".
